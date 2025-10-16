@@ -1,0 +1,1118 @@
+'use client';
+
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { format, subDays, differenceInDays } from 'date-fns';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/components/auth-provider';
+import { API, type TeamDataDto } from '@/lib/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { sortBy, uniqBy } from 'lodash';
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, Image } from 'lucide-react';
+
+interface Task {
+    id: number;
+    taskTitle: string;
+    taskDescription: string;
+    dueDate: string;
+    assignedToId: number;
+    assignedToName: string;
+    assignedById: number;
+    assignedByName?: string;
+    status: string;
+    priority: string;
+    category: string;
+    storeId: number;
+    storeName: string;
+    storeCity: string;
+    taskType: string;
+}
+
+interface Employee {
+    id: number;
+    firstName: string;
+    lastName: string;
+}
+
+interface Store {
+    id: number;
+    storeName: string;
+}
+
+const Requirements = () => {
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
+    const [newTask, setNewTask] = useState<Task>({
+        id: 0,
+        taskTitle: '',
+        taskDescription: '',
+        dueDate: '',
+        assignedToId: 0,
+        assignedToName: '',
+        assignedById: 86,
+        status: 'Assigned',
+        priority: 'low',
+        category: 'Requirement',
+        storeId: 0,
+        storeName: '',
+        storeCity: '',
+        taskType: 'requirement'
+    });
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const [initializedFromQuery, setInitializedFromQuery] = useState(false);
+    const [activeTab, setActiveTab] = useState('general');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [filters, setFilters] = useState({
+        employee: '',
+        priority: '',
+        status: '',
+        search: '',
+        startDate: format(new Date(), 'yyyy-MM-dd'),
+        endDate: format(new Date(), 'yyyy-MM-dd')
+    });
+    const [isLoading, setIsLoading] = useState(true);
+    const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+    const [filterEmployees, setFilterEmployees] = useState<{ id: number; name: string }[]>([]);
+    const [stores, setStores] = useState<Store[]>([]);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+    const [teamId, setTeamId] = useState<number | null>(null);
+    const [isManager, setIsManager] = useState(false);
+    const [teamMembers, setTeamMembers] = useState<Employee[]>([]);
+    const [isTabLoading, setIsTabLoading] = useState(false);
+    const [isStoresLoading, setIsStoresLoading] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+    const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+    const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+    const [isDueDatePickerOpen, setIsDueDatePickerOpen] = useState(false);
+
+    const { token, userRole, userData, currentUser } = useAuth();
+
+    // Determine user role and load team data for managers
+    useEffect(() => {
+        const checkUserRole = () => {
+            // Check both userRole and currentUser authorities
+            const isManagerRole = userRole === 'MANAGER' || 
+                currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
+            
+            setIsManager(!!isManagerRole);
+        };
+        checkUserRole();
+    }, [userRole, currentUser]);
+
+    // Load team data for managers
+    useEffect(() => {
+        const loadTeamData = async () => {
+            if (!isManager || !userData?.employeeId) return;
+            
+            try {
+                console.log('Loading team data for manager with employeeId:', userData.employeeId);
+                const teamData: TeamDataDto[] = await API.getTeamByEmployee(userData.employeeId);
+                
+                if (teamData && teamData.length > 0) {
+                    const team = teamData[0];
+                    const teamId = team.id;
+                    setTeamId(teamId);
+                    console.log('Team ID loaded:', teamId);
+                    
+                    // Load team members for assignment dropdown
+                    const teamMemberIds = team.fieldOfficers.map(fo => fo.id);
+                    console.log('Team member IDs:', teamMemberIds);
+                    
+                    // Filter all employees to only show team members
+                    const filteredTeamMembers = allEmployees.filter(emp => 
+                        teamMemberIds.includes(emp.id)
+                    );
+                    setTeamMembers(filteredTeamMembers);
+                    console.log('Team members loaded:', filteredTeamMembers.length);
+                } else {
+                    console.warn('No team data found for manager');
+                    setErrorMessage('No team data found for this manager');
+                }
+            } catch (err: unknown) {
+                console.error('Failed to load team data:', err);
+                setErrorMessage('Failed to load team data');
+            }
+        };
+        
+        if (isManager && userData?.employeeId && allEmployees.length > 0) {
+            loadTeamData();
+        }
+    }, [isManager, userData?.employeeId, allEmployees]);
+
+    useEffect(() => {
+        if (errorMessage) {
+            const timer = setTimeout(() => {
+                setErrorMessage(null);
+            }, 20000);
+            return () => clearTimeout(timer);
+        }
+    }, [errorMessage]);
+
+    const handleDateChange = (key: string, value: string) => {
+        const newFilters = { ...filters, [key]: value };
+
+        if (newFilters.startDate && newFilters.endDate) {
+            const startDate = new Date(newFilters.startDate);
+            const endDate = new Date(newFilters.endDate);
+
+            if (differenceInDays(endDate, startDate) > 30) {
+                setErrorMessage('Date range should not exceed 30 days');
+                return;
+            }
+        }
+
+        setFilters(newFilters);
+    };
+
+    const handleNext = () => {
+        setIsTabLoading(true);
+   
+        setTimeout(() => {
+            setActiveTab('details');
+            setIsTabLoading(false);
+        }, 500);
+    };
+
+    const handleBack = () => {
+        setActiveTab('general');
+    };
+
+    const handleViewStore = (storeId: number) => {
+        const qp = new URLSearchParams({ from: 'requirements' });
+        qp.set('start', filters.startDate || '');
+        qp.set('end', filters.endDate || '');
+        if (filters.employee) qp.set('employee', filters.employee);
+        if (filters.priority) qp.set('priority', filters.priority);
+        if (filters.status) qp.set('status', filters.status);
+        if (filters.search) qp.set('search', filters.search);
+        qp.set('page', String(currentPage));
+        router.push(`/dashboard/customers/${storeId}?${qp.toString()}`);
+    };
+
+    const handleViewFieldOfficer = (employeeId: number) => {
+        router.push(`/dashboard/employees/${employeeId}`);
+    };
+
+    const fetchTasks = useCallback(async () => {
+        if (!token) return;
+        
+        // For managers, wait until we have teamId
+        if (isManager && !teamId) {
+            console.log('⏳ Manager detected but no teamId yet - waiting for team data');
+            return;
+        }
+        
+        console.log('Fetching tasks with:', { userRole, userData, isManager, teamId, token: token ? 'present' : 'missing' });
+        
+        setIsLoading(true);
+        try {
+            let url: string;
+            
+            // Use different API endpoints based on user role
+            if (isManager && teamId) {
+                // For managers, use team-based API with teamId
+                url = `/api/proxy/task/getByTeam?id=${teamId}`;
+                console.log('Using MANAGER API:', url, 'Team ID:', teamId);
+            } else {
+                // For admins, use date-based API
+                const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
+                const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
+                url = `/api/proxy/task/getByDate?start=${formattedStartDate}&end=${formattedEndDate}`;
+                console.log('Using ADMIN API:', url, 'User Role:', userRole);
+            }
+
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API Error:', response.status, errorText);
+                throw new Error(`API request failed: ${response.status} ${errorText}`);
+            }
+
+            const data = await response.json();
+            console.log('API Response:', data);
+
+            // Ensure data is an array
+            const tasksArray = Array.isArray(data) ? data : [];
+            
+            const filteredTasks = tasksArray
+                .filter((task: Record<string, unknown>) => {
+                    // Include tasks where taskType is 'requirement' or where taskType is missing/null
+                    // (assuming missing taskType means it's a requirement based on your data)
+                    const taskType = task.taskType ? String(task.taskType).toLowerCase() : 'requirement';
+                    return taskType === 'requirement';
+                })
+                .map((task: Record<string, unknown>) => {
+                    const desc = task.taskDesciption || task.taskDescription || '';
+                    const title = (task.taskTitle && String(task.taskTitle).trim()) || (desc ? String(desc) : 'Requirement');
+                    return {
+                        ...task,
+                        taskTitle: title,
+                        taskDescription: desc, // normalize
+                        assignedToName: task.assignedToName || 'Unknown',
+                        taskType: task.taskType || 'requirement', // normalize missing taskType
+                    } as Task;
+                })
+                .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+
+            setTasks(filteredTasks);
+            setIsLoading(false);
+        } catch (error) {
+            console.error('Error fetching tasks:', error);
+            setIsLoading(false);
+        }
+    }, [filters, token, userRole, userData, isManager, teamId]);
+
+    const fetchEmployees = useCallback(async () => {
+        if (!token) return;
+        
+        try {
+            const response = await fetch('/api/proxy/employee/getAll', {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            const data = await response.json();
+            const sortedEmployees = sortBy(data, (emp: { firstName: string; lastName: string }) => `${emp.firstName} ${emp.lastName}`);
+            setAllEmployees(sortedEmployees);
+        } catch (error) {
+            console.error('Error fetching employees:', error);
+        }
+    }, [token]);
+
+    const fetchStores = useCallback(async (
+        employeeId?: number,
+        searchTerm: string = '',
+        page: number = 0,
+        size: number = 50,
+        sortBy: string = 'storeName',
+        sortOrder: string = 'asc'
+    ) => {
+        if (!token || !employeeId) return;
+        
+        setIsStoresLoading(true);
+        try {
+            const url = `/api/proxy/store/getStoreNamesByEmployee?employeeId=${employeeId}&searchTerm=${searchTerm}&page=${page}&size=${size}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            const data = await response.json();
+            setStores(data.content || []);
+        } catch (error) {
+            console.error('Error fetching stores:', error);
+        } finally {
+            setIsStoresLoading(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        if (!initializedFromQuery) return;
+        fetchTasks();
+    }, [fetchTasks, teamId, initializedFromQuery]);
+
+    // Initialize filters from query params (to support coming back from customer detail)
+    useEffect(() => {
+        if (initializedFromQuery) return;
+        const sp = searchParams;
+        if (!sp) return;
+        const start = sp.get('start');
+        const end = sp.get('end');
+        const employee = sp.get('employee');
+        const priority = sp.get('priority');
+        const status = sp.get('status');
+        const search = sp.get('search');
+        const page = sp.get('page');
+        if (start || end || employee || priority || status || search || page) {
+            setFilters(prev => ({
+                ...prev,
+                startDate: start || prev.startDate,
+                endDate: end || prev.endDate,
+                employee: employee ?? prev.employee,
+                priority: priority ?? prev.priority,
+                status: status ?? prev.status,
+                search: search ?? prev.search,
+            }));
+            if (page) {
+                const p = parseInt(page, 10);
+                if (!Number.isNaN(p) && p >= 1) setCurrentPage(p);
+            }
+        }
+        setInitializedFromQuery(true);
+    }, [searchParams, initializedFromQuery]);
+
+    useEffect(() => {
+        fetchEmployees();
+    }, [fetchEmployees]);
+
+    // Get employees for assignment dropdown based on user role
+    const assignmentEmployees = isManager && teamMembers.length > 0 ? teamMembers : allEmployees;
+
+    // Do not auto-fetch stores; fetch when dropdown opens after selecting employee
+
+    useEffect(() => {
+        if (tasks.length > 0) {
+            const uniqueEmployees = uniqBy(tasks.map(task => ({
+                id: task.assignedToId,
+                name: task.assignedToName
+            })), 'id');
+            const sortedEmployees = sortBy(uniqueEmployees, 'name');
+            setFilterEmployees(sortedEmployees);
+        }
+    }, [tasks]);
+
+    useEffect(() => {
+        applyFilters();
+    }, [tasks, filters]);
+
+    // Ensure current page is within bounds when filteredTasks changes
+    useEffect(() => {
+        const total = Math.max(1, Math.ceil(filteredTasks.length / 10));
+        if (currentPage > total) {
+            setCurrentPage(total);
+        } else if (currentPage < 1) {
+            setCurrentPage(1);
+        }
+    }, [filteredTasks, currentPage]);
+
+    const applyFilters = () => {
+        const searchLower = filters.search.toLowerCase();
+        const filtered = tasks
+            .filter(
+                (task) =>
+                    task.taskType === 'requirement' &&
+                    (
+                        (task.taskTitle?.toLowerCase() || '').includes(searchLower) ||
+                        (task.taskDescription?.toLowerCase() || '').includes(searchLower) ||
+                        (task.storeName?.toLowerCase() || '').includes(searchLower) ||
+                        (task.assignedToName?.toLowerCase() || '').includes(searchLower)
+                    ) &&
+                    (filters.employee === '' || filters.employee === 'all' ? true : task.assignedToId === parseInt(filters.employee)) &&
+                    (filters.priority === '' || filters.priority === 'all' ? true : task.priority === filters.priority) &&
+                    ((filters.status === '' || filters.status === 'all') ? true : task.status === filters.status) &&
+                    // Only apply date filters for admin users (managers use team-based API)
+                    (!isManager ? (
+                        (filters.startDate === '' || new Date(task.dueDate) >= new Date(filters.startDate)) &&
+                        (filters.endDate === '' || new Date(task.dueDate) <= new Date(filters.endDate))
+                    ) : true)
+            );
+
+        setFilteredTasks(filtered);
+    };
+
+    const createTask = async () => {
+        if (!token) return;
+        
+        // Validate required fields similar to Complaints fix
+        const missing: string[] = [];
+        if (!newTask.taskTitle?.trim()) missing.push('Title');
+        if (!newTask.taskDescription?.trim()) missing.push('Description');
+        if (!newTask.dueDate) missing.push('Due Date');
+        if (!newTask.assignedToId) missing.push('Assigned To');
+        if (!newTask.storeId) missing.push('Store');
+        if (missing.length) {
+            setErrorMessage(`Please provide: ${missing.join(', ')}`);
+            return;
+        }
+
+        setIsCreating(true);
+        try {
+            // Resolve assignedById robustly (localStorage -> userData -> fallback)
+            const localEmpIdRaw = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
+            const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw, 10) : NaN;
+            const assignedById = !Number.isNaN(localEmpId)
+                ? localEmpId
+                : (typeof userData?.employeeId === 'number' && userData.employeeId ? userData.employeeId : (newTask.assignedToId || newTask.assignedById));
+
+            const due = newTask.dueDate.includes('T') ? newTask.dueDate.split('T')[0] : newTask.dueDate;
+
+            const apiPayload = {
+                taskTitle: newTask.taskTitle?.trim() || '',
+                taskDesciption: newTask.taskDescription?.trim() || '',
+                dueDate: due,
+                assignedToId: Number(newTask.assignedToId),
+                assignedById: Number(assignedById),
+                storeId: Number(newTask.storeId),
+                taskType: 'requirement',
+                status: newTask.status || 'Assigned',
+                priority: newTask.priority || 'low',
+            };
+
+            const response = await fetch('/api/proxy/task/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(apiPayload),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Failed to create requirement:', response.status, errorText);
+                setErrorMessage(errorText || 'Failed to create requirement');
+                return;
+            }
+
+            // Refresh list from server
+            await fetchTasks();
+
+            // Reset form and close modal
+            setNewTask({
+                id: 0,
+                taskTitle: '',
+                taskDescription: '',
+                dueDate: '',
+                assignedToId: 0,
+                assignedToName: '',
+                assignedById: assignedById,
+                status: 'Assigned',
+                priority: 'low',
+                category: 'Requirement',
+                storeId: 0,
+                storeName: '',
+                storeCity: '',
+                taskType: 'requirement'
+            });
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error('Error creating requirement:', error);
+            setErrorMessage('Unexpected error while creating requirement');
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    const updateTaskStatus = async (taskId: number, newStatus: string) => {
+        if (!token) return;
+        
+        try {
+            const response = await fetch(
+                `/api/proxy/task/updateTask?taskId=${taskId}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ status: newStatus }),
+                }
+            );
+
+            if (response.ok) {
+                setTasks((prevTasks) =>
+                    prevTasks.map((task) =>
+                        task.id === taskId ? { ...task, status: newStatus } : task
+                    )
+                );
+            } else {
+                console.error('Failed to update task status');
+            }
+        } catch (error) {
+            console.error('Error updating task status:', error);
+        }
+    };
+
+    const deleteTask = async (taskId: number) => {
+        if (!token) return;
+        
+        try {
+            await fetch(`/api/proxy/task/deleteById?taskId=${taskId}`, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            fetchTasks();
+        } catch (error) {
+            console.error('Error deleting task:', error);
+        }
+    };
+
+    const fetchTaskImages = async (taskId: number) => {
+        if (!token) return;
+        
+        try {
+            // First, fetch the task details
+            const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            if (!taskResponse.ok) {
+                throw new Error('Failed to fetch task details');
+            }
+            const taskData = await taskResponse.json();
+    
+            // Extract fileDownloadUri from the attachmentResponse
+            const imageUrls = taskData.attachmentResponse
+                .filter((attachment: { tag: string }) => attachment.tag === 'check-in')
+                .map((attachment: { tag: string; fileName: string }) => {
+                    try {
+                        // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
+                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                    } catch {
+                        // Fallback: use fileName to construct URL
+                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                    }
+                });
+    
+            // For now, just log the images - you can implement modal display later
+            console.log('Task images:', imageUrls);
+        } catch (error) {
+            console.error('Error fetching task images:', error);
+        }
+    };
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(page);
+    };
+
+    const handleFilterChange = (key: string, value: string) => {
+        setFilters((prevFilters) => ({
+            ...prevFilters,
+            [key]: value,
+        }));
+        applyFilters();
+    };
+
+    const getStatusInfo = (status: string): { icon: React.ReactNode; color: string } => {
+        switch (status.toLowerCase()) {
+            case 'assigned':
+                return { icon: <Clock className="w-4 h-4" />, color: 'bg-purple-100 text-purple-800' };
+            case 'work in progress':
+                return { icon: <Loader className="w-4 h-4 animate-spin" />, color: 'bg-blue-100 text-blue-800' };
+            case 'complete':
+                return { icon: <CheckCircle className="w-4 h-4" />, color: 'bg-green-100 text-green-800' };
+            default:
+                return { icon: <AlertTriangle className="w-4 h-4" />, color: 'bg-gray-100 text-gray-800' };
+        }
+  };
+
+  return (
+        <div className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            {/* Search and Actions Row */}
+            <div className="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex-1 max-w-md flex items-center gap-2">
+                    <Input
+                        placeholder="Search requirements"
+                        value={filters.search}
+                        onChange={(e) => handleFilterChange('search', e.target.value)}
+                        className="text-sm"
+                    />
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button 
+                        onClick={() => setIsModalOpen(true)}
+                        size="sm"
+                        className="text-sm"
+                    >
+                        <PlusCircle className="w-4 h-4 mr-1" /> New
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="lg:hidden text-sm"
+                        onClick={() => setIsFilterDrawerOpen(true)}
+                    >
+                        <Filter className="w-4 h-4 mr-1" />
+                        Filters
+                    </Button>
+                </div>
+            </div>
+
+            {/* Filters Row */}
+            <div className="mb-6 hidden lg:flex flex-wrap gap-3 items-center justify-between">
+                <div className="flex flex-wrap gap-3 items-center">
+                    <Select value={filters.employee} onValueChange={(value) => handleFilterChange('employee', value)}>
+                        <SelectTrigger className="w-[180px] text-sm bg-background border-border">
+                            <SelectValue placeholder="Filter by employee" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Employees</SelectItem>
+                            {filterEmployees
+                                .filter((employee) => employee.id != null)
+                                .map((employee) => (
+                                    <SelectItem key={employee.id} value={employee.id.toString()}>
+                                        {employee.name}
+                                    </SelectItem>
+                                ))}
+                        </SelectContent>
+                    </Select>
+                    <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
+                        <SelectTrigger className="w-[160px] text-sm bg-background border-border">
+                            <SelectValue placeholder="Filter by priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Priorities</SelectItem>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
+                        <SelectTrigger className="w-[160px] text-sm bg-background border-border">
+                            <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Statuses</SelectItem>
+                            <SelectItem value="Assigned">Assigned</SelectItem>
+                            <SelectItem value="Work In Progress">Work In Progress</SelectItem>
+                            <SelectItem value="Complete">Complete</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                {/* Date Filters */}
+                <div className="flex items-center gap-3">
+                    {/* Only show date filters for admin users */}
+                    {!isManager && (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="startDate" className="text-sm text-muted-foreground">From:</Label>
+                                <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.startDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-3 w-3" />
+                                            {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Start date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('startDate', `${year}-${month}-${day}`);
+                                                    setIsStartDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('startDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="endDate" className="text-sm text-muted-foreground">To:</Label>
+                                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.endDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-3 w-3" />
+                                            {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>End date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('endDate', `${year}-${month}-${day}`);
+                                                    setIsEndDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('endDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Create New Requirement</DialogTitle>
+                        <DialogDescription>Fill in the details to create a new requirement.</DialogDescription>
+                    </DialogHeader>
+                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="general" disabled={isTabLoading}>General</TabsTrigger>
+                            <TabsTrigger value="details" disabled={isTabLoading}>Details</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="general">
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="taskTitle">Requirement Title</Label>
+                                    <Input
+                                        id="taskTitle"
+                                        placeholder="Enter requirement title"
+                                        value={newTask.taskTitle}
+                                        onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="taskDescription">Requirement Description</Label>
+                                    <Input
+                                        id="taskDescription"
+                                        placeholder="Enter requirement description"
+                                        value={newTask.taskDescription}
+                                        onChange={(e) => setNewTask({ ...newTask, taskDescription: e.target.value })}
+                                    />
+          </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="category">Category</Label>
+                                    <Select value={newTask.category} onValueChange={(value) => setNewTask({ ...newTask, category: value })}>
+                                        <SelectTrigger className="w-[280px]">
+                                            <SelectValue placeholder="Select a category" />
+              </SelectTrigger>
+              <SelectContent position="popper" sideOffset={4}>
+                                            <SelectItem value="Requirement">Requirement</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+                                <div className="flex justify-between mt-4">
+                                    <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+                                    <Button onClick={handleNext} disabled={isTabLoading}>
+                                        {isTabLoading ? (
+                                            <>
+                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            'Next'
+                                        )}
+                                    </Button>
+                                </div>
+                            </div>
+                        </TabsContent>
+                        <TabsContent value="details">
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="dueDate">Due Date</Label>
+                                    <Popover open={isDueDatePickerOpen} onOpenChange={setIsDueDatePickerOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                className={`w-[280px] justify-start text-left font-normal ${!newTask.dueDate && 'text-muted-foreground'}`}
+                                            >
+                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                {newTask.dueDate ? format(new Date(newTask.dueDate + 'T00:00:00'), 'PPP') : <span>Pick a date</span>}
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0">
+                                            <Calendar
+                                                mode="single"
+                                                selected={newTask.dueDate ? new Date(newTask.dueDate + 'T00:00:00') : undefined}
+                                                onSelect={(date) => {
+                                                    if (date) {
+                                                        const year = date.getFullYear();
+                                                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                        const day = String(date.getDate()).padStart(2, '0');
+                                                        setNewTask({ ...newTask, dueDate: `${year}-${month}-${day}` });
+                                                        setIsDueDatePickerOpen(false);
+                                                    } else {
+                                                        setNewTask({ ...newTask, dueDate: '' });
+                                                    }
+                                                }}
+                                                initialFocus
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="assignedToId">
+                                        Assigned To {isManager && teamMembers.length > 0 && <span className="text-xs text-muted-foreground">(Team Members Only)</span>}
+                                    </Label>
+                                    <Select
+                                        value={newTask.assignedToId ? newTask.assignedToId.toString() : ''}
+                                        onValueChange={(value) => {
+                                            const selectedEmployee = assignmentEmployees.find(emp => emp.id === parseInt(value));
+                                            setNewTask({ 
+                                                ...newTask, 
+                                                assignedToId: parseInt(value), 
+                                                assignedToName: selectedEmployee ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}` : 'Unknown',
+                                                storeId: 0,
+                                                storeName: ''
+                                            });
+                                            // Clear previously loaded stores when assignee changes
+                                            setStores([]);
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-[280px]">
+                                            <SelectValue placeholder={
+                                                isManager && teamMembers.length === 0 && allEmployees.length > 0 ? "Loading team members..." : 
+                                                "Select an employee"
+                                            } />
+              </SelectTrigger>
+              <SelectContent position="popper" sideOffset={4}>
+                                            {assignmentEmployees.length === 0 ? (
+                                                <div className="flex items-center justify-center p-4">
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {isManager ? "No team members available" : "No employees available"}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                assignmentEmployees.map((employee) => (
+                                                    <SelectItem key={employee.id} value={employee.id.toString()}>
+                                                        {employee.firstName} {employee.lastName}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+              </SelectContent>
+            </Select>
+          </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="priority">Priority</Label>
+                                    <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value })}>
+                                        <SelectTrigger className="w-[280px]">
+                                            <SelectValue placeholder="Select a priority" />
+                                        </SelectTrigger>
+                                        <SelectContent position="popper" sideOffset={4}>
+                                            <SelectItem value="low">Low</SelectItem>
+                                            <SelectItem value="medium">Medium</SelectItem>
+                                            <SelectItem value="high">High</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="storeId">Store</Label>
+                                    <Select
+                                        value={newTask.storeId ? newTask.storeId.toString() : ''}
+                                        onValueChange={(value) => setNewTask({ ...newTask, storeId: parseInt(value) })}
+                                        disabled={isStoresLoading}
+                                        onOpenChange={(open) => {
+                                            if (open && stores.length === 0 && !isStoresLoading && newTask.assignedToId) {
+                                                fetchStores(newTask.assignedToId);
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-[280px]">
+                                            <SelectValue placeholder={
+                                                !newTask.assignedToId
+                                                    ? 'Select employee first'
+                                                    : isStoresLoading
+                                                    ? 'Loading stores...'
+                                                    : 'Select a store'
+                                            } />
+                                        </SelectTrigger>
+                                        <SelectContent position="popper" sideOffset={4}>
+                                            {!newTask.assignedToId ? (
+                                                <div className="flex items-center justify-center p-4">
+                                                    <span className="text-sm text-muted-foreground">Please select an employee first</span>
+                                                </div>
+                                            ) : isStoresLoading ? (
+                                                <div className="flex items-center justify-center p-4">
+                                                    <Loader className="w-4 h-4 animate-spin mr-2" />
+                                                    <span className="text-sm text-muted-foreground">Loading stores...</span>
+                                                </div>
+                                            ) : stores.length === 0 ? (
+                                                <div className="flex items-center justify-center p-4">
+                                                    <span className="text-sm text-muted-foreground">No stores available for this employee</span>
+                                                </div>
+                                            ) : (
+                                                stores.map((store) => (
+                                                    <SelectItem key={store.id} value={store.id.toString()}>
+                                                        {store.storeName}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+          </div>
+                                <div className="flex justify-between mt-4">
+                                    <Button variant="outline" onClick={handleBack}>Back</Button>
+                                    <Button onClick={createTask} disabled={isCreating}>
+                                        {isCreating ? (
+                                            <>
+                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                                Creating...
+                                            </>
+                                        ) : (
+                                            'Create Requirement'
+                                        )}
+                                    </Button>
+          </div>
+        </div>
+                        </TabsContent>
+                    </Tabs>
+                </DialogContent>
+            </Dialog>
+
+            {isLoading ? (
+                <div className="flex justify-center items-center h-64">
+                    <Loader className="w-8 h-8 animate-spin text-primary" />
+                </div>
+            ) : filteredTasks.length === 0 ? (
+                <div className="text-center py-10">
+                    <AlertTriangle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+                    <p className="text-xl font-semibold">No requirements found.</p>
+                    <p className="text-gray-500 mt-2">Try adjusting your filters or create a new requirement.</p>
+          </div>
+        ) : (
+                <div className="flex flex-wrap -mx-2">
+                    {filteredTasks
+                        .slice((currentPage - 1) * 10, currentPage * 10)
+                        .map((task, index) => (
+                            <motion.div
+                                key={task.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.3, delay: index * 0.1 }}
+                                className="w-full sm:w-1/2 lg:w-1/3 p-2"
+                            >
+                                <Card className="h-full overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300">
+                                    <CardHeader className="pb-2">
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2">
+                                                <Badge className={`${getStatusInfo(task.status).color} px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
+                                                    {getStatusInfo(task.status).icon} <span>{task.status}</span>
+                                                </Badge>
+                                                {Array.isArray((task as unknown as Record<string, unknown>).attachmentResponse) && ((task as unknown as Record<string, unknown>).attachmentResponse as unknown[]).length > 0 && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
+                                                        onClick={() => fetchTaskImages(task.id)}
+                                                        title="View Images"
+                                                    >
+                                                        <Image className="h-4 w-4 text-blue-500" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => handleViewStore(task.storeId)}>
+                                                        <Building className="mr-2 h-4 w-4" /> View Store
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => handleViewFieldOfficer(task.assignedToId)}>
+                                                        <User className="mr-2 h-4 w-4" /> View Field Officer
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Requirement
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
+                                        <CardTitle className="text-base font-medium mt-2">{task.taskTitle || 'Untitled Requirement'}</CardTitle>
+                                        <CardDescription className="flex items-center mt-1 text-sm text-muted-foreground">
+                                            <Building className="w-3 h-3 mr-1" />
+                                            {task.storeName}
+                                        </CardDescription>
+                                        {task.taskDescription && (
+                                            <div className="mt-2">
+                                                <div 
+                                                    className="text-sm text-muted-foreground line-clamp-2 cursor-help"
+                                                    title={task.taskDescription}
+                                                >
+                                                    {task.taskDescription}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </CardHeader>
+                                    <CardContent className="py-2">
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <User className="w-3 h-3 text-indigo-500" />
+                                                    <span className="text-xs text-muted-foreground">Assigned to</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <Target className="w-3 h-3 text-purple-500" />
+                                                    <span className="text-xs text-muted-foreground">Priority</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm font-medium">{task.assignedToName}</span>
+                                                <span className="text-sm font-medium capitalize">{task.priority}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <CalendarIcon2 className="w-3 h-3" />
+                                                <span>Due: {format(new Date(task.dueDate), 'MMM d, yyyy')}</span>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                    <CardFooter className="flex justify-end items-center py-2">
+                                        <Select
+                                            value={task.status}
+                                            onValueChange={(value) => updateTaskStatus(task.id, value)}
+                                        >
+                                            <SelectTrigger className="w-[160px] text-sm h-8 bg-background border-border">
+                                                <SelectValue placeholder="Change status" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Assigned">Assigned</SelectItem>
+                                                <SelectItem value="Work In Progress">Work In Progress</SelectItem>
+                                                <SelectItem value="Complete">Complete</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </CardFooter>
+                                </Card>
+                            </motion.div>
+                        ))}
+          </div>
+        )}
+
+            <div className="mt-8 flex justify-center">
+                <Pagination>
+                    <PaginationContent>
+                        {currentPage !== 1 && <PaginationPrevious size="sm" onClick={() => handlePageChange(currentPage - 1)} />}
+                        {Array.from({ length: Math.ceil(filteredTasks.length / 10) }, (_, i) => i + 1).map((page) => (
+                            <PaginationItem key={page}>
+                                <PaginationLink size="sm" isActive={page === currentPage} onClick={() => handlePageChange(page)}>
+                                    {page}
+                                </PaginationLink>
+                            </PaginationItem>
+                        ))}
+                        {currentPage !== Math.ceil(filteredTasks.length / 10) && <PaginationNext size="sm" onClick={() => handlePageChange(currentPage + 1)} />}
+                    </PaginationContent>
+                </Pagination>
+            </div>
+        </div>
+    );
+};
+
+function RequirementsPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>}>
+            <Requirements />
+        </Suspense>
+    );
+}
+
+export default RequirementsPage;

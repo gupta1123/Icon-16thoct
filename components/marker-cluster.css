@@ -1,0 +1,79 @@
+/* Custom marker cluster styles */
+.marker-cluster {
+  background-clip: padding-box;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+}
+
+.marker-cluster:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.marker-cluster div {
+  width: 30px;
+  height: 30px;
+  margin-left: 5px;
+  margin-top: 5px;
+  text-align: center;
+  border-radius: 15px;
+  font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marker-cluster-small {
+  background-color: rgba(181, 226, 140, 0.8);
+}
+
+.marker-cluster-small div {
+  background-color: rgba(110, 204, 57, 0.8);
+}
+
+.marker-cluster-medium {
+  background-color: rgba(241, 211, 87, 0.8);
+}
+
+.marker-cluster-medium div {
+  background-color: rgba(240, 194, 12, 0.8);
+}
+
+.marker-cluster-large {
+  background-color: rgba(253, 156, 115, 0.8);
+}
+
+.marker-cluster-large div {
+  background-color: rgba(241, 128, 23, 0.8);
+}
+
+/* Spiderfy styles */
+.marker-cluster-spiderfy {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 2px solid #0078A8;
+  border-radius: 50%;
+}
+
+.marker-cluster-spiderfy div {
+  background-color: #0078A8;
+  color: white;
+}
+
+/* Hover effects for individual markers */
+.leaflet-marker-icon:hover {
+  transform: scale(1.2);
+  transition: transform 0.2s ease;
+  z-index: 1000;
+}
+
+/* Popup improvements */
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-tip {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
