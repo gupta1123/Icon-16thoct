@@ -40,7 +40,7 @@ export default function LoginPage() {
           <div className="mx-auto w-full max-w-sm space-y-6">
             <div className="space-y-1 text-center">
               <h1 className="text-2xl font-bold">Welcome back</h1>
-              <p className="text-sm text-muted-foreground">Login to your Gajkesari admin</p>
+              <p className="text-sm text-muted-foreground">Login to your Icon Sales</p>
             </div>
 
             <form onSubmit={handleLogin} className="space-y-4">
