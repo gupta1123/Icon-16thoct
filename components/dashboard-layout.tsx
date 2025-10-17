@@ -36,6 +36,11 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import DailyPricingChecker from "@/components/DailyPricingChecker";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
+import {
+  extractAuthorityRoles,
+  hasAnyRole,
+  normalizeRoleValue,
+} from "@/lib/role-utils";
 
 // Helper function to generate initials from name
 const getInitials = (name: string): string => {
@@ -101,6 +106,7 @@ const managerAllowedPages = [
   "/dashboard/assign-visits",
   "/dashboard/requirements",
   "/dashboard/pricing",
+  "/dashboard/expenses",
   "/dashboard/approvals"
 ];
 
@@ -116,6 +122,7 @@ const coordinatorAllowedPages = [
   "/dashboard/enquiries", 
   "/dashboard/complaints",
   "/dashboard/visits",
+  "/dashboard/assign-visits",
   "/dashboard/requirements",
   "/dashboard/pricing",
   "/dashboard/employees",
@@ -125,7 +132,7 @@ const coordinatorAllowedPages = [
   "/dashboard/live-locations"
 ];
 
-// Data Manager allowed pages - Full access to everything
+// Data Manager allowed pages - Full access except HR functions
 const dataManagerAllowedPages = [
   "/dashboard/customers",
   "/dashboard/enquiries", 
@@ -140,17 +147,29 @@ const dataManagerAllowedPages = [
   "/dashboard/approvals",
   "/dashboard/reports",
   "/dashboard/live-locations",
-  "/dashboard/hr/attendance",
-  "/dashboard/hr/settings",
   "/dashboard/settings"
 ];
 
 // Function to filter sidebar categories based on user role
-const getFilteredSidebarCategories = (userRole: string | null, currentUser: { authorities?: { authority: string }[] } | null) => {
-  const isManager = userRole === 'MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_MANAGER');
-  const isHR = userRole === 'HR' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_HR');
-  const isCoordinator = userRole === 'COORDINATOR' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_COORDINATOR');
-  const isDataManager = userRole === 'DATA_MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_DATA_MANAGER');
+const getFilteredSidebarCategories = (
+  userRole: string | null,
+  currentUser: { authorities?: { authority: string }[] } | null
+) => {
+  const normalizedRole = normalizeRoleValue(userRole);
+  const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
+
+  const isManager = hasAnyRole(normalizedRole, authorityRoles, [
+    "MANAGER",
+    "OFFICE_MANAGER",
+    "REGIONAL_MANAGER",
+  ]);
+  const isHR = hasAnyRole(normalizedRole, authorityRoles, ["HR"]);
+  const isCoordinator = hasAnyRole(normalizedRole, authorityRoles, [
+    "COORDINATOR",
+  ]);
+  const isDataManager = hasAnyRole(normalizedRole, authorityRoles, [
+    "DATA_MANAGER",
+  ]);
   
   if (isHR) {
     // For HR, show ONLY HR-specific pages
@@ -167,18 +186,11 @@ const getFilteredSidebarCategories = (userRole: string | null, currentUser: { au
   }
   
   if (isDataManager) {
-    // For Data Managers, show ALL categories with full access
-    return [
-      ...allSidebarCategories,
-      {
-        name: "HR Management",
-        icon: UserCheck,
-        items: [
-          { name: "HR Attendance", href: "/dashboard/hr/attendance", icon: CheckCircle },
-          { name: "HR Settings", href: "/dashboard/hr/settings", icon: Settings },
-        ]
-      }
-    ];
+    // For Data Managers, show all categories except HR functions
+    return allSidebarCategories.map(category => ({
+      ...category,
+      items: category.items.filter(item => dataManagerAllowedPages.includes(item.href))
+    })).filter(category => category.items.length > 0); // Remove empty categories
   }
   
   if (isCoordinator) {
@@ -211,6 +223,9 @@ export default function DashboardLayout({
   const router = useRouter();
   const { logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const normalizedUserRole = normalizeRoleValue(userRole);
+  const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
   
   // Get filtered sidebar categories based on user role
   const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser);
@@ -226,36 +241,44 @@ export default function DashboardLayout({
   // Role hierarchy: Admin > Data Manager > Coordinator > Regional Manager > Field Officer > HR
   // HR is separate from the main hierarchy as it's a specialized role
   const getDisplayRole = () => {
-    if (userRole === 'ADMIN' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_ADMIN')) {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN'])) {
       return 'Admin';
     }
-    if (userRole === 'DATA_MANAGER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_DATA_MANAGER')) {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['DATA_MANAGER'])) {
       return 'Data Manager';
     }
-    if (userRole === 'COORDINATOR' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_COORDINATOR')) {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['COORDINATOR'])) {
       return 'Coordinator';
     }
-    if (userRole === 'MANAGER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER') || 
-        userRole === 'OFFICE MANAGER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_OFFICE MANAGER')) {
+    if (
+      hasAnyRole(normalizedUserRole, authorityRoles, [
+        'MANAGER',
+        'OFFICE_MANAGER',
+        'REGIONAL_MANAGER',
+      ])
+    ) {
       return 'Regional Manager';
     }
-    if (userRole === 'FIELD OFFICER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_FIELD OFFICER')) {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER'])) {
       return 'Field Officer';
     }
-    if (userRole === 'HR' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_HR')) {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['HR'])) {
       return 'HR';
     }
     return 'User';
   };
 
   // Check user roles based on hierarchy: Admin > Data Manager > Coordinator > Regional Manager > Field Officer > HR
-  const isAdmin = userRole === 'ADMIN' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_ADMIN');
-  const isDataManager = userRole === 'DATA_MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_DATA_MANAGER');
-  const isCoordinator = userRole === 'COORDINATOR' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_COORDINATOR');
-  const isManager = userRole === 'MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_MANAGER') ||
-                   userRole === 'OFFICE MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_OFFICE MANAGER');
-  const isFieldOfficer = userRole === 'FIELD OFFICER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_FIELD OFFICER');
-  const isHR = userRole === 'HR' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_HR');
+  const isAdmin = hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN']);
+  const isDataManager = hasAnyRole(normalizedUserRole, authorityRoles, ['DATA_MANAGER']);
+  const isCoordinator = hasAnyRole(normalizedUserRole, authorityRoles, ['COORDINATOR']);
+  const isManager = hasAnyRole(normalizedUserRole, authorityRoles, [
+    'MANAGER',
+    'OFFICE_MANAGER',
+    'REGIONAL_MANAGER',
+  ]);
+  const isFieldOfficer = hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER']);
+  const isHR = hasAnyRole(normalizedUserRole, authorityRoles, ['HR']);
 
   const toggleCategory = (categoryName: string) => {
     setOpenCategories(prev => ({

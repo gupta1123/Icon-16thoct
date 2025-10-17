@@ -10,6 +10,18 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Ensure environment variables are available
+  env: {
+    API_URL: process.env.API_URL,
+  },
+  eslint: {
+    // Only fail on errors, not warnings
+    ignoreDuringBuilds: false,
+  },
+  typescript: {
+    // Already checked with tsc, so we know types are correct
+    ignoreBuildErrors: false,
+  },
 };
 
 export default nextConfig;

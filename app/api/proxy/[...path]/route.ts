@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
-const UPSTREAM_BASE = 'http://localhost:8081';
+const UPSTREAM_BASE = process.env.API_URL || 'http://localhost:8081';
 
 async function handle(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   try {

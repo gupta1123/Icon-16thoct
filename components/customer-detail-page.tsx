@@ -29,11 +29,12 @@ import {
     TabsTrigger,
 } from "@/components/ui/tabs";
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { CalendarIcon, Edit, Trash2, Loader2, MessageCircle, Plus, X } from 'lucide-react';
+import { CalendarIcon, Edit, Trash2, Loader2, MessageCircle, Plus, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { API, type StoreDto, type VisitDto, type Note as ApiNote, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import './CustomerDetail.css';
@@ -220,6 +221,12 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         complaints: 1,
         requirements: 1,
     });
+
+    // Image preview states
+    const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+    const [taskImages, setTaskImages] = useState<string[]>([]);
+    const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const [isLoadingImages, setIsLoadingImages] = useState(false);
 
     // Location state for customer edit
     const [editStates, setEditStates] = useState<StateDto[]>([]);
@@ -468,6 +475,42 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             console.error('Error fetching sites data:', error);
         } finally {
             setIsLoadingSites(false);
+        }
+    }, [token]);
+
+    const fetchTaskImages = useCallback(async (taskId: number) => {
+        setIsLoadingImages(true);
+        try {
+            // First, fetch the task details
+            const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            if (!taskResponse.ok) {
+                throw new Error('Failed to fetch task details');
+            }
+            const taskData = await taskResponse.json();
+    
+            // Extract fileDownloadUri from the attachmentResponse
+            const imageUrls = taskData.attachmentResponse
+                .filter((attachment: { tag: string }) => attachment.tag === 'check-in')
+                .map((attachment: { tag: string; fileName: string }) => {
+                    try {
+                        // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
+                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                    } catch {
+                        // Fallback: use fileName to construct URL
+                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                    }
+                });
+    
+            setTaskImages(imageUrls);
+            setIsImagePreviewOpen(true);
+        } catch (error) {
+            console.error('Error fetching task images:', error);
+        } finally {
+            setIsLoadingImages(false);
         }
     }, [token]);
 
@@ -1616,7 +1659,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                         }`}
                                         onClick={() => setActiveActivityTab('requirements')}
                                     >
-                                        <i className="fas fa-tasks text-xs sm:text-sm"></i> <span className="hidden xs:inline">Requests</span><span className="xs:hidden">Requests</span>
+                                        <i className="fas fa-tasks text-xs sm:text-sm"></i> <span className="hidden xs:inline">Requirements</span><span className="xs:hidden">Requirements</span>
                                     </button>
                                     <button 
                                         className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
@@ -1810,20 +1853,34 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             {paginate(complaintsData, currentPage.complaints).map((complaint) => {
                                                 const c = complaint as Task;
                                                 const desc = (c as unknown as Record<string, unknown>).taskDesciption ?? (c as unknown as Record<string, unknown>).taskDescription ?? '';
+                                                const images = (c as unknown as { attachments?: Array<{ id: number; url: string }> }).attachments ?? [];
                                                 return (
-                                                    <div key={c.id} className="rounded-lg border bg-card p-4">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                                                    <div key={c.id} className="rounded-lg border bg-card p-4 space-y-4">
+                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                                             <div className="flex items-center gap-2">
                                                                 <i className="fas fa-exclamation-circle text-muted-foreground"></i>
                                                                 <span className="text-sm font-medium">Complaint</span>
+                                                                {Array.isArray((c as unknown as Record<string, unknown>).attachmentResponse) && ((c as unknown as Record<string, unknown>).attachmentResponse as unknown[]).length > 0 && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-8 w-8 p-0"
+                                                                        onClick={() => fetchTaskImages(c.id)}
+                                                                        title="View Images"
+                                                                    >
+                                                                        <Image className="h-4 w-4 text-blue-500" />
+                                                                    </Button>
+                                                                )}
                                                             </div>
                                                             <span className="text-xs text-muted-foreground">Due: {new Date(c.dueDate).toLocaleDateString()}</span>
                                                         </div>
                                                         {desc && (
-                                                            <p className="text-sm text-foreground mb-3">{String(desc)}</p>
+                                                            <p className="text-sm text-foreground">{String(desc)}</p>
                                                         )}
-                                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                        <div className="flex items-center gap-4 flex-wrap">
+
+
+                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                                            <div className="flex items-center gap-4 flex-wrap">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-xs text-muted-foreground">Status:</span>
                                                                     <select
@@ -3080,6 +3137,56 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                         </CardContent>
                     </Card>
         </div>
+            )}
+
+            {/* Image Preview Dialog */}
+            {isImagePreviewOpen && (
+                <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+                    <DialogContent className="max-w-3xl">
+                        <DialogHeader>
+                            <DialogTitle>Image Preview</DialogTitle>
+                        </DialogHeader>
+                        {isLoadingImages ? (
+                            <div className="flex justify-center items-center h-64">
+                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                <span className="ml-2">Loading images...</span>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="relative">
+                                    <img
+                                        src={taskImages[currentImageIndex]}
+                                        alt={`Image ${currentImageIndex + 1}`}
+                                        className="w-full h-auto"
+                                    />
+                                    {taskImages.length > 1 && (
+                                        <>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="absolute left-2 top-1/2 transform -translate-y-1/2"
+                                                onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? taskImages.length - 1 : prev - 1))}
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="absolute right-2 top-1/2 transform -translate-y-1/2"
+                                                onClick={() => setCurrentImageIndex((prev) => (prev === taskImages.length - 1 ? 0 : prev + 1))}
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
+                                <p className="text-center mt-2">
+                                    Image {currentImageIndex + 1} of {taskImages.length}
+                                </p>
+                            </>
+                        )}
+                    </DialogContent>
+                </Dialog>
             )}
     </div>
   );

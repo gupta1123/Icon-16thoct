@@ -34,6 +34,7 @@ import {
     Loader2,
     Plus
 } from 'lucide-react';
+import { normalizeRoleValue } from '@/lib/role-utils';
 
 interface Team {
     id: number;
@@ -55,6 +56,25 @@ interface FieldOfficer {
     role: string;
     status: string;
 }
+
+const resolveTeamCategory = (team: Team): 'coordinator' | 'regional' | null => {
+    const normalizedTeamType = typeof team.teamType === 'string' ? team.teamType.toUpperCase() : '';
+    if (normalizedTeamType === 'COORDINATOR_TEAM') {
+        return 'coordinator';
+    }
+    if (normalizedTeamType === 'REGIONAL_MANAGER_TEAM') {
+        return 'regional';
+    }
+
+    const officeRole = normalizeRoleValue(team.officeManager?.role ?? null);
+    if (officeRole === 'COORDINATOR') {
+        return 'coordinator';
+    }
+    if (officeRole && ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER'].includes(officeRole)) {
+        return 'regional';
+    }
+    return null;
+};
 
 const Teams: React.FC = () => {
     const [teams, setTeams] = useState<Team[]>([]);
@@ -137,7 +157,7 @@ const Teams: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch('/api/proxy/employee/getFieldOfficer', {
+            const response = await fetch('/api/proxy/employee/getAllFieldOfficers', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -148,22 +168,27 @@ const Teams: React.FC = () => {
             }
 
             const allFieldOfficers: FieldOfficer[] = await response.json();
+            
+            // Filter to only show actual field officers using role normalization
+            const fieldOfficersOnly = allFieldOfficers.filter((officer: FieldOfficer) => 
+                normalizeRoleValue(officer.role) === "FIELD_OFFICER"
+            );
+            
             const currentTeam = teams.find(team => team.officeManager.id === officeManagerId);
             const currentTeamMemberIds = currentTeam ? currentTeam.fieldOfficers.map(officer => officer.id) : [];
             
-            // Get all field officers that are in regional manager teams (not coordinator teams)
-            const regionalManagerTeamMemberIds = new Set<number>();
+            const otherCoordinatorTeamMemberIds = new Set<number>();
             teams.forEach(team => {
-                const isRegionalManagerTeam = team.officeManager?.role?.toLowerCase() !== 'coordinator';
-                if (isRegionalManagerTeam && team.id !== currentTeam?.id) {
-                    team.fieldOfficers.forEach(officer => regionalManagerTeamMemberIds.add(officer.id));
+                const category = resolveTeamCategory(team);
+                if (category === 'coordinator' && team.id !== currentTeam?.id) {
+                    team.fieldOfficers.forEach(officer => otherCoordinatorTeamMemberIds.add(officer.id));
                 }
             });
-            
-            // For coordinator teams: exclude current team members and officers in other regional manager teams
-            const availableFieldOfficers = allFieldOfficers.filter((officer: FieldOfficer) => 
+
+            // For coordinator teams: exclude current team members and officers already assigned to other coordinator teams
+            const availableFieldOfficers = fieldOfficersOnly.filter((officer: FieldOfficer) => 
                 !currentTeamMemberIds.includes(officer.id) && 
-                !regionalManagerTeamMemberIds.has(officer.id)
+                !otherCoordinatorTeamMemberIds.has(officer.id)
             );
             setFieldOfficers(availableFieldOfficers);
         } catch (error) {
@@ -185,21 +210,25 @@ const Teams: React.FC = () => {
             const responses = await Promise.all(promises);
             const allData = await Promise.all(responses.map(r => r.json()));
             const allFieldOfficers: FieldOfficer[] = allData.flat();
+            
+            // Filter to only show actual field officers using role normalization
+            const fieldOfficersOnly = allFieldOfficers.filter((officer: FieldOfficer) => 
+                normalizeRoleValue(officer.role) === "FIELD_OFFICER"
+            );
+            
             const currentTeam = teams.find(team => team.officeManager.id === officeManagerId);
             const currentTeamMemberIds = currentTeam ? currentTeam.fieldOfficers.map(officer => officer.id) : [];
             
-            // Get all field officers that are in other regional manager teams (same rule as coordinator)
             const otherRegionalManagerTeamMemberIds = new Set<number>();
             teams.forEach(team => {
-                const isRegionalManagerTeam = team.officeManager?.role?.toLowerCase() !== 'coordinator';
-                if (isRegionalManagerTeam && team.id !== currentTeam?.id) {
+                const category = resolveTeamCategory(team);
+                if (category === 'regional' && team.id !== currentTeam?.id) {
                     team.fieldOfficers.forEach(officer => otherRegionalManagerTeamMemberIds.add(officer.id));
                 }
             });
             
-            // For regional manager teams: exclude current team members and officers in other regional manager teams
-            // (Officers can be in coordinator teams + one regional manager team)
-            const availableFieldOfficers = allFieldOfficers.filter((officer: FieldOfficer) => 
+            // For regional manager teams: exclude current team members and officers already assigned to other regional manager teams
+            const availableFieldOfficers = fieldOfficersOnly.filter((officer: FieldOfficer) => 
                 !currentTeamMemberIds.includes(officer.id) && 
                 !otherRegionalManagerTeamMemberIds.has(officer.id)
             );

@@ -20,7 +20,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
-import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image } from 'lucide-react';
+import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 
 interface Task {
     id: number;
@@ -188,11 +188,17 @@ const Complaints = () => {
 
             if (differenceInDays(endDate, startDate) > 30) {
                 setErrorMessage('Date range should not exceed 30 days');
+                // Still update the filters, but show the error message
+                setFilters(newFilters);
                 return;
             }
         }
 
         setFilters(newFilters);
+        // Clear any previous error messages when date range is valid
+        if (errorMessage && errorMessage.includes('Date range should not exceed 30 days')) {
+            setErrorMessage(null);
+        }
     };
 
     const handleNext = () => {
@@ -410,11 +416,9 @@ const Complaints = () => {
                     (filters.employee === '' || filters.employee === 'all' ? true : task.assignedToId === parseInt(filters.employee)) &&
                     (filters.priority === '' || filters.priority === 'all' ? true : task.priority === filters.priority) &&
                     ((filters.status === '' || filters.status === 'all') ? true : task.status === filters.status) &&
-                    // Only apply date filters for admin users (managers use team-based API)
-                    (!isManager ? (
+                    // Apply date filters for all users
                     (filters.startDate === '' || new Date(task.dueDate) >= new Date(filters.startDate)) &&
                     (filters.endDate === '' || new Date(task.dueDate) <= new Date(filters.endDate))
-                    ) : true)
             );
 
         setFilteredTasks(filtered);
@@ -683,77 +687,72 @@ const Complaints = () => {
                 </div>
                 {/* Date Filters */}
                 <div className="flex items-center gap-3">
-                    {/* Only show date filters for admin users */}
-                    {!isManager && (
-                        <>
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="startDate" className="text-sm text-muted-foreground">From:</Label>
-                                <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.startDate && 'text-muted-foreground'}`}
-                                        >
-                                            <CalendarIcon className="mr-2 h-3 w-3" />
-                                            {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Start date</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
-                                            onSelect={(date) => {
-                                                if (date) {
-                                                    const year = date.getFullYear();
-                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                    const day = String(date.getDate()).padStart(2, '0');
-                                                    handleDateChange('startDate', `${year}-${month}-${day}`);
-                                                    setIsStartDatePickerOpen(false);
-                                                } else {
-                                                    handleDateChange('startDate', '');
-                                                }
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Label htmlFor="endDate" className="text-sm text-muted-foreground">To:</Label>
-                                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.endDate && 'text-muted-foreground'}`}
-                                        >
-                                            <CalendarIcon className="mr-2 h-3 w-3" />
-                                            {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>End date</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
-                                            onSelect={(date) => {
-                                                if (date) {
-                                                    const year = date.getFullYear();
-                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                    const day = String(date.getDate()).padStart(2, '0');
-                                                    handleDateChange('endDate', `${year}-${month}-${day}`);
-                                                    setIsEndDatePickerOpen(false);
-                                                } else {
-                                                    handleDateChange('endDate', '');
-                                                }
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                        </>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="startDate" className="text-sm text-muted-foreground">From:</Label>
+                        <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.startDate && 'text-muted-foreground'}`}
+                                >
+                                    <CalendarIcon className="mr-2 h-3 w-3" />
+                                    {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Start date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
+                                    onSelect={(date) => {
+                                        if (date) {
+                                            const year = date.getFullYear();
+                                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                                            const day = String(date.getDate()).padStart(2, '0');
+                                            handleDateChange('startDate', `${year}-${month}-${day}`);
+                                            setIsStartDatePickerOpen(false);
+                                        } else {
+                                            handleDateChange('startDate', '');
+                                        }
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="endDate" className="text-sm text-muted-foreground">To:</Label>
+                        <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.endDate && 'text-muted-foreground'}`}
+                                >
+                                    <CalendarIcon className="mr-2 h-3 w-3" />
+                                    {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>End date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
+                                    onSelect={(date) => {
+                                        if (date) {
+                                            const year = date.getFullYear();
+                                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                                            const day = String(date.getDate()).padStart(2, '0');
+                                            handleDateChange('endDate', `${year}-${month}-${day}`);
+                                            setIsEndDatePickerOpen(false);
+                                        } else {
+                                            handleDateChange('endDate', '');
+                                        }
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
                 </div>
             </div>
 
@@ -818,74 +817,72 @@ const Complaints = () => {
                                 </SelectContent>
                             </Select>
                         </div>
-                        {!isManager && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="grid gap-2">
-                                    <Label>From</Label>
-                                    <Popover open={isMobileStartDatePickerOpen} onOpenChange={setIsMobileStartDatePickerOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                className={`w-full justify-start text-left font-normal ${!filters.startDate && 'text-muted-foreground'}`}
-                                            >
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick start date</span>}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                            <Calendar
-                                                mode="single"
-                                                selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
-                                                onSelect={(date) => {
-                                                    if (date) {
-                                                        const year = date.getFullYear();
-                                                        const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                        const day = String(date.getDate()).padStart(2, '0');
-                                                        handleDateChange('startDate', `${year}-${month}-${day}`);
-                                                        setIsMobileStartDatePickerOpen(false);
-                                                    } else {
-                                                        handleDateChange('startDate', '');
-                                                    }
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label>To</Label>
-                                    <Popover open={isMobileEndDatePickerOpen} onOpenChange={setIsMobileEndDatePickerOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                className={`w-full justify-start text-left font-normal ${!filters.endDate && 'text-muted-foreground'}`}
-                                            >
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick end date</span>}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                            <Calendar
-                                                mode="single"
-                                                selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
-                                                onSelect={(date) => {
-                                                    if (date) {
-                                                        const year = date.getFullYear();
-                                                        const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                        const day = String(date.getDate()).padStart(2, '0');
-                                                        handleDateChange('endDate', `${year}-${month}-${day}`);
-                                                        setIsMobileEndDatePickerOpen(false);
-                                                    } else {
-                                                        handleDateChange('endDate', '');
-                                                    }
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>From</Label>
+                                <Popover open={isMobileStartDatePickerOpen} onOpenChange={setIsMobileStartDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`w-full justify-start text-left font-normal ${!filters.startDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick start date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('startDate', `${year}-${month}-${day}`);
+                                                    setIsMobileStartDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('startDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
                             </div>
-                        )}
+                            <div className="grid gap-2">
+                                <Label>To</Label>
+                                <Popover open={isMobileEndDatePickerOpen} onOpenChange={setIsMobileEndDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`w-full justify-start text-left font-normal ${!filters.endDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick end date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('endDate', `${year}-${month}-${day}`);
+                                                    setIsMobileEndDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('endDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        </div>
                     </div>
                     <SheetFooter className="flex gap-2">
                         <Button
@@ -1154,7 +1151,7 @@ const Complaints = () => {
                                                         onClick={() => fetchTaskImages(task.id)}
                                                         title="View Images"
                                                     >
-                                                        <Image className="h-4 w-4 text-blue-500" />
+                                                        <ImageIcon className="h-4 w-4 text-blue-500" />
                                                     </Button>
                                                 )}
                                             </div>

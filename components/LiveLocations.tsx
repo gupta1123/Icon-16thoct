@@ -41,7 +41,7 @@ const LiveLocations: React.FC = () => {
     setIsRefreshing(true);
     setError(null);
     try {
-      const response = await fetch('http://ec2-3-88-111-83.compute-1.amazonaws.com:8081/employee/getAllLiveLocations', {
+      const response = await fetch('/api/proxy/employee/getAllLiveLocations', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -267,12 +267,12 @@ const LiveLocations: React.FC = () => {
               {/* Map Section */}
               {liveLocations.length > 0 && (
                 <div className="space-y-4">
-                  <div className="rounded-lg border bg-card">
-                    <div className="p-4 border-b">
-                      <h3 className="text-lg font-semibold text-foreground">Location Map</h3>
-                      <p className="text-sm text-muted-foreground">Interactive map showing all employee locations</p>
+                  <div className="rounded-lg border bg-card shadow-sm dark:bg-neutral-950 dark:border-neutral-800">
+                    <div className="p-4 border-b bg-muted/40 dark:bg-neutral-900 border-border/60 dark:border-neutral-800">
+                      <h3 className="text-lg font-semibold text-foreground dark:text-neutral-100">Location Map</h3>
+                      <p className="text-sm text-muted-foreground dark:text-neutral-400">Interactive map showing all employee locations</p>
                     </div>
-                    <div className="h-96 w-full">
+                    <div className="h-96 w-full bg-muted/30 dark:bg-neutral-900">
                       <LeafletMap
                         markers={markers}
                         center={[20.5937, 78.9629]} // Default to India's geographic center

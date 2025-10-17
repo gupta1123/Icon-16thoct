@@ -34,6 +34,51 @@ const LeafletMap = dynamic(() => import("@/components/leaflet-map"), {
   ssr: false,
 });
 
+const HRDashboard = dynamic(() => import("./hr/page").then(mod => mod.default), {
+  ssr: false,
+  loading: () => <HRDashboardSkeleton />,
+});
+
+const HRDashboardSkeleton = () => (
+  <div className="space-y-6">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, idx) => (
+        <Card key={idx}>
+          <CardHeader className="space-y-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-8 w-16" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-32" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <Skeleton key={idx} className="h-4 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-28" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <Skeleton key={idx} className="h-4 w-full" />
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  </div>
+);
+
 const DEFAULT_MAP_CENTER: [number, number] = [20.5937, 78.9629]; // India's geographic center
 const DEFAULT_MAP_ZOOM = 5; // Appropriate zoom level to view all of India
 
@@ -347,7 +392,10 @@ export default function DashboardPage() {
   // Fetch current user data to determine role
   useEffect(() => {
     const fetchCurrentUser = async () => {
-      if (!token) return;
+      if (!token) {
+        setIsRoleDetermined(true);
+        return;
+      }
       
       try {
         const response = await fetch('/api/proxy/user/manage/current-user', {
@@ -393,13 +441,6 @@ export default function DashboardPage() {
 
     fetchCurrentUser();
   }, [token]);
-  // Redirect HR users to HR dashboard
-  useEffect(() => {
-    if (isRoleDetermined && isHR) {
-      window.location.href = '/dashboard/hr';
-    }
-  }, [isRoleDetermined, isHR]);
-
   const dateRange = useMemo<DateRangeValue>(() => {
     const today = new Date();
     switch (selectedDateRange) {
@@ -759,6 +800,14 @@ export default function DashboardPage() {
     setSelectedEmployee(employee);
     setView("employeeDetail");
   }, []);
+
+  if (!isRoleDetermined) {
+    return <HRDashboardSkeleton />;
+  }
+
+  if (isHR) {
+    return <HRDashboard />;
+  }
 
   return (
     <div className="space-y-8">

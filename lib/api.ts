@@ -151,6 +151,10 @@ export interface BrandProCon {
   brandName: string;
   pros: string[];
   cons: string[];
+  category?: string | null;
+  purchasedFrom?: string | null;
+  steelQuantitySold?: number | null;
+  cementQuantitySold?: number | null;
 }
 
 export interface IntentAuditLog {
@@ -663,6 +667,10 @@ export class API {
     return apiService.getVisitsByDateRange(startDate, endDate);
   }
 
+  static async createVisit(visit: Partial<VisitDto>): Promise<number> {
+    return apiService.createVisit(visit);
+  }
+
   static async getTimelineByDateRange(employeeId: number | null, startDate: string, endDate: string): Promise<TimelineDay[]> {
     return apiService.getTimelineByDateRange(employeeId, startDate, endDate);
   }
@@ -745,6 +753,10 @@ export class API {
 
   static async getEmployeeDirectory(): Promise<EmployeeDto[]> {
     return apiService.getEmployeeDirectory();
+  }
+
+  static async getAllFieldOfficers(city?: string, state?: string): Promise<EmployeeDto[]> {
+    return apiService.getAllFieldOfficers(city, state);
   }
 
   static async getEmployeeById(id: number): Promise<EmployeeUserDto> {
@@ -1569,6 +1581,15 @@ export class API {
       method: 'POST',
       body: JSON.stringify(visits),
     });
+  }
+
+  async createVisit(visit: Partial<VisitDto>): Promise<number> {
+    const response = await this.bulkCreateVisits([visit as VisitDto]);
+    if (response.created === 1) {
+      // Return a placeholder ID since the bulk API doesn't return individual IDs
+      return 1;
+    }
+    throw new Error(response.errors?.[0] || 'Failed to create visit');
   }
 
   // Attendance Request APIs

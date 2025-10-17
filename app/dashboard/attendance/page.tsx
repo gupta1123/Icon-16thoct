@@ -18,6 +18,11 @@ import EmployeeAttendanceCard from "@/components/employee-attendance-card";
 import VisitDetailsModal from "@/components/visit-details-modal";
 import { Text } from "@/components/ui/typography";
 import { authService } from "@/lib/auth";
+import {
+  extractAuthorityRoles,
+  hasAnyRole,
+  normalizeRoleValue,
+} from "@/lib/role-utils";
 
 interface AttendanceData {
   id: number;
@@ -70,15 +75,22 @@ export default function AttendancePage() {
   // Get token from localStorage (you may need to adjust this based on your auth setup)
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
-  // Check if user is a coordinator and redirect if so
+  // Redirect users without attendance access (e.g., coordinators, regional managers)
   useEffect(() => {
     const currentUser = authService.getCurrentUser();
     const userRole = authService.getUserRole();
-    
-    const isCoordinator = userRole === 'COORDINATOR' || 
-                         currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_COORDINATOR');
-    
-    if (isCoordinator) {
+
+    const normalizedRole = normalizeRoleValue(userRole);
+    const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
+
+    const isCoordinator = hasAnyRole(normalizedRole, authorityRoles, ['COORDINATOR']);
+    const isRegionalManager = hasAnyRole(normalizedRole, authorityRoles, [
+      'MANAGER',
+      'OFFICE_MANAGER',
+      'REGIONAL_MANAGER',
+    ]);
+
+    if (isCoordinator || isRegionalManager) {
       router.push('/dashboard');
     }
   }, [router]);

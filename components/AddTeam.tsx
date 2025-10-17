@@ -9,6 +9,25 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Users, Building2, ArrowRight, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { normalizeRoleValue } from '@/lib/role-utils';
+
+const ELIGIBLE_MANAGER_ROLES = new Set([
+    "MANAGER",
+    "OFFICE_MANAGER",
+    "REGIONAL_MANAGER",
+    "COORDINATOR",
+]);
+
+const isEligibleManagerRole = (role?: string | null) => {
+    const normalized = normalizeRoleValue(role ?? null);
+    if (!normalized) return false;
+    return ELIGIBLE_MANAGER_ROLES.has(normalized);
+};
+
+const isCoordinatorRole = (role?: string | null) => {
+    const normalized = normalizeRoleValue(role ?? null);
+    return normalized === "COORDINATOR";
+};
 
 interface Employee {
     id: number;
@@ -78,7 +97,10 @@ const AddTeam = () => {
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [citySelectValue, setCitySelectValue] = useState<string>("placeholder");
     const [isCreatingTeam, setIsCreatingTeam] = useState(false);
-    const [assignedFoIds, setAssignedFoIds] = useState<Set<number>>(new Set());
+    const [assignedFoIds, setAssignedFoIds] = useState<{ coordinator: number[]; regional: number[] }>({
+        coordinator: [],
+        regional: [],
+    });
     const [isCoordinator, setIsCoordinator] = useState(false);
 
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -126,34 +148,55 @@ const AddTeam = () => {
             const assignedManagerIds = teamsData.map((team: { officeManager: { id: number } }) => team.officeManager.id);
             const deletedManagerIds = allEmployeesData
                 .filter((employee: OfficeManager) => 
-                    (employee.role === "Manager" || 
-                     employee.role === "Office Manager" || 
-                     employee.role === "Regional Manager" || 
-                     employee.role === "Coordinator") && 
-                    employee.deleted)
+                    isEligibleManagerRole(employee.role) && employee.deleted)
                 .map((employee: OfficeManager) => employee.id);
             const availableManagers = allEmployeesData
                 .filter((employee: OfficeManager) =>
-                    (employee.role === "Manager" || 
-                     employee.role === "Office Manager" || 
-                     employee.role === "Regional Manager" || 
-                     employee.role === "Coordinator") &&
+                    isEligibleManagerRole(employee.role) &&
                     !assignedManagerIds.includes(employee.id) &&
                     !deletedManagerIds.includes(employee.id)
                 );
 
             setOfficeManagers(availableManagers);
-            // Build set of all field officer IDs already in any team
-            const assignedIds = new Set<number>();
+
+            const coordinatorAssigned = new Set<number>();
+            const regionalAssigned = new Set<number>();
+
             for (const team of teamsData) {
                 const members = Array.isArray(team.fieldOfficers) ? team.fieldOfficers : [];
+                const normalizedTeamType = typeof team.teamType === "string" ? team.teamType.toUpperCase() : "";
+                let bucket: 'coordinator' | 'regional' | null = null;
+
+                if (normalizedTeamType === "COORDINATOR_TEAM") {
+                    bucket = 'coordinator';
+                } else if (normalizedTeamType === "REGIONAL_MANAGER_TEAM") {
+                    bucket = 'regional';
+                } else {
+                    const managerRole = normalizeRoleValue(team.officeManager?.role ?? null);
+                    if (managerRole === "COORDINATOR") {
+                        bucket = 'coordinator';
+                    } else if (managerRole && ["MANAGER", "OFFICE_MANAGER", "REGIONAL_MANAGER"].includes(managerRole)) {
+                        bucket = 'regional';
+                    }
+                }
+
+                if (!bucket) continue;
+
                 for (const member of members) {
                     if (member && typeof member.id === 'number') {
-                        assignedIds.add(member.id);
+                        if (bucket === 'coordinator') {
+                            coordinatorAssigned.add(member.id);
+                        } else {
+                            regionalAssigned.add(member.id);
+                        }
                     }
                 }
             }
-            setAssignedFoIds(assignedIds);
+
+            setAssignedFoIds({
+                coordinator: Array.from(coordinatorAssigned),
+                regional: Array.from(regionalAssigned),
+            });
         } catch (error) {
             console.error("Error fetching Regional managers:", error);
         }
@@ -164,7 +207,7 @@ const AddTeam = () => {
         
         const manager = officeManagers.find(m => m.id.toString() === value);
         if (manager) {
-            const isCoord = manager.role?.toLowerCase() === "coordinator";
+            const isCoord = isCoordinatorRole(manager.role);
             setOfficeManager({ 
                 value: manager.id, 
                 label: `${manager.firstName} ${manager.lastName}`,
@@ -221,12 +264,12 @@ const AddTeam = () => {
             fetchEmployeesByCities(cities);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [assignedFoIds]);
+    }, [assignedFoIds.coordinator, assignedFoIds.regional]);
 
     const fetchAllFieldOfficers = async () => {
         try {
             const response = await fetch(
-                "/api/proxy/employee/getFieldOfficer",
+                "/api/proxy/employee/getAllFieldOfficers",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -235,14 +278,15 @@ const AddTeam = () => {
             );
 
             const fieldOfficersData = await response.json();
-            
-            // For coordinators: show all field officers (no city restrictions, but exclude those already in any team)
+            const assignedCoordinatorSet = new Set(assignedFoIds.coordinator);
+
+            // Filter to only show actual field officers using role normalization
             const filteredEmployees = fieldOfficersData
                 .filter((employee: Record<string, unknown>) => {
-                    const isFO = typeof employee.role === 'string' && employee.role.toLowerCase() === 'field officer';
+                    const isFO = normalizeRoleValue(employee.role as string) === "FIELD_OFFICER";
                     const isActive = !employee.status || String(employee.status).toLowerCase() === 'active';
-                    const notInAnyTeam = !assignedFoIds.has(employee.id as number);
-                    return isFO && isActive && notInAnyTeam;
+                    const notAssignedToCoordinatorTeam = !assignedCoordinatorSet.has(employee.id as number);
+                    return isFO && isActive && notAssignedToCoordinatorTeam;
                 })
                 .map((employee: Record<string, unknown>) => ({
                     id: employee.id as number,
@@ -257,7 +301,10 @@ const AddTeam = () => {
                     departmentName: employee.departmentName as string | null,
                     state: employee.state as string,
                     userDto: employee.userDto as Employee['userDto'],
-                    status: employee.status as string
+                    status: employee.status as string,
+                    assignedCity: Array.isArray(employee.assignedCity)
+                        ? (employee.assignedCity as string[])
+                        : [],
                 }));
 
             setEmployees(filteredEmployees);
@@ -278,17 +325,18 @@ const AddTeam = () => {
             );
 
             const fieldOfficersData = await response.json();
-            
+            const assignedRegionalSet = new Set(assignedFoIds.regional);
+
             // Filter field officers from the selected cities (exclude those already in any team)
             const filteredEmployees = fieldOfficersData
                 .filter((employee: Record<string, unknown>) => {
-                    const isFO = typeof employee.role === 'string' && employee.role.toLowerCase() === 'field officer';
+                    const isFO = normalizeRoleValue(employee.role as string) === "FIELD_OFFICER";
                     const inCityDirect = cities.includes(employee.city as string);
                     const inCityAssigned = Array.isArray(employee.assignedCity) && employee.assignedCity.some((c: string) => cities.includes(c));
                     const inCity = inCityDirect || inCityAssigned;
                     const isActive = !employee.status || String(employee.status).toLowerCase() === 'active';
-                    const notInAnyTeam = !assignedFoIds.has(employee.id as number);
-                    return isFO && inCity && isActive && notInAnyTeam;
+                    const notAssignedToRegionalTeam = !assignedRegionalSet.has(employee.id as number);
+                    return isFO && inCity && isActive && notAssignedToRegionalTeam;
                 })
                 .map((employee: Record<string, unknown>) => ({
                     id: employee.id as number,
@@ -303,7 +351,10 @@ const AddTeam = () => {
                     departmentName: employee.departmentName as string | null,
                     state: employee.state as string,
                     userDto: employee.userDto as Employee['userDto'],
-                    status: employee.status as string
+                    status: employee.status as string,
+                    assignedCity: Array.isArray(employee.assignedCity)
+                        ? (employee.assignedCity as string[])
+                        : [],
                 }));
 
             setEmployees(filteredEmployees);
@@ -347,6 +398,50 @@ const AddTeam = () => {
 
         try {
             setIsCreatingTeam(true);
+
+            if (!isCoordinator) {
+                const selectedOfficerDetails = employees.filter((employee) =>
+                    selectedEmployees.includes(employee.id)
+                );
+
+                const citySet = new Set<string>();
+
+                selectedCities.forEach((cityOption) => {
+                    if (cityOption?.value) {
+                        citySet.add(cityOption.value.trim());
+                    }
+                });
+
+                selectedOfficerDetails.forEach((officer) => {
+                    if (officer.city) {
+                        citySet.add(officer.city.trim());
+                    }
+                    officer.assignedCity?.forEach((city) => {
+                        if (city) {
+                            citySet.add(city.trim());
+                        }
+                    });
+                });
+
+                const citiesToAssign = Array.from(citySet).filter(Boolean);
+
+                for (const city of citiesToAssign) {
+                    const assignResponse = await fetch(
+                        `/api/proxy/employee/assignCity?id=${officeManager.value}&city=${encodeURIComponent(city)}`,
+                        {
+                            method: 'PUT',
+                            headers: {
+                                Authorization: `Bearer ${token}`,
+                            },
+                        }
+                    );
+
+                    if (!assignResponse.ok) {
+                        throw new Error(`Failed to assign city ${city} to office manager.`);
+                    }
+                }
+            }
+
             const response = await fetch(
                 "/api/proxy/employee/team/create",
                 {
@@ -434,13 +529,13 @@ const AddTeam = () => {
                                 onClick={() => setTeamType('coordinator')}
                             >
                                 <CardHeader className="text-center">
-                                    <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                                        <Users className="h-8 w-8 text-purple-600" />
+                                    <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
+                                        <Users className="h-8 w-8 text-purple-600 dark:text-purple-400" />
                                     </div>
-                                    <CardTitle className="text-lg">Coordinator Team</CardTitle>
+                                    <CardTitle className="text-lg text-foreground">Coordinator Team</CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <CardDescription className="text-center text-sm">
+                                    <CardDescription className="text-center text-sm text-muted-foreground">
                                         Cross-city team management. Add members later from Teams page.
                                     </CardDescription>
                                 </CardContent>
@@ -451,13 +546,13 @@ const AddTeam = () => {
                                 onClick={() => setTeamType('regional')}
                             >
                                 <CardHeader className="text-center">
-                                    <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-                                        <Building2 className="h-8 w-8 text-blue-600" />
+                                    <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                                        <Building2 className="h-8 w-8 text-blue-600 dark:text-blue-400" />
                                     </div>
-                                    <CardTitle className="text-lg">Regional Manager Team</CardTitle>
+                                    <CardTitle className="text-lg text-foreground">Regional Manager Team</CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <CardDescription className="text-center text-sm">
+                                    <CardDescription className="text-center text-sm text-muted-foreground">
                                         City-based team with field officers from assigned cities.
                                     </CardDescription>
                                 </CardContent>
@@ -478,11 +573,14 @@ const AddTeam = () => {
                                             Select a {teamType === 'coordinator' ? 'Coordinator' : 'Regional Manager'}
                                         </SelectItem>
                                         {officeManagers
-                                            .filter(manager => 
-                                                teamType === 'coordinator' 
-                                                    ? manager.role?.toLowerCase() === 'coordinator'
-                                                    : manager.role?.toLowerCase() !== 'coordinator'
-                                            )
+                                            .filter(manager => {
+                                                const normalizedRole = normalizeRoleValue(manager.role ?? null);
+                                                if (!normalizedRole) return false;
+                                                if (teamType === 'coordinator') {
+                                                    return normalizedRole === 'COORDINATOR';
+                                                }
+                                                return normalizedRole !== 'COORDINATOR';
+                                            })
                                             .map((manager) => (
                                                 <SelectItem key={manager.id} value={manager.id.toString()}>
                                                     {manager.firstName} {manager.lastName} ({manager.role})
@@ -513,11 +611,11 @@ const AddTeam = () => {
                                         </Select>
                                         <div className="mt-2 flex flex-wrap gap-2">
                                             {selectedCities.map((city) => (
-                                                <div key={city.value} className="flex items-center gap-1 bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-md text-sm">
+                                                <div key={city.value} className="flex items-center gap-1 bg-muted border border-border px-3 py-1.5 rounded-md text-sm text-foreground">
                                                     {city.label}
                                                     <button 
                                                         onClick={() => removeCity(city.value)}
-                                                        className="text-slate-500 hover:text-slate-700 ml-1 transition-colors"
+                                                        className="text-muted-foreground hover:text-foreground ml-1 transition-colors"
                                                     >
                                                         ×
                                                     </button>
@@ -532,24 +630,24 @@ const AddTeam = () => {
                                     {selectedCities.length > 0 && (
                                         <div>
                                             <label className="text-sm font-medium">Team Members ({employees.length} available)</label>
-                                            <div className="max-h-60 overflow-y-auto mt-2 border rounded-md p-2">
+                                            <div className="max-h-60 overflow-y-auto mt-2 border border-border rounded-md p-2 bg-background">
                                                 {employees.length === 0 ? (
-                                                    <p className="text-sm text-gray-500 py-4 text-center">
+                                                    <p className="text-sm text-muted-foreground py-4 text-center">
                                                         No field officers available in the selected cities.
                                                     </p>
                                                 ) : (
                                                     employees.map((employee) => (
-                                                        <div key={employee.id} className="flex items-center space-x-3 p-2 rounded-md mb-1 hover:bg-slate-50">
+                                                        <div key={employee.id} className="flex items-center space-x-3 p-2 rounded-md mb-1 hover:bg-muted">
                                                             <Checkbox
                                                                 id={`employee-${employee.id}`}
                                                                 checked={selectedEmployees.includes(employee.id)}
                                                                 onCheckedChange={() => handleEmployeeToggle(employee.id)}
                                                             />
                                                             <div className="flex-1 min-w-0">
-                                                                <label htmlFor={`employee-${employee.id}`} className="font-medium cursor-pointer text-sm block truncate">
+                                                                <label htmlFor={`employee-${employee.id}`} className="font-medium cursor-pointer text-sm block truncate text-foreground">
                                                                     {employee.firstName} {employee.lastName}
                                                                 </label>
-                                                                <div className="text-xs text-gray-500 truncate">
+                                                                <div className="text-xs text-muted-foreground truncate">
                                                                     {employee.city}, {employee.state}
                                                                 </div>
                                                             </div>

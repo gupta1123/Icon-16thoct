@@ -51,6 +51,9 @@ interface EmployeeOption {
     city: string;
 }
 
+const formatEmployeeName = (firstName?: string | null, lastName?: string | null) =>
+    [firstName ?? "", lastName ?? ""].join(" ").replace(/\s+/g, " ").trim();
+
 const PricingPage = () => {
     const [brandData, setBrandData] = useState<Brand[]>([]);
     const [previousDayData, setPreviousDayData] = useState<Brand[]>([]);
@@ -222,9 +225,11 @@ const PricingPage = () => {
             const data: Brand[] = await response.json();
             setBrandData(data);
 
-            const uniqueCities = Array.from(new Set(data.map(brand =>
-                brand.brandName.toLowerCase() === 'gajkesari' ? brand.city : brand.employeeDto?.city
-            ).filter(city => city && city.trim() !== "")));
+            const uniqueCities = Array.from(new Set(data.map(brand => {
+                const employeeCity = brand.employeeDto?.city;
+                const brandCity = brand.city ?? employeeCity;
+                return brandCity;
+            }).filter(city => city && city.trim() !== "")));
             setCities(uniqueCities);
 
             if (!selectedCity && uniqueCities.length > 0) {
@@ -235,9 +240,10 @@ const PricingPage = () => {
             const employeeMap = new Map<number, EmployeeOption>();
             data.forEach(brand => {
                 if (brand.employeeDto) {
+                    const name = formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName);
                     employeeMap.set(brand.employeeDto.id, {
                         id: brand.employeeDto.id,
-                        name: `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}`,
+                        name,
                         city: brand.employeeDto.city
                     });
                 }
@@ -343,8 +349,13 @@ const PricingPage = () => {
     };
 
     const filteredBrands = brandData.filter(brand => {
-        const cityMatch = selectedCity === "all" || (brand.brandName.toLowerCase() === 'gajkesari' ? brand.city === selectedCity : brand.employeeDto?.city === selectedCity);
-        const officerMatch = selectedFieldOfficer === "all" || (brand.employeeDto ? `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}` === selectedFieldOfficer : false);
+        const brandEmployeeCity = brand.employeeDto?.city;
+        const effectiveCity = brand.brandName.toLowerCase() === 'gajkesari'
+            ? (brand.city ?? brandEmployeeCity)
+            : brandEmployeeCity;
+        const cityMatch = selectedCity === "all" || effectiveCity === selectedCity;
+        const officerName = brand.employeeDto ? formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName) : null;
+        const officerMatch = selectedFieldOfficer === "all" || (officerName ? officerName === selectedFieldOfficer : false);
         return cityMatch && officerMatch;
     });
 
@@ -523,11 +534,9 @@ const PricingPage = () => {
                                                     <TableCell className="font-medium">{brand.brandName}</TableCell>
                                                     <TableCell>₹{brand.price.toFixed(2)}</TableCell>
                                                     <TableCell>
-                                                        {brand.brandName.toLowerCase() === 'gajkesari'
-                                                            ? brand.city
-                                                            : brand.employeeDto
-                                                                ? `${brand.employeeDto.firstName} ${brand.employeeDto.lastName}`
-                                                                : 'N/A'}
+                                                        {brand.employeeDto
+                                                            ? formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName)
+                                                            : 'N/A'}
                                                     </TableCell>
                                                 </TableRow>
                                             ))

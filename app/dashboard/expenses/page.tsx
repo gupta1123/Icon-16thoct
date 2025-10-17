@@ -151,11 +151,9 @@ const months = [
 const currentYear = new Date().getFullYear();
 const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-// Get one month prior date
-const oneMonthAgo = new Date();
-oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-const defaultMonth = (oneMonthAgo.getMonth() + 1).toString().padStart(2, '0');
-const defaultYear = oneMonthAgo.getFullYear().toString();
+const today = new Date();
+const defaultMonth = (today.getMonth() + 1).toString().padStart(2, '0');
+const defaultYear = today.getFullYear().toString();
 
 export default function ExpensesPage() {
   const [searchTerm, setSearchTerm] = useState("");

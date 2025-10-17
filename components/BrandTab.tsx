@@ -5,13 +5,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit, Trash, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Plus, Edit, Trash, CheckCircle, XCircle, Loader2, ShoppingCart, Package } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 type Brand = {
     id: number;
     brandName: string;
     pros: string[];
     cons: string[];
+    category?: string | null;
+    purchasedFrom?: string | null;
+    steelQuantitySold?: number | null;
+    cementQuantitySold?: number | null;
 };
 
 type NewBrand = {
@@ -335,55 +340,85 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                     {brands.map((brand) => (
                         <Card
                             key={brand.id}
-                            className="w-full p-4 h-full overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex justify-between items-center"
+                            className="w-full p-4 h-full overflow-hidden border bg-card"
                         >
-                            <CardContent className="w-full">
-                                <div className="flex justify-between items-center">
-                                    <div className="flex flex-col">
-                                        <div className="font-bold text-lg text-foreground">{brand.brandName}</div>
-
-                                        <div className="flex items-start mt-2">
-                                            <div className="mr-8">
-                                                <div className="font-semibold mb-1 flex items-center text-foreground">
-                                                    <CheckCircle className="text-green-600 mr-1" />
-                                                    Pros
-                                                </div>
-                                                <ul className="text-muted-foreground text-sm list-disc pl-4">
-                                                    {brand.pros.map((pro, index) => (
-                                                        <li key={index}>{pro}</li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                            <div>
-                                                <div className="font-semibold mb-1 flex items-center text-foreground">
-                                                    <XCircle className="text-red-600 mr-1" />
-                                                    Cons
-                                                </div>
-                                                <ul className="text-muted-foreground text-sm list-disc pl-4">
-                                                    {brand.cons.map((con, index) => (
-                                                        <li key={index}>{con}</li>
-                                                    ))}
-                                                </ul>
-                                            </div>
+                            <CardContent className="w-full space-y-4 p-0">
+                                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                                    <div className="space-y-1">
+                                        <h3 className="text-base font-semibold text-foreground">{brand.brandName}</h3>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                            {brand.category && (
+                                                <Badge variant="secondary" className="uppercase tracking-wide">
+                                                    {brand.category}
+                                                </Badge>
+                                            )}
+                                            {brand.purchasedFrom && (
+                                                <span className="inline-flex items-center gap-1">
+                                                    <ShoppingCart className="h-3 w-3" />
+                                                    Purchased from {brand.purchasedFrom}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex space-x-2">
-                                        <Button
-                                            onClick={() => handleEditBrand(brand.id)}
-                                            variant="ghost"
-                                            size="sm"
-                                        >
-                                            <Edit className="text-muted-foreground" />
+                                    <div className="flex items-center gap-2">
+                                        <Button variant="ghost" size="icon" onClick={() => handleEditBrand(brand.id)}>
+                                            <Edit className="h-4 w-4" />
                                         </Button>
-                                        <Button
-                                            onClick={() => openDeleteModal(brand.id)}
-                                            variant="ghost"
-                                            size="sm"
-                                        >
-                                            <Trash className="text-red-500" />
+                                        <Button variant="ghost" size="icon" onClick={() => openDeleteModal(brand.id)}>
+                                            <Trash className="h-4 w-4 text-red-500" />
                                         </Button>
                                     </div>
                                 </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                                        <div className="flex items-center gap-2 font-semibold text-foreground">
+                                            <CheckCircle className="h-4 w-4 text-green-600" />
+                                            Pros
+                                        </div>
+                                        {brand.pros.length > 0 ? (
+                                            <ul className="list-disc space-y-1 text-muted-foreground pl-5">
+                                                {brand.pros.map((pro, index) => (
+                                                    <li key={index}>{pro}</li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-xs italic text-muted-foreground">No pros recorded.</p>
+                                        )}
+                                    </div>
+                                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                                        <div className="flex items-center gap-2 font-semibold text-foreground">
+                                            <XCircle className="h-4 w-4 text-red-600" />
+                                            Cons
+                                        </div>
+                                        {brand.cons.length > 0 ? (
+                                            <ul className="list-disc space-y-1 text-muted-foreground pl-5">
+                                                {brand.cons.map((con, index) => (
+                                                    <li key={index}>{con}</li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-xs italic text-muted-foreground">No cons recorded.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {(brand.steelQuantitySold != null || brand.cementQuantitySold != null) && (
+                                    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground border rounded-md p-3 bg-muted/30">
+                                        {brand.steelQuantitySold != null && (
+                                            <span className="inline-flex items-center gap-1">
+                                                <Package className="h-3 w-3" />
+                                                Steel Qty: {brand.steelQuantitySold}
+                                            </span>
+                                        )}
+                                        {brand.cementQuantitySold != null && (
+                                            <span className="inline-flex items-center gap-1">
+                                                <Package className="h-3 w-3" />
+                                                Cement Qty: {brand.cementQuantitySold}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     ))}

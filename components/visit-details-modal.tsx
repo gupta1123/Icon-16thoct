@@ -32,6 +32,7 @@ interface VisitDetailsModalProps {
     visitData: unknown[];
     selectedDate: string;
     employeeName: string;
+    hideViewAction?: boolean;
 }
 
 const getOutcomeStatus = (visit: { outcome?: string; checkinDate?: string; checkinTime?: string; checkoutDate?: string; checkoutTime?: string }): { emoji: React.ReactNode; status: string; color: string } => {
@@ -60,7 +61,7 @@ const formatDateTime = (dateString: string, timeString: string) => {
     return `${month} ${day} '${year} ${time}`;
 };
 
-const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName }) => {
+const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName, hideViewAction = false }) => {
     const [selectedVisit, setSelectedVisit] = useState<Record<string, unknown> | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const visitsPerPage = 7;
@@ -149,7 +150,9 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                 <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[12%]">Purpose</TableHead>
                                                 <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Visit Start</TableHead>
                                                 <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Visit End</TableHead>
-                                                <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[10%]">Actions</TableHead>
+                                                {!hideViewAction && (
+                                                  <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[10%]">Actions</TableHead>
+                                                )}
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -192,12 +195,14 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                         >
                                                             {formatDateTime(v.checkoutDate || '', v.checkoutTime || '') || ''}
                                                         </TableCell>
-                                                        <TableCell className="text-center px-3 py-3 w-[10%]">
-                                                            <Button size="sm" variant="outline" onClick={() => handleViewDetails(v.id)}>
-                                                                <FontAwesomeIcon icon={faEye} className="mr-1 h-3 w-3" />
-                                                                View
-                                                            </Button>
-                                                        </TableCell>
+                                                        {!hideViewAction && (
+                                                          <TableCell className="text-center px-3 py-3 w-[10%]">
+                                                              <Button size="sm" variant="outline" onClick={() => handleViewDetails(v.id)}>
+                                                                  <FontAwesomeIcon icon={faEye} className="mr-1 h-3 w-3" />
+                                                                  View
+                                                              </Button>
+                                                          </TableCell>
+                                                        )}
                                                     </TableRow>
                                                 );
                                             })}

@@ -33,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import AddTeam from "@/components/AddTeam";
 import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
+import { normalizeRoleValue } from "@/lib/role-utils";
 
 interface User {
   id: number;
@@ -136,18 +137,13 @@ export default function EmployeeList() {
   // Location state for employee
   const [employeeStates, setEmployeeStates] = useState<StateDto[]>([]);
   const [employeeDistricts, setEmployeeDistricts] = useState<DistrictDto[]>([]);
-  const [employeeSubDistricts, setEmployeeSubDistricts] = useState<SubDistrictDto[]>([]);
-  const [employeeCities, setEmployeeCities] = useState<CityDto[]>([]);
   
   const [selectedEmployeeStateId, setSelectedEmployeeStateId] = useState<number | null>(null);
   const [selectedEmployeeDistrictId, setSelectedEmployeeDistrictId] = useState<number | null>(null);
-  const [selectedEmployeeSubDistrictId, setSelectedEmployeeSubDistrictId] = useState<number | null>(null);
   
   // Search states for location dropdowns
   const [employeeStateSearch, setEmployeeStateSearch] = useState('');
   const [employeeDistrictSearch, setEmployeeDistrictSearch] = useState('');
-  const [employeeSubDistrictSearch, setEmployeeSubDistrictSearch] = useState('');
-  const [employeeCitySearch, setEmployeeCitySearch] = useState('');
 
   // Filtered location data based on search
   const filteredEmployeeStates = employeeStates.filter(state =>
@@ -157,20 +153,11 @@ export default function EmployeeList() {
   const filteredEmployeeDistricts = employeeDistricts.filter(district =>
     district.districtName.toLowerCase().includes(employeeDistrictSearch.toLowerCase())
   );
-  
-  const filteredEmployeeSubDistricts = employeeSubDistricts.filter(subDistrict =>
-    subDistrict.subDistrictName.toLowerCase().includes(employeeSubDistrictSearch.toLowerCase())
-  );
-  
-  const filteredEmployeeCities = employeeCities.filter(city =>
-    city.cityName.toLowerCase().includes(employeeCitySearch.toLowerCase())
-  );
 
   // Additional state for new employee form
   const initialNewEmployeeState = {
     firstName: "",
     lastName: "",
-    employeeId: "",
     primaryContact: "",
     secondaryContact: "",
     departmentName: "",
@@ -185,6 +172,7 @@ export default function EmployeeList() {
     dateOfJoining: "",
     userName: "",
     password: "",
+    subDistrict: "",
   };
   const [newEmployee, setNewEmployee] = useState(initialNewEmployeeState);
 
@@ -464,7 +452,6 @@ export default function EmployeeList() {
         employee: {
           firstName: newEmployee.firstName,
           lastName: newEmployee.lastName,
-          employeeId: newEmployee.employeeId,
           primaryContact: newEmployee.primaryContact,
           secondaryContact: newEmployee.secondaryContact,
           departmentName: newEmployee.departmentName,
@@ -477,6 +464,7 @@ export default function EmployeeList() {
           country: newEmployee.country,
           pincode: newEmployee.pincode,
           dateOfJoining: newEmployee.dateOfJoining,
+          subDistrict: newEmployee.subDistrict,
         },
       };
 
@@ -536,6 +524,14 @@ export default function EmployeeList() {
         }
 
         setIsModalOpen(false);
+        setActiveTab('tab1');
+        setNewEmployee(initialNewEmployeeState);
+        setSelectedEmployeeStateId(null);
+        setSelectedEmployeeDistrictId(null);
+        setEmployeeStateSearch('');
+        setEmployeeDistrictSearch('');
+        setPrimaryContactError(null);
+        setSecondaryContactError(null);
         fetchEmployees();
       } else {
         const errorText = await response.text();
@@ -643,20 +639,14 @@ export default function EmployeeList() {
     const fetchEmployeeDistricts = async () => {
       if (!selectedEmployeeStateId) {
         setEmployeeDistricts([]);
-        setEmployeeSubDistricts([]);
-        setEmployeeCities([]);
         setSelectedEmployeeDistrictId(null);
-        setSelectedEmployeeSubDistrictId(null);
         return;
       }
 
       try {
         const districtsData = await API.getDistrictsByStateId(selectedEmployeeStateId);
         setEmployeeDistricts(districtsData);
-        setEmployeeSubDistricts([]);
-        setEmployeeCities([]);
         setSelectedEmployeeDistrictId(null);
-        setSelectedEmployeeSubDistrictId(null);
       } catch (error) {
         console.error('Error fetching districts:', error);
         setEmployeeDistricts([]);
@@ -665,50 +655,6 @@ export default function EmployeeList() {
 
     fetchEmployeeDistricts();
   }, [selectedEmployeeStateId]);
-
-  // Load sub-districts when district changes
-  useEffect(() => {
-    const fetchEmployeeSubDistricts = async () => {
-      if (!selectedEmployeeDistrictId) {
-        setEmployeeSubDistricts([]);
-        setEmployeeCities([]);
-        setSelectedEmployeeSubDistrictId(null);
-        return;
-      }
-
-      try {
-        const subDistrictsData = await API.getSubDistrictsByDistrictId(selectedEmployeeDistrictId);
-        setEmployeeSubDistricts(subDistrictsData);
-        setEmployeeCities([]);
-        setSelectedEmployeeSubDistrictId(null);
-      } catch (error) {
-        console.error('Error fetching sub-districts:', error);
-        setEmployeeSubDistricts([]);
-      }
-    };
-
-    fetchEmployeeSubDistricts();
-  }, [selectedEmployeeDistrictId]);
-
-  // Load cities when sub-district changes
-  useEffect(() => {
-    const fetchEmployeeCities = async () => {
-      if (!selectedEmployeeSubDistrictId) {
-        setEmployeeCities([]);
-        return;
-      }
-
-      try {
-        const citiesData = await API.getCitiesBySubDistrictId(selectedEmployeeSubDistrictId);
-        setEmployeeCities(citiesData);
-      } catch (error) {
-        console.error('Error fetching cities:', error);
-        setEmployeeCities([]);
-      }
-    };
-
-    fetchEmployeeCities();
-  }, [selectedEmployeeSubDistrictId]);
 
   // Helper functions
   const getInitials = (firstName: string, lastName: string) => {
@@ -724,6 +670,7 @@ export default function EmployeeList() {
     const roleMap: { [key: string]: string } = {
       'hr': 'HR',
       'regional manager': 'Regional Manager',
+      'regional_manager': 'Regional Manager',
       'office manager': 'Office Manager',
       'manager': 'Regional Manager',
       'coordinator': 'Coordinator',
@@ -744,6 +691,7 @@ export default function EmployeeList() {
     const roleColorMap: { [key: string]: string } = {
       'hr': 'bg-pink-100 text-pink-800 border-pink-200',
       'regional manager': 'bg-purple-100 text-purple-800 border-purple-200',
+      'regional_manager': 'bg-purple-100 text-purple-800 border-purple-200',
       'office manager': 'bg-indigo-100 text-indigo-800 border-indigo-200',
       'manager': 'bg-purple-100 text-purple-800 border-purple-200',
       'coordinator': 'bg-orange-100 text-orange-800 border-orange-200',
@@ -1085,7 +1033,12 @@ export default function EmployeeList() {
         <>
           {/* Mobile view */}
           <div className="md:hidden space-y-4">
-            {currentUsers.map((user) => (
+            {currentUsers.map((user) => {
+              const normalizedRole = normalizeRoleValue(user.role ?? null);
+              const showAssignedCities = normalizedRole === "FIELD_OFFICER" || normalizedRole === "REGIONAL_MANAGER";
+              const canAssignCities = normalizedRole === "FIELD_OFFICER";
+
+              return (
               <Card key={user.id} className="overflow-hidden">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
@@ -1164,7 +1117,7 @@ export default function EmployeeList() {
                           <MapPin className="text-blue-500 h-4 w-4 mt-0.5" />
                           <div className="flex-1">
                             <span className="font-medium">Assigned Cities:</span>
-                            {user.role?.toLowerCase() === 'field officer' ? (
+                            {showAssignedCities ? (
                               user.assignedCity && user.assignedCity.length > 0 ? (
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {user.assignedCity.map((city, idx) => (
@@ -1176,14 +1129,16 @@ export default function EmployeeList() {
                               ) : (
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className="text-xs text-muted-foreground">No cities assigned</span>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0"
-                                    onClick={() => openAssignCityModal(user)}
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
+                                  {canAssignCities && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0"
+                                      onClick={() => openAssignCityModal(user)}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                  )}
                                 </div>
                               )
                             ) : (
@@ -1222,9 +1177,10 @@ export default function EmployeeList() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                </CardContent>
+              </CardContent>
               </Card>
-            ))}
+            );
+            })}
           </div>
 
           {/* Desktop view */}
@@ -1303,7 +1259,12 @@ export default function EmployeeList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {currentUsers.map((user) => (
+                {currentUsers.map((user) => {
+                  const normalizedRole = normalizeRoleValue(user.role ?? null);
+                  const showAssignedCities = normalizedRole === "FIELD_OFFICER" || normalizedRole === "REGIONAL_MANAGER";
+                  const canAssignCities = normalizedRole === "FIELD_OFFICER";
+
+                  return (
                   <TableRow key={user.id}>
                     {selectedColumns.includes('name') && (
                       <TableCell className="font-medium w-48 truncate" title={`${user.firstName} ${user.lastName}`}>{`${user.firstName} ${user.lastName}`}</TableCell>
@@ -1321,7 +1282,7 @@ export default function EmployeeList() {
                     {selectedColumns.includes('state') && <TableCell className="w-32 truncate" title={user.state}>{user.state}</TableCell>}
                     {selectedColumns.includes('assignedCities') && (
                       <TableCell className="w-40">
-                        {user.role?.toLowerCase() === 'field officer' ? (
+                        {showAssignedCities ? (
                           user.assignedCity && user.assignedCity.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {user.assignedCity.map((city, idx) => (
@@ -1333,14 +1294,16 @@ export default function EmployeeList() {
                           ) : (
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">No cities assigned</span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 w-6 p-0"
-                                onClick={() => openAssignCityModal(user)}
-                              >
-                                <Plus className="h-3 w-3" />
-                              </Button>
+                              {canAssignCities && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => openAssignCityModal(user)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              )}
                             </div>
                           )
                         ) : (
@@ -1378,11 +1341,12 @@ export default function EmployeeList() {
                       </TableCell>
                     )}
                   </TableRow>
-                ))}
+                );
+                })}
               </TableBody>
-                </Table>
-              </div>
-            </div>
+            </Table>
+          </div>
+        </div>
           </div>
 
           {/* Pagination Controls */}
@@ -1461,11 +1425,8 @@ export default function EmployeeList() {
           // Reset location selections
           setSelectedEmployeeStateId(null);
           setSelectedEmployeeDistrictId(null);
-          setSelectedEmployeeSubDistrictId(null);
           setEmployeeStateSearch('');
           setEmployeeDistrictSearch('');
-          setEmployeeSubDistrictSearch('');
-          setEmployeeCitySearch('');
           setPrimaryContactError(null);
           setSecondaryContactError(null);
         }
@@ -1509,15 +1470,6 @@ export default function EmployeeList() {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="employeeId">Employee ID</Label>
-                    <Input
-                      id="employeeId"
-                      name="employeeId"
-                      value={newEmployee.employeeId}
-                      onChange={handleInputChange}
-                    />
-                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="primaryContact">
                       Primary Contact <span className="text-red-500">*</span>
@@ -1582,178 +1534,117 @@ export default function EmployeeList() {
                     onChange={handleInputChange}
                   />
                 </div>
-                {/* State Dropdown */}
-                <div className="space-y-2">
-                  <Label htmlFor="state">State</Label>
-                  <Select
-                    value={selectedEmployeeStateId?.toString() || ''}
-                    onValueChange={(value) => {
-                      const stateId = parseInt(value);
-                      setSelectedEmployeeStateId(stateId);
-                      const selectedState = employeeStates.find(s => s.id === stateId);
-                      if (selectedState) {
-                        setNewEmployee({ ...newEmployee, state: selectedState.stateName });
-                      }
-                      setEmployeeStateSearch('');
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search state..."
-                          value={employeeStateSearch}
-                          onChange={(e) => setEmployeeStateSearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredEmployeeStates.length > 0 ? (
-                          filteredEmployeeStates.map((state) => (
-                            <SelectItem key={state.id} value={state.id.toString()}>
-                              {state.stateName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No state found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
+                {/* State & District */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="state">State</Label>
+                    <Select
+                      value={selectedEmployeeStateId?.toString() || ''}
+                      onValueChange={(value) => {
+                        const stateId = parseInt(value);
+                        setSelectedEmployeeStateId(stateId);
+                        const selectedState = employeeStates.find(s => s.id === stateId);
+                        if (selectedState) {
+                          setNewEmployee({ ...newEmployee, state: selectedState.stateName });
+                        }
+                        setEmployeeStateSearch('');
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select state" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <div className="sticky top-0 bg-background p-2 border-b">
+                          <Input
+                            placeholder="Search state..."
+                            value={employeeStateSearch}
+                            onChange={(e) => setEmployeeStateSearch(e.target.value)}
+                            className="h-8"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto">
+                          {filteredEmployeeStates.length > 0 ? (
+                            filteredEmployeeStates.map((state) => (
+                              <SelectItem key={state.id} value={state.id.toString()}>
+                                {state.stateName}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <div className="py-6 text-center text-sm text-muted-foreground">
+                              No state found
+                            </div>
+                          )}
+                        </div>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="district">District</Label>
+                    <Select
+                      value={selectedEmployeeDistrictId?.toString() || ''}
+                      onValueChange={(value) => {
+                        const districtId = parseInt(value);
+                        setSelectedEmployeeDistrictId(districtId);
+                        setEmployeeDistrictSearch('');
+                      }}
+                      disabled={!selectedEmployeeStateId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={!selectedEmployeeStateId ? "Select state first" : "Select district"} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <div className="sticky top-0 bg-background p-2 border-b">
+                          <Input
+                            placeholder="Search district..."
+                            value={employeeDistrictSearch}
+                            onChange={(e) => setEmployeeDistrictSearch(e.target.value)}
+                            className="h-8"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto">
+                          {filteredEmployeeDistricts.length > 0 ? (
+                            filteredEmployeeDistricts.map((district) => (
+                              <SelectItem key={district.id} value={district.id.toString()}>
+                                {district.districtName}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <div className="py-6 text-center text-sm text-muted-foreground">
+                              No district found
+                            </div>
+                          )}
+                        </div>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
-                {/* District Dropdown */}
-                <div className="space-y-2">
-                  <Label htmlFor="district">District</Label>
-                  <Select
-                    value={selectedEmployeeDistrictId?.toString() || ''}
-                    onValueChange={(value) => {
-                      const districtId = parseInt(value);
-                      setSelectedEmployeeDistrictId(districtId);
-                      setEmployeeDistrictSearch('');
-                    }}
-                    disabled={!selectedEmployeeStateId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedEmployeeStateId ? "Select state first" : "Select district"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search district..."
-                          value={employeeDistrictSearch}
-                          onChange={(e) => setEmployeeDistrictSearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredEmployeeDistricts.length > 0 ? (
-                          filteredEmployeeDistricts.map((district) => (
-                            <SelectItem key={district.id} value={district.id.toString()}>
-                              {district.districtName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No district found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Sub-District & City */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="subDistrict">Sub-District</Label>
+                    <Input
+                      id="subDistrict"
+                      placeholder="Enter sub-district"
+                      value={newEmployee.subDistrict}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, subDistrict: e.target.value })}
+                    />
+                  </div>
 
-                {/* Sub-District Dropdown */}
-                <div className="space-y-2">
-                  <Label htmlFor="subDistrict">Sub-District</Label>
-                  <Select
-                    value={selectedEmployeeSubDistrictId?.toString() || ''}
-                    onValueChange={(value) => {
-                      const subDistrictId = parseInt(value);
-                      setSelectedEmployeeSubDistrictId(subDistrictId);
-                      setEmployeeSubDistrictSearch('');
-                    }}
-                    disabled={!selectedEmployeeDistrictId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedEmployeeDistrictId ? "Select district first" : "Select sub-district"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search sub-district..."
-                          value={employeeSubDistrictSearch}
-                          onChange={(e) => setEmployeeSubDistrictSearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredEmployeeSubDistricts.length > 0 ? (
-                          filteredEmployeeSubDistricts.map((subDistrict) => (
-                            <SelectItem key={subDistrict.id} value={subDistrict.id.toString()}>
-                              {subDistrict.subDistrictName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No sub-district found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* City Dropdown */}
-                <div className="space-y-2">
-                  <Label htmlFor="city">City</Label>
-                  <Select
-                    value={newEmployee.city || ''}
-                    onValueChange={(value) => {
-                      setNewEmployee({ ...newEmployee, city: value });
-                      setEmployeeCitySearch('');
-                    }}
-                    disabled={!selectedEmployeeSubDistrictId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedEmployeeSubDistrictId ? "Select sub-district first" : "Select city"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search city..."
-                          value={employeeCitySearch}
-                          onChange={(e) => setEmployeeCitySearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredEmployeeCities.length > 0 ? (
-                          filteredEmployeeCities.map((city) => (
-                            <SelectItem key={city.id} value={city.cityName}>
-                              {city.cityName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No city found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      placeholder="Enter city"
+                      value={newEmployee.city}
+                      onChange={(e) => setNewEmployee({ ...newEmployee, city: e.target.value })}
+                    />
+                  </div>
                 </div>
 
                 {/* Country */}
@@ -1811,7 +1702,7 @@ export default function EmployeeList() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="HR">HR</SelectItem>
-                        <SelectItem value="Manager">Regional Manager</SelectItem>
+                        <SelectItem value="Regional_Manager">Regional Manager</SelectItem>
                         <SelectItem value="Coordinator">Coordinator</SelectItem>
                         <SelectItem value="Data Manager">Data Manager</SelectItem>
                         <SelectItem value="Field Officer">Field Officer</SelectItem>
@@ -1991,11 +1882,10 @@ export default function EmployeeList() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="HR">HR</SelectItem>
-                      <SelectItem value="regional manager">Regional Manager</SelectItem>
-                      <SelectItem value="office manager">Office Manager</SelectItem>
+                      <SelectItem value="Regional_Manager">Regional Manager</SelectItem>
                       <SelectItem value="Coordinator">Coordinator</SelectItem>
                       <SelectItem value="Data Manager">Data Manager</SelectItem>
-                      <SelectItem value="field officer">Field Officer</SelectItem>
+                      <SelectItem value="Field Officer">Field Officer</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

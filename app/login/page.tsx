@@ -106,7 +106,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Right: image with logo overlay */}
+        {/* Right: image */}
         <div className="relative hidden md:block">
           <Image
             src="/Lightanddarkmode.png"
@@ -119,20 +119,6 @@ export default function LoginPage() {
 
           {/* Subtle overlay for better contrast */}
           <div className="absolute inset-0 bg-white/5 dark:bg-black/20" />
-
-          {/* Centered logo with theme-aware styling */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full bg-white/90 p-3 shadow-2xl backdrop-blur-md dark:bg-zinc-800/90">
-              <Image
-                src="/GajkesariLogo.jpeg"
-                alt="Gajkesari Logo"
-                width={70}
-                height={70}
-                className="object-contain grayscale-0 dark:grayscale transition-all duration-500 drop-shadow-lg"
-                priority
-              />
-            </div>
-          </div>
         </div>
       </div>
     </div>

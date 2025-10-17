@@ -350,6 +350,7 @@ export default function HRAttendance() {
         visitData={visitData}
         selectedDate={selectedDate}
         employeeName={selectedEmployeeName}
+        hideViewAction
       />
     </div>
   );

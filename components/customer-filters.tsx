@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { XIcon, SlidersHorizontal } from "lucide-react";
-import { API, type EmployeeUserDto } from "@/lib/api";
+import { API, type EmployeeDto } from "@/lib/api";
+import { normalizeRoleValue } from "@/lib/role-utils";
 
 // Mock data for filters (passed as props)
 const cities = ["New York", "Los Angeles", "Chicago", "Houston", "Miami"];
@@ -32,18 +33,13 @@ export default function CustomerFilters({
   resetFilters,
 }: CustomerFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [fieldOfficers, setFieldOfficers] = useState<EmployeeUserDto[]>([]);
+  const [fieldOfficers, setFieldOfficers] = useState<EmployeeDto[]>([]);
 
   useEffect(() => {
     const fetchFieldOfficers = async () => {
       try {
-        // Fetch all employees and filter for field officers only
-        const allEmployees = await API.getAllEmployees();
-        
-        // Filter for field officers only (handle case variations)
-        const fieldOfficerList = allEmployees.filter(employee => 
-          employee.role?.toLowerCase() === 'field officer'
-        );
+        // Use the dedicated API endpoint for field officers
+        const fieldOfficerList = await API.getAllFieldOfficers();
         
         setFieldOfficers(fieldOfficerList);
         console.log('Field Officers loaded for filters:', fieldOfficerList);
@@ -153,7 +149,7 @@ export default function CustomerFilters({
                   </SelectContent>
                 </Select>
               </div>
-              {/* Intent Level filter removed */}
+             
               <div className="space-y-2">
                 <Label>Client Type</Label>
                 <Select

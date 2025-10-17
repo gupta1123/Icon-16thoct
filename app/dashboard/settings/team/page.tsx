@@ -46,6 +46,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { normalizeRoleValue } from "@/lib/role-utils";
 
 type TeamCardProps = {
   team: TeamResponseDto;
@@ -56,6 +57,25 @@ type TeamCardProps = {
   canDelete: boolean;
   canModify: boolean;
   isDeleting: boolean;
+};
+
+const getTeamCategory = (team: TeamResponseDto): 'coordinator' | 'regional' | null => {
+  const normalizedTeamType = typeof team.teamType === 'string' ? team.teamType.toUpperCase() : '';
+  if (normalizedTeamType === 'COORDINATOR_TEAM') {
+    return 'coordinator';
+  }
+  if (normalizedTeamType === 'REGIONAL_MANAGER_TEAM') {
+    return 'regional';
+  }
+
+  const officeRole = normalizeRoleValue(team.officeManager?.role ?? null);
+  if (officeRole === 'COORDINATOR') {
+    return 'coordinator';
+  }
+  if (officeRole && ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER'].includes(officeRole)) {
+    return 'regional';
+  }
+  return null;
 };
 
 const formatEmployeeName = (employee: EmployeeDto | null | undefined) => {
@@ -270,24 +290,46 @@ export default function TeamSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteInProgress, setDeleteInProgress] = useState<number | null>(null);
 
+  const assignedFieldOfficerIdsByType = useMemo(() => {
+    const coordinator = new Set<number>();
+    const regional = new Set<number>();
+
+    teams.forEach((team) => {
+      const category = getTeamCategory(team);
+      if (!category) return;
+      team.fieldOfficers.forEach((officer) => {
+        if (category === 'coordinator') {
+          coordinator.add(officer.id);
+        } else {
+          regional.add(officer.id);
+        }
+      });
+    });
+
+    return {
+      coordinator: Array.from(coordinator),
+      regional: Array.from(regional),
+    };
+  }, [teams]);
+
   const canCreateTeam = userRole === "ADMIN";
   const canModifyTeams =
     userRole === "ADMIN" || userRole === "COORDINATOR" || userRole === "REGIONAL_MANAGER";
 
   const managerOptions = useMemo(() => {
-    const allowedRoles = ["Coordinator", "Regional Manager"];
+    const allowedRoles = ["COORDINATOR", "REGIONAL_MANAGER"];
     const deduped = new Map<number, EmployeeDto>();
     managers.forEach((manager) => {
       deduped.set(manager.id, manager);
     });
     teams.forEach((team) => {
       const officeManager = team.officeManager;
-      if (officeManager && allowedRoles.includes(officeManager.role ?? "")) {
+      if (officeManager && allowedRoles.includes(normalizeRoleValue(officeManager.role) || "")) {
         deduped.set(officeManager.id, officeManager);
       }
     });
     return Array.from(deduped.values()).filter((manager) =>
-      allowedRoles.includes(manager.role ?? "")
+      allowedRoles.includes(normalizeRoleValue(manager.role) || "")
     );
   }, [managers, teams]);
 
@@ -297,8 +339,8 @@ export default function TeamSettings() {
     teams.forEach((team) => {
       team.fieldOfficers.forEach((officer) => deduped.set(officer.id, officer));
     });
-    return Array.from(deduped.values()).filter((officer) =>
-      officer.role?.toLowerCase().includes("field")
+    return Array.from(deduped.values()).filter(
+      (officer) => normalizeRoleValue(officer.role) === "FIELD_OFFICER"
     );
   }, [fieldOfficers, teams]);
 
@@ -323,15 +365,17 @@ export default function TeamSettings() {
   ) => {
     if (!manager) return officers;
     
+    const normalizedRole = normalizeRoleValue(manager.role);
+    
     // Coordinators can manage field officers from any city - no filtering needed
-    if (manager.role?.toLowerCase() === "coordinator") {
+    if (normalizedRole === "COORDINATOR") {
       return officers;
     }
     
     // Regional managers are restricted to their assigned cities
-    if (manager.role?.toLowerCase() === "regional manager" || 
-        manager.role?.toLowerCase() === "manager" ||
-        manager.role?.toLowerCase() === "office manager") {
+    if (normalizedRole === "REGIONAL_MANAGER" || 
+        normalizedRole === "MANAGER" ||
+        normalizedRole === "OFFICE_MANAGER") {
       const assignedCities = new Set(
         getAssignedCities(manager).map((city) => city.trim().toLowerCase())
       );
@@ -349,15 +393,33 @@ export default function TeamSettings() {
     return officers;
   };
 
-  const availableNewTeamOfficers = useMemo(
-    () =>
-      filterFieldOfficersForManager(
-        selectedNewManager,
-        fieldOfficerOptions,
-        newTeam.fieldOfficerIds
-      ).filter((officer) => !newTeam.fieldOfficerIds.includes(officer.id)),
-    [selectedNewManager, fieldOfficerOptions, newTeam.fieldOfficerIds]
-  );
+  const availableNewTeamOfficers = useMemo(() => {
+    const managerRole = normalizeRoleValue(selectedNewManager?.role ?? null);
+    const targetCategory = managerRole === "COORDINATOR" ? "coordinator" : managerRole ? "regional" : null;
+    const assignedSet = targetCategory
+      ? new Set(
+          targetCategory === "coordinator"
+            ? assignedFieldOfficerIdsByType.coordinator
+            : assignedFieldOfficerIdsByType.regional
+        )
+      : null;
+
+    return filterFieldOfficersForManager(
+      selectedNewManager,
+      fieldOfficerOptions,
+      newTeam.fieldOfficerIds
+    )
+      .filter((officer) => !newTeam.fieldOfficerIds.includes(officer.id))
+      .filter((officer) => {
+        if (!assignedSet) return true;
+        return !assignedSet.has(officer.id);
+      });
+  }, [
+    selectedNewManager,
+    fieldOfficerOptions,
+    newTeam.fieldOfficerIds,
+    assignedFieldOfficerIdsByType,
+  ]);
 
   const availableEditingTeamOfficers = useMemo(() => {
     const merged = filterFieldOfficersForManager(
@@ -365,8 +427,27 @@ export default function TeamSettings() {
       fieldOfficerOptions,
       editingFieldOfficerIds
     );
-    return merged.filter((officer) => !editingFieldOfficerIds.includes(officer.id));
-  }, [selectedEditingManager, fieldOfficerOptions, editingFieldOfficerIds]);
+    const managerRole = normalizeRoleValue(selectedEditingManager?.role ?? null);
+    const targetCategory = managerRole === "COORDINATOR" ? "coordinator" : managerRole ? "regional" : null;
+    const assignedSet = targetCategory
+      ? new Set(
+          targetCategory === "coordinator"
+            ? assignedFieldOfficerIdsByType.coordinator
+            : assignedFieldOfficerIdsByType.regional
+        )
+      : null;
+    return merged
+      .filter((officer) => !editingFieldOfficerIds.includes(officer.id))
+      .filter((officer) => {
+        if (!assignedSet) return true;
+        return !assignedSet.has(officer.id);
+      });
+  }, [
+    selectedEditingManager,
+    fieldOfficerOptions,
+    editingFieldOfficerIds,
+    assignedFieldOfficerIdsByType,
+  ]);
 
   useEffect(() => {
     const load = async () => {
@@ -403,9 +484,9 @@ export default function TeamSettings() {
     try {
       const directory = await API.getEmployeeDirectory();
       setManagers(
-        directory.filter((employee) =>
-          ["Coordinator", "Regional Manager", "Manager", "Office Manager"].includes(employee.role ?? "")
-        )
+        directory.filter((employee) => {
+          return ["COORDINATOR", "REGIONAL_MANAGER", "MANAGER", "OFFICE_MANAGER"].includes(normalizeRoleValue(employee.role) || "");
+        })
       );
 
       let officers: EmployeeDto[] = [];
@@ -421,8 +502,8 @@ export default function TeamSettings() {
         }
       } catch (err) {
         console.warn("Falling back to employee list for field officers", err);
-        officers = directory.filter((employee) =>
-          (employee.role ?? "").toLowerCase().includes("field")
+        officers = directory.filter(
+          (employee) => normalizeRoleValue(employee.role) === "FIELD_OFFICER"
         );
       }
       setFieldOfficers(officers);

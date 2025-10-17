@@ -46,7 +46,9 @@ import {
   ListTodo,
   MapPin as MapMarker,
   LogIn,
-  LogOut
+  LogOut,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
@@ -90,6 +92,15 @@ type Metric = {
   value: string;
 };
 
+type AttachmentResponse = {
+  id?: number | null;
+  tag: string;
+  fileName: string;
+  fileDownloadUri?: string;
+  fileType?: string;
+  size?: number | null;
+};
+
 interface RawTaskData {
   id: number;
   taskTitle?: string;
@@ -100,6 +111,11 @@ interface RawTaskData {
   dueDate?: string;
   taskType?: string;
   visitId?: number;
+  attachmentResponse?: AttachmentResponse[];
+}
+
+interface TaskWithAttachments extends Task {
+  attachmentResponse?: AttachmentResponse[];
 }
 
 type VisitDetail = {
@@ -127,6 +143,10 @@ type VisitDetail = {
   checkinDate?: string;  
   checkoutTime?: string;
   checkoutDate?: string; 
+  rating?: number;
+  status?: string;
+  storeLatitude?: number;
+  storeLongitude?: number;
 };
 
 interface Visit {
@@ -382,8 +402,8 @@ export default function VisitDetailPage() {
   const [brandProCons, setBrandProCons] = useState<BrandProCon[]>([]);
   const [intentAuditLogs, setIntentAuditLogs] = useState<IntentAuditLog[]>([]);
   const [monthlySaleChanges, setMonthlySaleChanges] = useState<MonthlySaleChange[]>([]);
-  const [requirements, setRequirements] = useState<Task[]>([]);
-  const [complaints, setComplaints] = useState<Task[]>([]);
+  const [requirements, setRequirements] = useState<TaskWithAttachments[]>([]);
+  const [complaints, setComplaints] = useState<TaskWithAttachments[]>([]);
   const [notes, setNotes] = useState<ApiNote[]>([]);
   const [storeVisits, setStoreVisits] = useState<VisitDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -396,14 +416,19 @@ export default function VisitDetailPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
-  const [filteredRequirements, setFilteredRequirements] = useState<Task[]>([]);
-  const [filteredComplaints, setFilteredComplaints] = useState<Task[]>([]);
+  const [filteredRequirements, setFilteredRequirements] = useState<TaskWithAttachments[]>([]);
+  const [filteredComplaints, setFilteredComplaints] = useState<TaskWithAttachments[]>([]);
   const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false);
   const [isComplaintModalOpen, setIsComplaintModalOpen] = useState(false);
+  const [isNavigatingToStore, setIsNavigatingToStore] = useState(false);
   const [activeRequirementTab, setActiveRequirementTab] = useState('general');
   const [activeComplaintTab, setActiveComplaintTab] = useState('general');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+  const [taskImages, setTaskImages] = useState<string[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [newTask, setNewTask] = useState<NewTask>({
     id: 0,
     taskTitle: '',
@@ -522,15 +547,8 @@ export default function VisitDetailPage() {
   };
 
   const getPriorityBadge = (priority: Priority) => {
-    const priorityColors: { [key in Priority]: string } = {
-      low: 'bg-green-100 text-green-800',
-      medium: 'bg-yellow-100 text-yellow-800',
-      high: 'bg-red-100 text-red-800',
-    };
-    const colorClass = priorityColors[priority] || 'bg-gray-100 text-gray-800';
-
     return (
-      <span className={`status-badge ${colorClass}`}>
+      <span className={`status-badge bg-black text-white dark:bg-neutral-900 dark:text-neutral-100`}>
         {priority}
       </span>
     );
@@ -607,7 +625,7 @@ export default function VisitDetailPage() {
         priority: visitData.priority || 'low',
         outcome: visitData.outcome || null,
         brandsInUse: (visitData.brandsInUse as string[]) || [],
-        brandProCons: (visitData.brandProCons as { id: number; brandName: string; pros: string[]; cons: string[]; }[]) || [],
+        brandProCons: (visitData.brandProCons as BrandProCon[]) || [],
         createdAt: visitData.createdAt || '',
         updatedAt: visitData.updatedAt || '',
         storeId: visitData.storeId || 0,
@@ -645,7 +663,7 @@ export default function VisitDetailPage() {
           setIntentAuditLogs(intentAuditData || []);
           setMonthlySaleChanges(monthlySaleData || []);
           // Normalize tasks for UI (use consistent keys)
-          const normalizedReqs = (requirementsData || []).map((t: RawTaskData) => ({
+          const normalizedReqs: TaskWithAttachments[] = (requirementsData || []).map((t: RawTaskData) => ({
             id: t.id,
             title: (t.taskTitle && String(t.taskTitle).trim()) || (t.taskDesciption || 'Requirement'),
             description: t.taskDesciption || '',
@@ -655,8 +673,9 @@ export default function VisitDetailPage() {
             dueDate: t.dueDate || '',
             type: t.taskType || 'requirement',
             visitId: t.visitId || Number(visitId),
+            attachmentResponse: t.attachmentResponse || [],
           }));
-          const normalizedCmps = (complaintsData || []).map((t: RawTaskData) => ({
+          const normalizedCmps: TaskWithAttachments[] = (complaintsData || []).map((t: RawTaskData) => ({
             id: t.id,
             title: (t.taskTitle && String(t.taskTitle).trim()) || (t.taskDesciption || 'Complaint'),
             description: t.taskDesciption || '',
@@ -666,6 +685,7 @@ export default function VisitDetailPage() {
             dueDate: t.dueDate || '',
             type: t.taskType || 'complaint',
             visitId: t.visitId || Number(visitId),
+            attachmentResponse: t.attachmentResponse || [],
           }));
           setRequirements(normalizedReqs);
           setComplaints(normalizedCmps);
@@ -764,9 +784,47 @@ export default function VisitDetailPage() {
     router.back();
   };
 
-  const handleViewStore = () => {
-    if (visitDetail && visitDetail.storeId) {
-      router.push(`/dashboard/customers/${visitDetail.storeId}`);
+  const handleViewStore = async () => {
+    if (!visitDetail?.storeId) return;
+    try {
+      setIsNavigatingToStore(true);
+      await router.push(`/dashboard/customers/${visitDetail.storeId}`);
+    } finally {
+      setIsNavigatingToStore(false);
+    }
+  };
+
+  const fetchTaskImages = async (taskId: number) => {
+    setIsLoadingImages(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      // First, fetch the task details
+      const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!taskResponse.ok) {
+        throw new Error('Failed to fetch task details');
+      }
+      const taskData = await taskResponse.json();
+
+      const attachments: AttachmentResponse[] = Array.isArray(taskData.attachmentResponse)
+        ? taskData.attachmentResponse
+        : [];
+
+      const imageUrls = attachments.map((attachment) =>
+        attachment.fileDownloadUri ??
+        `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`
+      );
+
+      setTaskImages(imageUrls);
+      setCurrentImageIndex(0);
+      setIsImagePreviewOpen(true);
+    } catch (error) {
+      console.error('Error fetching task images:', error);
+    } finally {
+      setIsLoadingImages(false);
     }
   };
 
@@ -776,7 +834,7 @@ export default function VisitDetailPage() {
   };
 
   const filterTasks = useCallback(() => {
-    const filterByPriority = (tasks: Task[]) => {
+    const filterByPriority = (tasks: TaskWithAttachments[]) => {
       if (priorityFilter === 'all') return tasks;
       return tasks.filter(task => task.priority === priorityFilter);
     };
@@ -836,7 +894,7 @@ export default function VisitDetailPage() {
       label: "Date & Time",
       value: visitDetail ? `${format(new Date(visitDetail.visit_date), "MMM d, yyyy")} at ${visitDetail.checkinTime || "N/A"}` : "N/A",
     },
-    { icon: Clock, label: "Duration", value: metrics.find(m => m.title === 'Visit Duration')?.value || "N/A" },
+    { icon: Clock, label: "Duration", value: visitDetail?.status === 'Assigned' ? '' : (metrics.find(m => m.title === 'Visit Duration')?.value || '') },
     { icon: User, label: "Visited by", value: visitDetail?.employeeName || "N/A" },
     { icon: Phone, label: "Phone", value: storeDetails?.contactNumber || "N/A" },
     { icon: Mail, label: "Email", value: "N/A" },
@@ -852,11 +910,15 @@ export default function VisitDetailPage() {
       label: "Priority",
       value: visitDetail?.priority || "N/A",
     },
+    {
+      label: "Rating",
+      value: typeof visitDetail?.rating === "number" ? `${visitDetail.rating}/5` : "N/A",
+    },
   ];
 
   const handleOpenLocation = () => {
     if (visitDetail?.checkinLatitude && visitDetail?.checkinLongitude) {
-      window.open(`https://www.google.com/maps?q=${visitDetail.checkinLatitude},${visitDetail.checkinLongitude}`, "_blank");
+      window.open(`https://www.google.com/maps/search/?api=1&query=${visitDetail.checkinLatitude},${visitDetail.checkinLongitude}`, "_blank");
     }
   };
 
@@ -1280,9 +1342,16 @@ export default function VisitDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Button className="w-full justify-start px-3 py-2 h-auto" variant="outline" onClick={handleViewStore}>
+                <Button
+                  className="w-full justify-start px-3 py-2 h-auto"
+                  variant="outline"
+                  onClick={handleViewStore}
+                  disabled={isNavigatingToStore}
+                >
                   <Store className="mr-2 h-4 w-4" />
-                  <span className="text-sm">View Store</span>
+                  <span className="text-sm">
+                    {isNavigatingToStore ? 'Opening Store…' : 'View Store'}
+                  </span>
                 </Button>
                 <Button className="w-full justify-start px-3 py-2 h-auto" variant="outline" onClick={() => setIsRequirementModalOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -1301,7 +1370,7 @@ export default function VisitDetailPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-foreground">Visit Duration</p>
-                    <p className="text-xs text-muted-foreground">{metrics.find(m => m.title === 'Visit Duration')?.value || 'N/A'}</p>
+                    <p className="text-xs text-muted-foreground">{visitDetail?.status === 'Assigned' ? '' : (metrics.find(m => m.title === 'Visit Duration')?.value || '')}</p>
                   </div>
                 </div>
               </div>
@@ -1462,7 +1531,15 @@ export default function VisitDetailPage() {
                         <p className="text-xs font-medium text-foreground">Location</p>
                         <div className="text-xs text-muted-foreground">
                           <p>{storeDetails?.address || 'N/A'}</p>
-                          {storeDetails?.city && (
+                          {(visitDetail?.storeLatitude && visitDetail?.storeLongitude) ? (
+                            <button
+                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${visitDetail.storeLatitude},${visitDetail.storeLongitude}`, "_blank")}
+                              className="text-foreground hover:text-muted-foreground transition-colors mt-1 inline-flex items-center gap-1 text-xs"
+                            >
+                              <ExternalLink className="w-2 h-2" />
+                              View on Maps
+                            </button>
+                          ) : storeDetails?.city ? (
                             <button
                               onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${visitDetail?.storeName} ${storeDetails?.address}`)}`, "_blank")}
                               className="text-foreground hover:text-muted-foreground transition-colors mt-1 inline-flex items-center gap-1 text-xs"
@@ -1470,7 +1547,7 @@ export default function VisitDetailPage() {
                               <ExternalLink className="w-2 h-2" />
                               View on Maps
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -1698,7 +1775,20 @@ export default function VisitDetailPage() {
                     <Card key={index} className="border-0 shadow-sm">
                       <CardContent className="p-3">
                         <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-medium text-foreground">{complaint.title}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-foreground">{complaint.title}</span>
+                            {Array.isArray(complaint.attachmentResponse) && complaint.attachmentResponse.length > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => fetchTaskImages(complaint.id)}
+                                title="View Images"
+                              >
+                                <ImageIcon className="h-4 w-4 text-blue-500" />
+                              </Button>
+                            )}
+                          </div>
                             <div className="flex gap-2">
                             {getPriorityBadge(complaint.priority as Priority)}
                             {getStatusBadge(complaint.status)}
@@ -2082,6 +2172,60 @@ export default function VisitDetailPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Task Image Preview Dialog */}
+      {isImagePreviewOpen && (
+        <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Complaint Images</DialogTitle>
+            </DialogHeader>
+            {isLoadingImages ? (
+              <div className="flex justify-center items-center h-64">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <span className="ml-2">Loading images...</span>
+              </div>
+            ) : taskImages.length > 0 ? (
+              <>
+                <div className="relative">
+                  <img
+                    src={taskImages[currentImageIndex]}
+                    alt={`Image ${currentImageIndex + 1}`}
+                    className="w-full h-auto"
+                  />
+                  {taskImages.length > 1 && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="absolute left-2 top-1/2 transform -translate-y-1/2"
+                        onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? taskImages.length - 1 : prev - 1))}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2"
+                        onClick={() => setCurrentImageIndex((prev) => (prev === taskImages.length - 1 ? 0 : prev + 1))}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+                <p className="text-center mt-2">
+                  Image {currentImageIndex + 1} of {taskImages.length}
+                </p>
+              </>
+            ) : (
+              <div className="text-center py-6">
+                <p>No images available</p>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Image Preview Modal */}

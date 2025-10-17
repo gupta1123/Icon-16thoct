@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye } from "lucide-react";
+import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Popover,
@@ -31,10 +31,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 // Removed dropdown menu imports as Actions now shows a direct link
-import { API, type CombinedTimelineItem, type VisitDto, type ActivityDto } from "@/lib/api";
+import { API, type CombinedTimelineItem, type VisitDto, type ActivityDto, type CurrentUserDto } from "@/lib/api";
 import { format as formatDate, formatDistanceToNow, isToday, isYesterday, parseISO } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
 
 type Row = {
   id: number;
@@ -127,9 +128,7 @@ const formatLastUpdated = (dateStr: string, timeStr?: string): string => {
 
 export default function VisitsTable() {
   const { userRole, currentUser } = useAuth();
-  // Role flags for gating actions
-  const isAdmin = userRole === 'ADMIN' || currentUser?.authorities?.some(a => a.authority === 'ROLE_ADMIN');
-  const isDataManager = userRole === 'DATA_MANAGER' || currentUser?.authorities?.some(a => a.authority === 'ROLE_DATA_MANAGER');
+  const [currentUserDetails, setCurrentUserDetails] = useState<CurrentUserDto | null>(null);
   
   // Set default date range to last 7 days
   const defaultEndDate = new Date();
@@ -160,9 +159,89 @@ export default function VisitsTable() {
   };
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   
-  const isManager = useMemo(() => {
-    return userRole === 'MANAGER' || currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER') || false;
-  }, [userRole, currentUser]);
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const data = await API.getCurrentUser();
+        if (isMounted) {
+          setCurrentUserDetails(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch current user details for visits page:', error);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const {
+    isAdmin,
+    isDataManager,
+    isCoordinator,
+    isRegionalManager,
+    isFieldOfficer,
+    isHR,
+    combinedRoles,
+    normalizedContextRole,
+  } = useMemo(() => {
+    const normalizedContextRole = normalizeRoleValue(userRole);
+    const contextAuthorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
+    const apiAuthorityRoles = extractAuthorityRoles(currentUserDetails?.authorities ?? null);
+    const combinedSet = new Set<string>([...contextAuthorityRoles, ...apiAuthorityRoles]);
+    if (normalizedContextRole) {
+      combinedSet.add(normalizedContextRole);
+    }
+    const combinedArray = Array.from(combinedSet);
+
+    return {
+      normalizedContextRole,
+      combinedRoles: combinedArray,
+      isAdmin: hasAnyRole(normalizedContextRole, combinedArray, ['ADMIN']),
+      isDataManager: hasAnyRole(normalizedContextRole, combinedArray, ['DATA_MANAGER']),
+      isCoordinator: hasAnyRole(normalizedContextRole, combinedArray, ['COORDINATOR']),
+      isRegionalManager: hasAnyRole(normalizedContextRole, combinedArray, ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER']),
+      isFieldOfficer: hasAnyRole(normalizedContextRole, combinedArray, ['FIELD_OFFICER']),
+      isHR: hasAnyRole(normalizedContextRole, combinedArray, ['HR']),
+    };
+  }, [userRole, currentUser, currentUserDetails]);
+
+  // Get display role for badge
+  useEffect(() => {
+    console.log('Role Detection Debug (Visits):', {
+      userRole,
+      normalizedContextRole,
+      combinedRoles,
+      isAdmin,
+      isDataManager,
+      isRegionalManager,
+      isCoordinator,
+      isFieldOfficer,
+      isHR,
+    });
+  }, [
+    userRole,
+    normalizedContextRole,
+    combinedRoles,
+    isAdmin,
+    isDataManager,
+    isRegionalManager,
+    isCoordinator,
+    isFieldOfficer,
+    isHR,
+  ]);
+
+  const getDisplayRole = useMemo(() => {
+    if (isAdmin) return 'Admin View';
+    if (isDataManager) return 'Data Manager View';
+    if (isCoordinator) return 'Coordinator View';
+    if (isRegionalManager) return 'Regional Manager View';
+    if (isFieldOfficer) return 'Field Officer View';
+    if (isHR) return 'HR View';
+    return 'User View';
+  }, [isAdmin, isDataManager, isCoordinator, isRegionalManager, isFieldOfficer, isHR]);
 
   const mapVisitToRow = (visit: VisitDto): Row => ({
     id: visit.id,
@@ -381,11 +460,23 @@ export default function VisitsTable() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Visits</CardTitle>
-          {userRole && (
-            <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
-              {isManager ? "Manager View" : "Admin View"}
-            </Badge>
-          )}
+          <div className="flex items-center gap-3">
+            {userRole && (
+              <Badge variant={isRegionalManager ? "secondary" : "default"} className="text-xs">
+                {getDisplayRole}
+              </Badge>
+            )}
+            {(isRegionalManager || isDataManager) && (
+              <Button 
+                size="sm" 
+                onClick={() => router.push('/dashboard/visits/add')}
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add Visit
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="w-full">

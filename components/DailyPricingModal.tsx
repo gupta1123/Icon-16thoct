@@ -16,7 +16,7 @@ interface DailyPricingModalProps {
 const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricingModalProps) => {
   const { token } = useAuth();
   const [newBrand, setNewBrand] = useState({
-    brandName: 'Gajkesari',
+    brandName: 'Icon Steel',
     price: '',
     city: ''
   });
@@ -24,7 +24,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
 
   const handleResetForm = () => {
     setNewBrand({
-      brandName: 'Gajkesari',
+      brandName: 'Icon Steel',
       price: '',
       city: ''
     });
