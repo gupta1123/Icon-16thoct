@@ -1,9 +1,7 @@
 // API service for WebSalesV3 - All endpoints from api.md
-// Use Next.js proxy to avoid CORS issues with ngrok
-// In production, change this to your actual backend URL
-const API_BASE_URL = typeof window !== 'undefined' 
-  ? '/api/proxy'  // Client-side: use Next.js proxy
-  : 'http://localhost:8081';  // Server-side: direct call
+// Use Next.js proxy to avoid CORS issues
+// Always use the proxy route for consistency between client and server
+const API_BASE_URL = '/api/proxy';
 
 // Types based on API responses from api.md
 export interface EmployeeDto {
