@@ -7,11 +7,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { 
   Calendar,
   Sun,
   CloudSun,
-  XCircle
+  XCircle,
+  Info
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Heading, Text } from "@/components/ui/typography";
@@ -45,9 +51,13 @@ interface AttendanceData {
   id: number;
   employeeId: number;
   employeeName: string;
-  attendanceStatus: 'full day' | 'half day' | 'absent';
+  attendanceStatus: string;
   checkinDate: string;
   checkoutDate: string;
+  visitCount?: number;
+  assignedVisits?: number;
+  hasActivity?: boolean;
+  activityCount?: number;
 }
 
 interface EmployeeAttendanceCardProps {
@@ -95,6 +105,39 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     [attendanceData, employee.id]
   );
 
+  // Calculate full days breakdown
+  const fullDaysBreakdown = useMemo(() => {
+    const breakdown = {
+      visitBasedFullDays: 0,
+      activityBasedFullDays: 0,
+      paidLeaves: 0,
+      total: 0
+    };
+
+    filteredAttendanceData.forEach((data) => {
+      const status = data.attendanceStatus?.toLowerCase() || '';
+      if (status === 'paid leave') {
+        breakdown.paidLeaves++;
+      } else if (status === 'full day (activity)') {
+        breakdown.activityBasedFullDays++;
+      } else if (status === 'full day') {
+        breakdown.visitBasedFullDays++;
+      }
+    });
+
+    breakdown.total = breakdown.visitBasedFullDays + breakdown.activityBasedFullDays + breakdown.paidLeaves;
+    return breakdown;
+  }, [filteredAttendanceData]);
+
+  // Get employee initials
+  const getInitials = (name: string) => {
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0]?.substring(0, 2).toUpperCase() || '??';
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "present": return "bg-green-500 dark:bg-green-600";
@@ -116,7 +159,9 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-gray-200 border-2 border-dashed rounded-xl w-10 h-10 dark:bg-gray-700" />
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl w-10 h-10 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+                {getInitials(employee.name)}
+              </div>
               <div>
                 <Heading as="h3" size="lg" weight="semibold" className="text-foreground dark:text-gray-200">
                   {employee.name}
@@ -130,17 +175,54 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg text-center">
-              <div className="flex items-center justify-center mb-0.5">
-                <Sun className="h-3 w-3 text-green-600 dark:text-green-400" />
-              </div>
-              <Heading as="p" size="md" weight="semibold" className="text-green-800 dark:text-green-300">
-                {summary.fullDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-green-700 dark:text-green-400">
-                Full Days
-              </Text>
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg text-center cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors">
+                  <div className="flex items-center justify-center mb-0.5 gap-1">
+                    <Sun className="h-3 w-3 text-green-600 dark:text-green-400" />
+                    <Info className="h-2.5 w-2.5 text-green-500 dark:text-green-400 opacity-60" />
+                  </div>
+                  <Heading as="p" size="md" weight="semibold" className="text-green-800 dark:text-green-300">
+                    {summary.fullDays}
+                  </Heading>
+                  <Text size="xs" tone="muted" className="text-green-700 dark:text-green-400">
+                    Full Days
+                  </Text>
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-64" align="start">
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm mb-3 border-b pb-2">Full Days Breakdown</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground flex items-center gap-2">
+                        <div className="w-3 h-3 bg-green-500 rounded"></div>
+                        Visit-based
+                      </span>
+                      <span className="font-semibold">{fullDaysBreakdown.visitBasedFullDays}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground flex items-center gap-2">
+                        <div className="w-3 h-3 bg-cyan-500 rounded"></div>
+                        Activity-based
+                      </span>
+                      <span className="font-semibold">{fullDaysBreakdown.activityBasedFullDays}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground flex items-center gap-2">
+                        <div className="w-3 h-3 bg-purple-500 rounded"></div>
+                        Paid Leaves (Sundays)
+                      </span>
+                      <span className="font-semibold">{fullDaysBreakdown.paidLeaves}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t font-semibold">
+                      <span>Total Full Days</span>
+                      <span>{fullDaysBreakdown.total}</span>
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
             <div className="bg-yellow-50 dark:bg-yellow-900/30 p-2 rounded-lg text-center">
               <div className="flex items-center justify-center mb-0.5">
                 <CloudSun className="h-3 w-3 text-yellow-600 dark:text-yellow-400" />

@@ -64,7 +64,6 @@ const allSidebarCategories = [
     icon: Users,
     items: [
       { name: "Customers", href: "/dashboard/customers", icon: Users },
-      { name: "Enquiries", href: "/dashboard/enquiries", icon: Phone },
       { name: "Complaints", href: "/dashboard/complaints", icon: ThumbsUp },
     ]
   },
@@ -100,7 +99,6 @@ const allSidebarCategories = [
 // Manager allowed pages
 const managerAllowedPages = [
   "/dashboard/customers",
-  "/dashboard/enquiries", 
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",
@@ -119,7 +117,6 @@ const hrAllowedPages = [
 // Coordinator allowed pages - All except HR functions and Attendance, restricted to team
 const coordinatorAllowedPages = [
   "/dashboard/customers",
-  "/dashboard/enquiries", 
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",
@@ -135,7 +132,6 @@ const coordinatorAllowedPages = [
 // Data Manager allowed pages - Full access except HR functions
 const dataManagerAllowedPages = [
   "/dashboard/customers",
-  "/dashboard/enquiries", 
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",

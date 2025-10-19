@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
@@ -423,12 +423,13 @@ export default function VisitDetailPage() {
   const [isNavigatingToStore, setIsNavigatingToStore] = useState(false);
   const [activeRequirementTab, setActiveRequirementTab] = useState('general');
   const [activeComplaintTab, setActiveComplaintTab] = useState('general');
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [taskImages, setTaskImages] = useState<string[]>([]);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
+  const hasPerformedInitialFetch = useRef(false);
+  const isFetchingRef = useRef(false);
   const [newTask, setNewTask] = useState<NewTask>({
     id: 0,
     taskTitle: '',
@@ -574,7 +575,7 @@ export default function VisitDetailPage() {
     );
   };
 
-  const fetchCheckinImages = async (visitId: number, attachments: unknown[]) => {
+  const fetchCheckinImages = useCallback(async (visitId: number, attachments: unknown[]) => {
     try {
       const api = new API();
       const checkinImageUrls = await Promise.all(
@@ -609,16 +610,26 @@ export default function VisitDetailPage() {
       console.error('Error fetching check-in images:', error);
       setCheckinImages([]);
     }
-  };
+  }, []);
 
   const fetchVisitDetail = useCallback(async (visitId: string) => {
+    if (isFetchingRef.current || !visitId) {
+      return;
+    }
+    isFetchingRef.current = true;
+    const isInitialFetch = !hasPerformedInitialFetch.current;
     try {
-      setIsLoading(true);
+      if (isInitialFetch) {
+        setIsLoading(true);
+        setActiveTab("metrics");
+      }
       setError(null);
       const api = new API();
 
       // Fetch minimal data first for fast initial render
+      console.log('🔍 Fetching visit data for ID:', visitId);
       const visitData = await api.getVisitById(Number(visitId));
+      console.log('📊 Visit data received:', visitData);
       setVisitDetail({
         ...visitData,
         purpose: visitData.purpose || '',
@@ -632,15 +643,20 @@ export default function VisitDetailPage() {
         employeeId: visitData.employeeId || 0,
       });
 
-      // Basic metric available from visit data
-      calculateVisitDuration(visitData.checkinTime || '', visitData.checkoutTime || '');
+      if (isInitialFetch) {
+        hasPerformedInitialFetch.current = true;
+      }
 
-      // Allow page to render while loading the rest
-      setIsLoading(false);
+      // Basic metric available from visit data
+
+      if (isInitialFetch) {
+        setIsLoading(false);
+      }
 
       // Load remaining data in parallel without blocking UI
       (async () => {
         try {
+          console.log('🔄 Loading auxiliary data for visit:', visitId);
           const [
             proConsData,
             intentAuditData,
@@ -658,6 +674,16 @@ export default function VisitDetailPage() {
             api.getNotesByVisit(Number(visitId)),
             api.getVisitsByStore(visitData.storeId || 0),
           ]);
+          
+          console.log('📈 Auxiliary data loaded:', {
+            proCons: proConsData?.length || 0,
+            intentAudit: intentAuditData?.length || 0,
+            monthlySale: monthlySaleData?.length || 0,
+            requirements: requirementsData?.length || 0,
+            complaints: complaintsData?.length || 0,
+            notes: notesData?.length || 0,
+            storeVisits: storeVisitsData?.length || 0,
+          });
 
           setBrandProCons(proConsData || []);
           setIntentAuditLogs(intentAuditData || []);
@@ -721,38 +747,19 @@ export default function VisitDetailPage() {
         } catch (innerErr) {
           console.error('Error loading visit auxiliary data:', innerErr);
         }
+        isFetchingRef.current = false;
       })();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load visit details');
       console.error('Error fetching visit details:', err);
-      setIsLoading(false);
+      if (isInitialFetch) {
+        setIsLoading(false);
+      }
+      isFetchingRef.current = false;
     }
-  }, []);
+  }, [fetchCheckinImages]);
 
-  const calculateVisitDuration = (checkIn: string, checkOut: string) => {
-    if (!checkIn || !checkOut) {
-      setMetrics(prev => prev.filter(metric => metric.title !== 'Visit Duration'));
-      return;
-    }
-    
-    const checkInDate = new Date(`1970-01-01T${checkIn}Z`);
-    const checkOutDate = new Date(`1970-01-01T${checkOut}Z`);
-    const duration = new Date(checkOutDate.getTime() - checkInDate.getTime());
-    const hours = duration.getUTCHours();
-    const minutes = duration.getUTCMinutes();
-    let visitDuration = '0';
-    if (hours > 0 || minutes > 0) {
-      visitDuration = `${hours > 0 ? `${hours} hour${hours > 1 ? 's' : ''} ` : ''}${minutes > 0 ? `${minutes} minute${minutes > 1 ? 's' : ''}` : ''}`.trim();
-    }
 
-    setMetrics((prevMetrics) => {
-      const updatedMetrics = prevMetrics.filter(metric => metric.title !== 'Visit Duration');
-      return [
-        ...updatedMetrics,
-        { title: 'Visit Duration', value: visitDuration },
-      ];
-    });
-  };
 
   // fetchIntentLevel removed (intent level no longer displayed)
 
@@ -775,8 +782,27 @@ export default function VisitDetailPage() {
 
   useEffect(() => {
     if (visitId) {
+      hasPerformedInitialFetch.current = false;
+      isFetchingRef.current = false;
       fetchVisitDetail(visitId);
     }
+  }, [visitId, fetchVisitDetail]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!visitId || !hasPerformedInitialFetch.current) {
+        return;
+      }
+      fetchVisitDetail(visitId);
+    };
+
+    window.addEventListener('pageshow', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
+    return () => {
+      window.removeEventListener('pageshow', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
   }, [visitId, fetchVisitDetail]);
 
   // Handler functions
@@ -894,7 +920,6 @@ export default function VisitDetailPage() {
       label: "Date & Time",
       value: visitDetail ? `${format(new Date(visitDetail.visit_date), "MMM d, yyyy")} at ${visitDetail.checkinTime || "N/A"}` : "N/A",
     },
-    { icon: Clock, label: "Duration", value: visitDetail?.status === 'Assigned' ? '' : (metrics.find(m => m.title === 'Visit Duration')?.value || '') },
     { icon: User, label: "Visited by", value: visitDetail?.employeeName || "N/A" },
     { icon: Phone, label: "Phone", value: storeDetails?.contactNumber || "N/A" },
     { icon: Mail, label: "Email", value: "N/A" },
@@ -922,19 +947,7 @@ export default function VisitDetailPage() {
     }
   };
 
-  const calculateDuration = (startTime: string, endTime: string): string => {
-    try {
-      const start = new Date(`2000-01-01T${startTime}`);
-      const end = new Date(`2000-01-01T${endTime}`);
-      const diffMs = end.getTime() - start.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const hours = Math.floor(diffMins / 60);
-      const mins = diffMins % 60;
-      return `${hours}h ${mins}m`;
-    } catch {
-      return "N/A";
-    }
-  };
+
 
   const formatDate = (dateString: string | null | undefined): string => {
     if (!dateString) return "N/A";
@@ -1294,6 +1307,32 @@ export default function VisitDetailPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="container mx-auto p-3 sm:p-6">
+        <div className="flex items-center justify-center min-h-screen">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-6 text-center">
+              <div className="text-red-500 mb-4">
+                <AlertCircle className="h-12 w-12 mx-auto" />
+              </div>
+              <h2 className="text-lg font-semibold mb-2">Error Loading Visit Details</h2>
+              <p className="text-sm text-muted-foreground mb-4">{error}</p>
+              <div className="space-y-2">
+                <Button onClick={() => window.location.reload()} className="w-full">
+                  Try Again
+                </Button>
+                <Button variant="outline" onClick={handleBack} className="w-full">
+                  Go Back
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
                   return (
     <div className="container mx-auto p-3 sm:p-6">
       <div className="visit-details grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
@@ -1328,15 +1367,15 @@ export default function VisitDetailPage() {
               <div className="flex items-start gap-3">
                 <div className="h-10 w-10 rounded-lg border border-dashed bg-muted flex items-center justify-center">
                   <span className="text-sm font-medium text-muted-foreground">
-                    {getInitials(visitDetail?.employeeName || '')}
+                    {getInitials(visitDetail?.storeName || '')}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <h3 className="text-sm font-medium text-foreground truncate">
-                    {visitDetail?.employeeName}
+                    {visitDetail?.storeName || 'Store not available'}
                   </h3>
                   <p className="text-xs text-muted-foreground truncate">
-                    {visitDetail?.storeName}
+                    {visitDetail?.employeeName ? `Visited by ${visitDetail.employeeName}` : 'Field officer not available'}
                   </p>
                 </div>
               </div>
@@ -1361,18 +1400,6 @@ export default function VisitDetailPage() {
                   <Plus className="mr-2 h-4 w-4" />
                   <span className="text-sm">Add Complaint</span>
                 </Button>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-foreground">Visit Duration</p>
-                    <p className="text-xs text-muted-foreground">{visitDetail?.status === 'Assigned' ? '' : (metrics.find(m => m.title === 'Visit Duration')?.value || '')}</p>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -1651,7 +1678,13 @@ export default function VisitDetailPage() {
                   />
                 </div>
                 <div className="visits-list space-y-2">
-                  {currentVisits.map((visit) => (
+                  {storeVisits.length === 0 && !isLoading ? (
+                    <div className="text-center py-6">
+                      <Calendar className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No visits found for this store</p>
+                    </div>
+                  ) : (
+                    currentVisits.map((visit) => (
                     <Card key={visit.id} className="max-w-md mx-auto border-0 shadow-sm">
                       <CardContent className="p-3">
                         <div className="flex justify-between items-start mb-2">
@@ -1669,7 +1702,8 @@ export default function VisitDetailPage() {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                    ))
+                  )}
                 </div>
                 {storeVisits.length > visitsPerPage && (
                   <div className="mt-4">
@@ -1728,7 +1762,13 @@ export default function VisitDetailPage() {
                   </Select>
                     </div>
                 <div className="requirements-list space-y-2">
-                  {filteredRequirements.map((req, index) => (
+                  {filteredRequirements.length === 0 ? (
+                    <div className="text-center py-6">
+                      <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No requirements found for this visit</p>
+                    </div>
+                  ) : (
+                    filteredRequirements.map((req, index) => (
                     <Card key={index} className="border-0 shadow-sm">
                       <CardContent className="p-3">
                         <div className="flex justify-between items-start mb-2">
@@ -1750,7 +1790,8 @@ export default function VisitDetailPage() {
                             </div>
             </CardContent>
           </Card>
-                  ))}
+                    ))
+                  )}
                               </div>
                             </div>
             )}
@@ -1771,7 +1812,13 @@ export default function VisitDetailPage() {
                   </Select>
                 </div>
                 <div className="complaints-list space-y-2">
-                  {filteredComplaints.map((complaint, index) => (
+                  {filteredComplaints.length === 0 ? (
+                    <div className="text-center py-6">
+                      <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-sm text-muted-foreground">No complaints found for this visit</p>
+                    </div>
+                  ) : (
+                    filteredComplaints.map((complaint, index) => (
                     <Card key={index} className="border-0 shadow-sm">
                       <CardContent className="p-3">
                         <div className="flex justify-between items-start mb-2">
@@ -1806,7 +1853,8 @@ export default function VisitDetailPage() {
                         </div>
                 </CardContent>
               </Card>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             )}

@@ -45,16 +45,39 @@ const Allowance: React.FC = () => {
     const [editMode, setEditMode] = useState<{ [key: number]: boolean }>({});
     const [editedData, setEditedData] = useState<{ [key: number]: Record<string, unknown> }>({});
     const [currentPage, setCurrentPage] = useState<number>(1);
+    const [rowsPerPage, setRowsPerPage] = useState<number>(10);
     const [travelRates, setTravelRates] = useState<TravelRate[]>([]);
     const [isMobile, setIsMobile] = useState<boolean>(false);
     const [expandedCards, setExpandedCards] = useState<{ [key: number]: boolean }>({});
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
-    const rowsPerPage = 10;
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+
+    const formatNumberField = (value?: number | null) =>
+        value === null || value === undefined ? "" : String(value);
+
+    const parseNumericField = (value: unknown): number => {
+        if (value === "" || value === null || value === undefined) {
+            return 0;
+        }
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : 0;
+    };
+
+    const getEditedValue = (employeeId: number, field: string, fallback?: number | null) => {
+        const record = editedData[employeeId] as Record<string, unknown> | undefined;
+        const value = record?.[field];
+        if (value === undefined || value === null) {
+            if (fallback === null || fallback === undefined) {
+                return "";
+            }
+            return String(fallback);
+        }
+        return String(value);
+    };
 
     useEffect(() => {
         const checkIfMobile = () => setIsMobile(window.innerWidth < 768);
@@ -118,6 +141,11 @@ const Allowance: React.FC = () => {
         }
     }, [fetchEmployees, fetchTravelRates]);
 
+    useEffect(() => {
+        const total = Math.max(1, Math.ceil((employees.length || 0) / rowsPerPage) || 1);
+        setCurrentPage(prev => (prev > total ? total : prev));
+    }, [employees.length, rowsPerPage]);
+
     const handleInputChange = (employeeId: number, field: string, value: string) => {
         setEditedData(prevData => ({
             ...prevData,
@@ -129,23 +157,25 @@ const Allowance: React.FC = () => {
     };
 
     const updateSalary = async (employeeId: number) => {
-        const employee = editedData[employeeId];
-        if (!employee) return;
+        const editedEmployee = editedData[employeeId] as Record<string, unknown> | undefined;
+        if (!editedEmployee) return;
 
         setIsSaving(true);
         try {
+            const salaryPayload = {
+                travelAllowance: parseNumericField(editedEmployee.travelAllowance),
+                dearnessAllowance: parseNumericField(editedEmployee.dearnessAllowance),
+                fullMonthSalary: parseNumericField(editedEmployee.fullMonthSalary),
+                employeeId,
+            };
+
             const salaryResponse = await fetch(`/api/proxy/employee/setSalary`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    travelAllowance: employee.travelAllowance,
-                    dearnessAllowance: employee.dearnessAllowance,
-                    fullMonthSalary: employee.fullMonthSalary,
-                    employeeId: employeeId,
-                }),
+                body: JSON.stringify(salaryPayload),
             });
 
             if (!salaryResponse.ok) {
@@ -154,9 +184,9 @@ const Allowance: React.FC = () => {
 
             const existingTravelRate = travelRates.find(rate => rate.employeeId === employeeId);
             const travelRateData = {
-                employeeId: employeeId,
-                carRatePerKm: parseFloat(String(employee.carRatePerKm || 0)) || 0,
-                bikeRatePerKm: parseFloat(String(employee.bikeRatePerKm || 0)) || 0
+                employeeId,
+                carRatePerKm: parseNumericField(editedEmployee.carRatePerKm),
+                bikeRatePerKm: parseNumericField(editedEmployee.bikeRatePerKm)
             };
 
             let travelRateResponse;
@@ -208,11 +238,11 @@ const Allowance: React.FC = () => {
         setEditedData(prevData => ({
             ...prevData,
             [employeeId]: {
-                travelAllowance: employee?.travelAllowance || 0,
-                dearnessAllowance: employee?.dearnessAllowance || 0,
-                fullMonthSalary: employee?.fullMonthSalary || 0,
-                carRatePerKm: travelRate?.carRatePerKm || 0,
-                bikeRatePerKm: travelRate?.bikeRatePerKm || 0
+                travelAllowance: formatNumberField(employee?.travelAllowance),
+                dearnessAllowance: formatNumberField(employee?.dearnessAllowance),
+                fullMonthSalary: formatNumberField(employee?.fullMonthSalary),
+                carRatePerKm: formatNumberField(travelRate?.carRatePerKm),
+                bikeRatePerKm: formatNumberField(travelRate?.bikeRatePerKm)
             }
         }));
     };
@@ -229,10 +259,9 @@ const Allowance: React.FC = () => {
         });
     };
 
-    const indexOfLastRow = currentPage * rowsPerPage;
-    const indexOfFirstRow = indexOfLastRow - rowsPerPage;
-    const currentRows = employees.slice(indexOfFirstRow, indexOfLastRow);
-    const totalPages = Math.ceil(employees.length / rowsPerPage);
+    const indexOfFirstRow = (currentPage - 1) * rowsPerPage;
+    const currentRows = employees.slice(indexOfFirstRow, indexOfFirstRow + rowsPerPage);
+    const totalPages = Math.max(1, Math.ceil((employees.length || 0) / rowsPerPage) || 1);
 
     const getInitials = (firstName: string, lastName: string) => {
         return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -324,7 +353,8 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.dearnessAllowance ?? employee.dearnessAllowance ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(employee.id, 'dearnessAllowance', employee.dearnessAllowance)}
                                                                     onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
                                                                     className="w-24 text-right"
                                                                 />
@@ -340,7 +370,8 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.fullMonthSalary ?? employee.fullMonthSalary ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(employee.id, 'fullMonthSalary', employee.fullMonthSalary)}
                                                                     onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
                                                                     className="w-24 text-right"
                                                                 />
@@ -372,7 +403,12 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.bikeRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(
+                                                                        employee.id,
+                                                                        'bikeRatePerKm',
+                                                                        travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? null
+                                                                    )}
                                                                     onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
                                                                     className="w-24 text-right"
                                                                 />
@@ -435,7 +471,8 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.dearnessAllowance ?? employee.dearnessAllowance ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(employee.id, 'dearnessAllowance', employee.dearnessAllowance)}
                                                                     onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
                                                                     className="w-full"
                                                                 />
@@ -447,7 +484,8 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.fullMonthSalary ?? employee.fullMonthSalary ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(employee.id, 'fullMonthSalary', employee.fullMonthSalary)}
                                                                     onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
                                                                     className="w-full"
                                                                 />
@@ -471,7 +509,12 @@ const Allowance: React.FC = () => {
                                                             {editMode[employee.id] ? (
                                                                 <Input
                                                                     type="number"
-                                                                    value={Number(editedData[employee.id]?.bikeRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)}
+                                                                    inputMode="decimal"
+                                                                    value={getEditedValue(
+                                                                        employee.id,
+                                                                        'bikeRatePerKm',
+                                                                        travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? null
+                                                                    )}
                                                                     onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
                                                                     className="w-full"
                                                                 />
@@ -510,11 +553,20 @@ const Allowance: React.FC = () => {
                                 </div>
                             )}
 
-                            {totalPages > 1 && (
-                                <div className="flex items-center justify-between mt-4">
+                            {employees.length > 0 && (
+                                <div className="flex flex-col gap-3 mt-4 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex items-center space-x-2">
                                         <Label htmlFor="pageSize">Rows per page:</Label>
-                                        <Select value="10" onValueChange={() => {}}>
+                                        <Select
+                                            value={rowsPerPage.toString()}
+                                            onValueChange={(value) => {
+                                                const parsed = parseInt(value, 10);
+                                                if (!Number.isNaN(parsed)) {
+                                                    setRowsPerPage(parsed);
+                                                    setCurrentPage(1);
+                                                }
+                                            }}
+                                        >
                                             <SelectTrigger className="w-20">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -526,32 +578,34 @@ const Allowance: React.FC = () => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    
-                                    <div className="flex items-center space-x-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                                            disabled={currentPage === 1}
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                            Previous
-                                        </Button>
-                                        
-                                        <span className="text-sm text-muted-foreground">
-                                            Page {currentPage} of {totalPages}
-                                        </span>
-                                        
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                                            disabled={currentPage >= totalPages}
-                                        >
-                                            Next
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Button>
-                                    </div>
+
+                                    {totalPages > 1 && (
+                                        <div className="flex items-center space-x-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                                disabled={currentPage === 1}
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                                Previous
+                                            </Button>
+
+                                            <span className="text-sm text-muted-foreground">
+                                                Page {currentPage} of {totalPages}
+                                            </span>
+
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                                                disabled={currentPage >= totalPages}
+                                            >
+                                                Next
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </>

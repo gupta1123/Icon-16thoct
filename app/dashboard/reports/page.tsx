@@ -130,6 +130,75 @@ interface VisitDetail {
     storeId: number; 
 }
 
+type DisplayCustomerTypeKey = "dealer" | "professional" | "siteVisit";
+
+const CUSTOMER_TYPE_CONFIG: Record<DisplayCustomerTypeKey, { label: string; fallback: string }> = {
+    dealer: { label: "Dealer/Shop", fallback: "dealer" },
+    professional: { label: "Engineer/Architect/Contractor", fallback: "professional" },
+    siteVisit: { label: "Site Visit/Project", fallback: "site visit" },
+};
+
+const DISPLAY_CUSTOMER_TYPES: DisplayCustomerTypeKey[] = ["dealer", "professional", "siteVisit"];
+
+const RAW_TO_DISPLAY_CUSTOMER_TYPE_KEY: Record<string, DisplayCustomerTypeKey> = {
+    dealer: "dealer",
+    "dealer/shop": "dealer",
+    shop: "dealer",
+    retailer: "dealer",
+    wholesaler: "dealer",
+    distributor: "dealer",
+    "dealer shop": "dealer",
+    "dealer (shop)": "dealer",
+    professional: "professional",
+    architect: "professional",
+    engineer: "professional",
+    contractor: "professional",
+    builder: "professional",
+    "engineer/architect": "professional",
+    "architect/engineer": "professional",
+    "engineer architect": "professional",
+    "engineer/architect/contractor": "professional",
+    "engineer architect contractor": "professional",
+    "site visit": "siteVisit",
+    site: "siteVisit",
+    project: "siteVisit",
+    "site_visit": "siteVisit",
+    "site visit/project": "siteVisit",
+    "site visit - project": "siteVisit",
+    "site visit/project site": "siteVisit",
+    "site visit/project site visit": "siteVisit",
+    "site visit/project visit": "siteVisit",
+};
+
+const normalizeCustomerTypeKey = (value: string): string => (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\s*\/\s*/g, "/");
+
+const mapCustomerTypeToDisplayKey = (rawType: string): DisplayCustomerTypeKey => {
+    const normalized = normalizeCustomerTypeKey(rawType);
+    return RAW_TO_DISPLAY_CUSTOMER_TYPE_KEY[normalized] ?? "dealer";
+};
+
+const getCustomerTypeLabel = (key: DisplayCustomerTypeKey): string =>
+    CUSTOMER_TYPE_CONFIG[key].label;
+
+const getCustomerTypeFallbackRaw = (key: DisplayCustomerTypeKey): string =>
+    CUSTOMER_TYPE_CONFIG[key].fallback;
+
+const createEmptyVisitCounts = (): Record<DisplayCustomerTypeKey, number> =>
+    DISPLAY_CUSTOMER_TYPES.reduce((acc, key) => {
+        acc[key] = 0;
+        return acc;
+    }, {} as Record<DisplayCustomerTypeKey, number>);
+
+const createEmptyRawGroups = (): Record<DisplayCustomerTypeKey, string[]> =>
+    DISPLAY_CUSTOMER_TYPES.reduce((acc, key) => {
+        acc[key] = [];
+        return acc;
+    }, {} as Record<DisplayCustomerTypeKey, string[]>);
+
 const formatSalesNumber = (num: number): string => {
     if (num >= 10000000) { // Crores
         const val = num / 10000000;
@@ -186,12 +255,17 @@ const ReportsPage: React.FC = () => {
     const [summaryHeader, setSummaryHeader] = useState<React.ReactNode>(null);
     const [summaryRow, setSummaryRow] = useState<React.ReactNode>(null);
     const [reportData, setReportData] = useState<FieldOfficerStatsResponse | null>(null);
-    const [categorizedVisits, setCategorizedVisits] = useState<{ [key: string]: number }>({});
+    const [categorizedVisits, setCategorizedVisits] = useState<Record<DisplayCustomerTypeKey, number>>(
+        () => createEmptyVisitCounts()
+    );
+    const [customerTypeRawGroups, setCustomerTypeRawGroups] = useState<Record<DisplayCustomerTypeKey, string[]>>(
+        () => createEmptyRawGroups()
+    );
 
     const [visitDetails, setVisitDetails] = useState<VisitDetail[] | null>(null);
     const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
     const [detailsError, setDetailsError] = useState<string | null>(null);
-    const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<string | null>(null);
+    const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<DisplayCustomerTypeKey | null>(null);
     const [employeeSearchTerm, setEmployeeSearchTerm] = useState<string>("");
     const searchInputRef = useRef<HTMLInputElement>(null);
     const [dateRangeError, setDateRangeError] = useState<string | null>(null);
@@ -342,16 +416,7 @@ const ReportsPage: React.FC = () => {
         setEndDate(dayjs(endDt).format('YYYY-MM-DD'));
     }, [rangeSelect]);
 
-    const displayCategoryToApiTypeMap: { [displayCategory: string]: string } = {
-        "Shop": "shop",
-        "Site Visit": "site visit",
-        "Architect": "architect",
-        "Engineer": "engineer",
-        "Builder": "builder",
-        "Others": "others"
-    };
-
-    const fetchCustomerTypeDetails = async (displayCategory: string) => {
+    const fetchCustomerTypeDetails = async (displayCategory: DisplayCustomerTypeKey) => {
         if (!selectedEmployeeId || !startDate || !endDate) {
             setDetailsError("Please generate the main report first.");
             return;
@@ -360,16 +425,43 @@ const ReportsPage: React.FC = () => {
         setDetailsError(null);
         setVisitDetails(null); 
         setSelectedCustomerTypeForDetails(displayCategory);
-
-        const apiCustomerType = displayCategoryToApiTypeMap[displayCategory] || displayCategory.toLowerCase();
+        const displayCategoryLabel = getCustomerTypeLabel(displayCategory);
 
         try {
-            const url = `/api/proxy/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${apiCustomerType}`;
-            const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
-            const data: VisitDetail[] = await response.json();
-            setVisitDetails(data);
+            const rawTypes = customerTypeRawGroups[displayCategory] ?? [];
+            const fallbackRaw = getCustomerTypeFallbackRaw(displayCategory);
+            const apiTypes = rawTypes.length > 0 ? rawTypes : [fallbackRaw];
+            const aggregatedDetails: VisitDetail[] = [];
+            const seenStoreIds = new Set<number>();
+
+            for (const rawType of apiTypes) {
+                const normalizedKey = normalizeCustomerTypeKey(rawType);
+                if (!normalizedKey) {
+                    continue;
+                }
+
+                const url = `/api/proxy/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${encodeURIComponent(normalizedKey)}`;
+                const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
+                const data: VisitDetail[] = await response.json();
+
+                data.forEach((detail) => {
+                    const normalizedTypeKey = mapCustomerTypeToDisplayKey(detail.customerType);
+                    const displayLabel = getCustomerTypeLabel(normalizedTypeKey);
+                    const adjustedDetail = {
+                        ...detail,
+                        customerType: displayLabel,
+                    };
+
+                    if (!seenStoreIds.has(adjustedDetail.storeId)) {
+                        aggregatedDetails.push(adjustedDetail);
+                        seenStoreIds.add(adjustedDetail.storeId);
+                    }
+                });
+            }
+
+            setVisitDetails(aggregatedDetails);
         } catch (err: unknown) {
-            setDetailsError(err instanceof Error ? err.message : `Failed to fetch details for ${displayCategory}.`);
+            setDetailsError(err instanceof Error ? err.message : `Failed to fetch details for ${displayCategoryLabel}.`);
             setVisitDetails(null);
         } finally {
             setDetailsLoading(false);
@@ -393,28 +485,37 @@ const ReportsPage: React.FC = () => {
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: FieldOfficerStatsResponse = await response.json();
 
-            const displayCategories = ["Shop", "Site Visit", "Architect", "Engineer", "Builder", "Others"];
-            const apiTypeToDisplayCategoryMap: { [apiTypeLowercase: string]: string } = {
-                "shop": "Shop",
-                "site visit": "Site Visit",
-                "architect": "Architect", 
-                "engineer": "Engineer",
-                "builder": "Builder"
-            };
+            const displayCategories = DISPLAY_CUSTOMER_TYPES;
+            const categorizedAccumulator = displayCategories.reduce((acc, category) => {
+                acc[category] = 0;
+                return acc;
+            }, {} as Record<DisplayCustomerTypeKey, number>);
+            const groupedRawTypes = displayCategories.reduce((acc, category) => {
+                acc[category] = new Set<string>();
+                return acc;
+            }, {} as Record<DisplayCustomerTypeKey, Set<string>>);
 
-            const categorizedVisits: { [key: string]: number } = {};
-            displayCategories.forEach(cat => categorizedVisits[cat] = 0); 
-
-            for (const apiType in data.visitsByCustomerType) {
-                const count = data.visitsByCustomerType[apiType];
-                const targetDisplayCategory = apiTypeToDisplayCategoryMap[apiType.toLowerCase()];
-
-                if (targetDisplayCategory) {
-                    categorizedVisits[targetDisplayCategory] += count;
-                } else {
-                    categorizedVisits["Others"] += count;
+            Object.entries(data.visitsByCustomerType ?? {}).forEach(([apiType, countValue]) => {
+                const originalType = typeof apiType === "string" ? apiType : "";
+                const normalizedKey = normalizeCustomerTypeKey(originalType);
+                if (!normalizedKey) {
+                    return;
                 }
-            }
+                const category = mapCustomerTypeToDisplayKey(originalType);
+                const numericCount = typeof countValue === "number" ? countValue : Number(countValue) || 0;
+                categorizedAccumulator[category] += numericCount;
+                groupedRawTypes[category].add(normalizedKey);
+            });
+
+            const categorizedVisitsResult = displayCategories.reduce((acc, category) => {
+                acc[category] = categorizedAccumulator[category] ?? 0;
+                return acc;
+            }, {} as Record<DisplayCustomerTypeKey, number>);
+
+            const rawTypesResult = displayCategories.reduce((acc, category) => {
+                acc[category] = Array.from(groupedRawTypes[category]);
+                return acc;
+            }, {} as Record<DisplayCustomerTypeKey, string[]>);
 
             setSummaryHeader(
                 <>
@@ -432,7 +533,7 @@ const ReportsPage: React.FC = () => {
                                     disabled={reportLoading || detailsLoading}
                                     type="button"
                                 >
-                                    {displayCat}
+                                    {getCustomerTypeLabel(displayCat)}
                                 </button>
                             </th>
                         ))}
@@ -443,11 +544,12 @@ const ReportsPage: React.FC = () => {
                 <>
                     <td className="text-center">{data.totalVisits}</td><td className="text-center">{data.completedVisits}</td>
                     <td className="text-center">{data.attendanceStats.fullDays}</td><td className="text-center">{data.attendanceStats.halfDays}</td><td className="text-center">{data.attendanceStats.absences}</td>
-                    {displayCategories.map(type => (<td key={type} className="text-center">{categorizedVisits[type]}</td>))}
+                    {displayCategories.map(type => (<td key={type} className="text-center">{categorizedVisitsResult[type]}</td>))}
                 </>
             );
             setReportData(data);
-            setCategorizedVisits(categorizedVisits);
+            setCategorizedVisits(categorizedVisitsResult);
+            setCustomerTypeRawGroups(rawTypesResult);
             setShowReport(true);
             setVisitDetails(null);
             setDetailsError(null);
@@ -478,6 +580,9 @@ const ReportsPage: React.FC = () => {
     };
     
     const selectedEmployeeName = fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName + ' ' + fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName || "Select Field Officer";
+    const selectedCustomerTypeLabel = selectedCustomerTypeForDetails
+        ? getCustomerTypeLabel(selectedCustomerTypeForDetails)
+        : "";
 
     const filteredFieldOfficers = fieldOfficers.filter(officer => 
         `${officer.firstName} ${officer.lastName}`.toLowerCase().includes(employeeSearchTerm.toLowerCase())
@@ -779,23 +884,27 @@ const ReportsPage: React.FC = () => {
                                                     Visits by Customer Type
                                                 </h4>
                                                 <div className="grid grid-cols-2 gap-3">
-                                                    {Object.entries(categorizedVisits).map(([customerType, count]) => (
-                                                        <Card key={customerType} className="p-3">
-                                                            <button
-                                                                onClick={() => fetchCustomerTypeDetails(customerType)}
-                                                                className="w-full text-left hover:bg-gray-50 rounded-md p-2 -m-2 transition-colors"
-                                                                disabled={reportLoading || detailsLoading}
-                                                            >
-                                                                <div className="flex items-center justify-between">
-                                                                    <div>
-                                                                        <p className="text-sm font-medium">{customerType}</p>
-                                                                        <p className="text-lg font-semibold text-blue-600">{count}</p>
+                                                    {DISPLAY_CUSTOMER_TYPES.map((customerTypeKey) => {
+                                                        const count = categorizedVisits[customerTypeKey] ?? 0;
+                                                        const label = getCustomerTypeLabel(customerTypeKey);
+                                                        return (
+                                                            <Card key={customerTypeKey} className="p-3">
+                                                                <button
+                                                                    onClick={() => fetchCustomerTypeDetails(customerTypeKey)}
+                                                                    className="w-full text-left hover:bg-gray-50 rounded-md p-2 -m-2 transition-colors"
+                                                                    disabled={reportLoading || detailsLoading}
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div>
+                                                                            <p className="text-sm font-medium">{label}</p>
+                                                                            <p className="text-lg font-semibold text-blue-600">{count}</p>
+                                                                        </div>
+                                                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                                                     </div>
-                                                                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                                                </div>
-                                                            </button>
-                                                        </Card>
-                                                    ))}
+                                                                </button>
+                                                            </Card>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         </div>
@@ -809,7 +918,7 @@ const ReportsPage: React.FC = () => {
                         <div className="rounded-lg border bg-card">
                             <div className="p-4 border-b">
                                 <h3 className="text-base font-medium text-foreground">
-                                    Visit Details for {selectedCustomerTypeForDetails}
+                                    Visit Details for {selectedCustomerTypeLabel}
                                 </h3>
                                 <p className="text-sm text-muted-foreground">
                                     {selectedEmployeeName !== "Select Field Officer" && `Officer: ${selectedEmployeeName} • ${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`}
@@ -994,7 +1103,7 @@ const ReportsPage: React.FC = () => {
                                 ) : (
                                     <div className="p-8 text-center">
                                         <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                                        <p className="text-muted-foreground">No visit details found for {selectedCustomerTypeForDetails}</p>
+                                        <p className="text-muted-foreground">No visit details found for {selectedCustomerTypeLabel}</p>
                                     </div>
                                 )
                             )}

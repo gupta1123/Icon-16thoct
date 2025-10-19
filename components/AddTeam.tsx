@@ -1,15 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Users, Building2, ArrowRight, ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { normalizeRoleValue } from '@/lib/role-utils';
+import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 
 const ELIGIBLE_MANAGER_ROLES = new Set([
     "MANAGER",
@@ -95,13 +94,41 @@ const AddTeam = () => {
     const [officeManagers, setOfficeManagers] = useState<OfficeManager[]>([]);
     const [cities, setCities] = useState<CityOption[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
-    const [citySelectValue, setCitySelectValue] = useState<string>("placeholder");
     const [isCreatingTeam, setIsCreatingTeam] = useState(false);
     const [assignedFoIds, setAssignedFoIds] = useState<{ coordinator: number[]; regional: number[] }>({
         coordinator: [],
         regional: [],
     });
     const [isCoordinator, setIsCoordinator] = useState(false);
+
+    const managerOptions = useMemo<SearchableOption<OfficeManager>[]>(() => {
+        return officeManagers
+            .filter(manager => {
+                const normalizedRole = normalizeRoleValue(manager.role ?? null);
+                if (!normalizedRole) return false;
+                if (teamType === 'coordinator') {
+                    return normalizedRole === 'COORDINATOR';
+                }
+                if (teamType === 'regional') {
+                    return normalizedRole !== 'COORDINATOR';
+                }
+                return true;
+            })
+            .map((manager) => ({
+                value: manager.id.toString(),
+                label: `${manager.firstName} ${manager.lastName}${manager.role ? ` (${manager.role})` : ''}`,
+                data: manager,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }, [officeManagers, teamType]);
+
+    const cityOptions = useMemo<SearchableOption<CityOption>[]>(() => {
+        return cities.map((city) => ({
+            value: city.value,
+            label: city.label,
+            data: city,
+        }));
+    }, [cities]);
 
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
@@ -118,7 +145,6 @@ const AddTeam = () => {
         setSelectedCities([]);
         setSelectedEmployees([]);
         setEmployees([]);
-        setCitySelectValue("placeholder");
         setIsCoordinator(false);
     };
 
@@ -202,30 +228,37 @@ const AddTeam = () => {
         }
     }, [token]);
    
-    const handleOfficeManagerChange = (value: string) => {
-        if (value === "placeholder") return;
-        
-        const manager = officeManagers.find(m => m.id.toString() === value);
-        if (manager) {
-            const isCoord = isCoordinatorRole(manager.role);
-            setOfficeManager({ 
-                value: manager.id, 
-                label: `${manager.firstName} ${manager.lastName}`,
-                role: manager.role || ""
-            });
-            setIsCoordinator(isCoord);
-            // Clear previously selected employees when manager changes
+    const handleOfficeManagerSelect = (option: SearchableOption<OfficeManager> | null) => {
+        if (!option) {
+            setOfficeManager(null);
+            setIsCoordinator(false);
             setSelectedEmployees([]);
-            
-            // If coordinator, fetch all field officers immediately (no city restrictions)
-            if (isCoord) {
-                setSelectedCities([]);
-                fetchAllFieldOfficers();
-            } else if (selectedCities.length > 0) {
-                // For regional managers, refresh available employees for currently selected cities
-                const cities = selectedCities.map(option => option.value);
-                fetchEmployeesByCities(cities);
-            }
+            setSelectedCities([]);
+            setEmployees([]);
+            return;
+        }
+
+        const manager = option.data ?? officeManagers.find(m => m.id.toString() === option.value);
+        if (!manager) return;
+
+        const isCoord = isCoordinatorRole(manager.role);
+        setOfficeManager({
+            value: manager.id,
+            label: `${manager.firstName} ${manager.lastName}`,
+            role: manager.role || ""
+        });
+        setIsCoordinator(isCoord);
+        setSelectedEmployees([]);
+
+        if (isCoord) {
+            setSelectedCities([]);
+            setEmployees([]);
+            fetchAllFieldOfficers();
+        } else if (selectedCities.length > 0) {
+            const cities = selectedCities.map(option => option.value);
+            fetchEmployeesByCities(cities);
+        } else {
+            setEmployees([]);
         }
     };
 
@@ -470,20 +503,18 @@ const AddTeam = () => {
         }
     };
 
-    const handleCityChange = (value: string) => {
-        if (value === "placeholder") return;
-        
-        const cityOption = cities.find(c => c.value === value);
-        if (cityOption && !selectedCities.find(c => c.value === value)) {
-            const next = [...selectedCities, cityOption];
-            setSelectedCities(next);
-            // Auto-load available field officers for the selected cities (independent of manager)
-            const nextCities = next.map(o => o.value);
-            fetchEmployeesByCities(nextCities);
+    const handleCityOptionSelect = (option: SearchableOption<CityOption> | null) => {
+        if (!option) return;
+
+        const { value, label } = option;
+        if (!value || selectedCities.some((city) => city.value === value)) {
+            return;
         }
-        
-        // Reset the select to placeholder after selection
-        setCitySelectValue("placeholder");
+
+        const next = [...selectedCities, { value, label }];
+        setSelectedCities(next);
+        const nextCities = next.map(o => o.value);
+        fetchEmployeesByCities(nextCities);
     };
 
     const removeCity = (cityValue: string) => {
@@ -564,51 +595,32 @@ const AddTeam = () => {
                                 <label htmlFor="officeManager" className="text-sm font-medium">
                                     {teamType === 'coordinator' ? 'Select Coordinator' : 'Select Regional Manager'}
                                 </label>
-                                <Select value={officeManager?.value.toString() || "placeholder"} onValueChange={handleOfficeManagerChange}>
-                                    <SelectTrigger className="mt-1">
-                                        <SelectValue placeholder={`Select a ${teamType === 'coordinator' ? 'Coordinator' : 'Regional Manager'}`} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="placeholder" disabled>
-                                            Select a {teamType === 'coordinator' ? 'Coordinator' : 'Regional Manager'}
-                                        </SelectItem>
-                                        {officeManagers
-                                            .filter(manager => {
-                                                const normalizedRole = normalizeRoleValue(manager.role ?? null);
-                                                if (!normalizedRole) return false;
-                                                if (teamType === 'coordinator') {
-                                                    return normalizedRole === 'COORDINATOR';
-                                                }
-                                                return normalizedRole !== 'COORDINATOR';
-                                            })
-                                            .map((manager) => (
-                                                <SelectItem key={manager.id} value={manager.id.toString()}>
-                                                    {manager.firstName} {manager.lastName} ({manager.role})
-                                                </SelectItem>
-                                            ))}
-                                    </SelectContent>
-                                </Select>
+                                <SearchableSelect<OfficeManager>
+                                    options={managerOptions}
+                                    value={officeManager ? officeManager.value.toString() : undefined}
+                                    onSelect={handleOfficeManagerSelect}
+                                    placeholder={`Select a ${teamType === 'coordinator' ? 'Coordinator' : 'Regional Manager'}`}
+                                    emptyMessage={teamType === 'coordinator' ? 'No coordinators available' : 'No regional managers available'}
+                                    noResultsMessage="No matches found"
+                                    searchPlaceholder="Search by name..."
+                                    allowClear={Boolean(officeManager)}
+                                />
                             </div>
 
                             {teamType === 'regional' && !isCoordinator && (
                                 <>
                                     <div>
                                         <label htmlFor="city" className="text-sm font-medium">Cities</label>
-                                        <Select value={citySelectValue} onValueChange={handleCityChange}>
-                                            <SelectTrigger className="mt-1">
-                                                <SelectValue placeholder="Select cities" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="placeholder" disabled>
-                                                    Select cities
-                                                </SelectItem>
-                                                {cities.map((city) => (
-                                                    <SelectItem key={city.value} value={city.value}>
-                                                        {city.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <SearchableSelect<CityOption>
+                                            options={cityOptions}
+                                            value={undefined}
+                                            onSelect={handleCityOptionSelect}
+                                            placeholder="Select cities"
+                                            emptyMessage="No cities available"
+                                            noResultsMessage="No cities match your search"
+                                            searchPlaceholder="Search cities..."
+                                            allowClear={false}
+                                        />
                                         <div className="mt-2 flex flex-wrap gap-2">
                                             {selectedCities.map((city) => (
                                                 <div key={city.value} className="flex items-center gap-1 bg-muted border border-border px-3 py-1.5 rounded-md text-sm text-foreground">

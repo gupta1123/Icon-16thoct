@@ -274,7 +274,7 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
           </div>
         `;
 
-        leafletMarker.bindPopup(popupContent);
+        leafletMarker.bindPopup(popupContent, { className: 'app-leaflet-popup' });
 
         // Add click handler
         if (onMarkerClick) {
@@ -329,7 +329,7 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
           </div>
         `;
 
-        leafletMarker.bindPopup(popupContent);
+        leafletMarker.bindPopup(popupContent, { className: 'app-leaflet-popup' });
 
         // Add click handler
         if (onMarkerClick) {

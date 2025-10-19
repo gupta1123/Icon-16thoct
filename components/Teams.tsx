@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -49,6 +49,25 @@ interface Team {
     teamType?: string; // "COORDINATOR_TEAM" or "REGIONAL_MANAGER_TEAM"
 }
 
+const getTeamLeadComparableName = (team: Team) => (`${team.officeManager?.firstName ?? ''} ${team.officeManager?.lastName ?? ''}`)
+    .trim()
+    .toLowerCase();
+
+const sortTeamsByLeadName = (a: Team, b: Team) => {
+    const nameA = getTeamLeadComparableName(a);
+    const nameB = getTeamLeadComparableName(b);
+    if (!nameA && !nameB) return 0;
+    if (!nameA) return 1;
+    if (!nameB) return -1;
+    return nameA.localeCompare(nameB);
+};
+
+const TEAM_FILTER_OPTIONS = [
+    { value: 'all' as const, label: 'All' },
+    { value: 'coordinator' as const, label: 'Coordinator' },
+    { value: 'regional' as const, label: 'Regional Manager' },
+];
+
 interface FieldOfficer {
     id: number;
     firstName: string;
@@ -89,6 +108,8 @@ const Teams: React.FC = () => {
     const [selectedFieldOfficers, setSelectedFieldOfficers] = useState<number[]>([]);
     const [assignedCities, setAssignedCities] = useState<string[]>([]);
     const [cityToRemove, setCityToRemove] = useState<string | null>(null);
+    const [fieldOfficerToRemove, setFieldOfficerToRemove] = useState<{ teamId: number; officerId: number; name: string } | null>(null);
+    const [isRemoveFieldOfficerModalVisible, setIsRemoveFieldOfficerModalVisible] = useState(false);
     const [currentPage, setCurrentPage] = useState<{ [key: number]: number }>({});
     const [availableCities, setAvailableCities] = useState<string[]>([]);
     const [selectedCities, setSelectedCities] = useState<string[]>([]);
@@ -97,6 +118,7 @@ const Teams: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isCoordinatorTeam, setIsCoordinatorTeam] = useState(false);
+    const [teamFilter, setTeamFilter] = useState<'all' | 'coordinator' | 'regional'>('all');
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -121,8 +143,9 @@ const Teams: React.FC = () => {
             }
 
             const data = await response.json();
-            setTeams(data);
-            setIsDataAvailable(data.length > 0);
+            const sortedTeams = [...data].sort(sortTeamsByLeadName);
+            setTeams(sortedTeams);
+            setIsDataAvailable(sortedTeams.length > 0);
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
             setIsDataAvailable(false);
@@ -365,19 +388,24 @@ const Teams: React.FC = () => {
         }
     };
 
-    const handleRemoveFieldOfficer = async (teamId: number, fieldOfficerId: number) => {
-        if (!token) return;
+    const handleRemoveFieldOfficerClick = (teamId: number, fieldOfficerId: number, fieldOfficerName: string) => {
+        setFieldOfficerToRemove({ teamId, officerId: fieldOfficerId, name: fieldOfficerName });
+        setIsRemoveFieldOfficerModalVisible(true);
+    };
+
+    const confirmRemoveFieldOfficer = async () => {
+        if (!fieldOfficerToRemove || !token) return;
 
         setIsSaving(true);
         try {
-            const response = await fetch(`/api/proxy/employee/team/deleteFieldOfficer?id=${teamId}`, {
+            const response = await fetch(`/api/proxy/employee/team/deleteFieldOfficer?id=${fieldOfficerToRemove.teamId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    fieldOfficers: [fieldOfficerId],
+                    fieldOfficers: [fieldOfficerToRemove.officerId],
                 }),
             });
 
@@ -386,6 +414,8 @@ const Teams: React.FC = () => {
             }
 
             await fetchTeams();
+            setIsRemoveFieldOfficerModalVisible(false);
+            setFieldOfficerToRemove(null);
         } catch (error) {
             console.error('Error removing field officer:', error);
             setError(error instanceof Error ? error.message : 'Error removing field officer');
@@ -424,6 +454,14 @@ const Teams: React.FC = () => {
             setIsSaving(false);
         }
     };
+
+    const filteredTeams = useMemo(() => {
+        const sorted = [...teams].sort(sortTeamsByLeadName);
+        if (teamFilter === 'all') {
+            return sorted;
+        }
+        return sorted.filter(team => resolveTeamCategory(team) === teamFilter);
+    }, [teams, teamFilter]);
 
     const handlePageChange = (teamId: number, newPage: number) => {
         setCurrentPage(prev => ({ ...prev, [teamId]: newPage }));
@@ -488,19 +526,40 @@ const Teams: React.FC = () => {
 
                     {!isLoading && !error && (
                         <>
+                            {teams.length > 0 && (
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                    <div className="text-sm text-muted-foreground">
+                                        Showing {filteredTeams.length} of {teams.length} teams
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-sm font-medium">Filter teams:</span>
+                                        {TEAM_FILTER_OPTIONS.map((option) => (
+                                            <Button
+                                                key={option.value}
+                                                size="sm"
+                                                variant={teamFilter === option.value ? "default" : "outline"}
+                                                onClick={() => setTeamFilter(option.value)}
+                                            >
+                                                {option.label}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {isDataAvailable ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {teams.map((team) => {
-                                        const pageCount = Math.ceil(team.fieldOfficers.length / 4);
-                                        const currentPageForTeam = currentPage[team.id] || 1;
-                                        const startIndex = (currentPageForTeam - 1) * 4;
-                                        const visibleOfficers = team.fieldOfficers.slice(startIndex, startIndex + 4);
+                                filteredTeams.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredTeams.map((team) => {
+                                            const pageCount = Math.ceil(team.fieldOfficers.length / 4);
+                                            const currentPageForTeam = currentPage[team.id] || 1;
+                                            const startIndex = (currentPageForTeam - 1) * 4;
+                                            const visibleOfficers = team.fieldOfficers.slice(startIndex, startIndex + 4);
 
-                                        const teamTypeInfo = getTeamTypeInfo(team);
-                                        const TeamIcon = teamTypeInfo.icon;
-                                        
-                                        return (
-                                            <Card key={team.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+                                            const teamTypeInfo = getTeamTypeInfo(team);
+                                            const TeamIcon = teamTypeInfo.icon;
+                                            
+                                            return (
+                                                <Card key={team.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
                                                 <CardContent className="p-6">
                                                     <div className="flex justify-between items-start mb-4">
                                                         <div className="flex items-center">
@@ -561,7 +620,7 @@ const Teams: React.FC = () => {
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="sm"
-                                                                        onClick={() => handleRemoveFieldOfficer(team.id, officer.id)}
+                                                                        onClick={() => handleRemoveFieldOfficerClick(team.id, officer.id, `${officer.firstName} ${officer.lastName}`.trim())}
                                                                         className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                                         disabled={isSaving}
                                                                     >
@@ -627,9 +686,16 @@ const Teams: React.FC = () => {
                                                     </div>
                                                 </CardContent>
                                             </Card>
-                                        );
-                                    })}
-                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-10">
+                                        <Users size={48} className="mx-auto text-muted-foreground mb-4" />
+                                        <p className="text-xl font-semibold text-foreground">No teams match the selected filter</p>
+                                        <p className="text-muted-foreground mt-2">Try switching filters to view other teams.</p>
+                                    </div>
+                                )
                             ) : (
                                 <div className="text-center py-10">
                                     <Users size={48} className="mx-auto text-muted-foreground mb-4" />
@@ -782,6 +848,56 @@ const Teams: React.FC = () => {
                                 </>
                             ) : (
                                 'Add Selected Officers'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Remove Field Officer Modal */}
+            <Dialog
+                open={isRemoveFieldOfficerModalVisible}
+                onOpenChange={(open) => {
+                    setIsRemoveFieldOfficerModalVisible(open);
+                    if (!open) {
+                        setFieldOfficerToRemove(null);
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Remove Field Officer</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-muted-foreground">
+                        Are you sure you want to remove{" "}
+                        <span className="font-semibold text-foreground">
+                            {fieldOfficerToRemove?.name ?? "this field officer"}
+                        </span>{" "}
+                        from this team?
+                    </p>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setIsRemoveFieldOfficerModalVisible(false);
+                                setFieldOfficerToRemove(null);
+                            }}
+                            disabled={isSaving}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={confirmRemoveFieldOfficer}
+                            disabled={isSaving}
+                        >
+                            {isSaving ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Removing...
+                                </>
+                            ) : (
+                                "Remove"
                             )}
                         </Button>
                     </DialogFooter>

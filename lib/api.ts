@@ -718,6 +718,7 @@ export class API {
     city?: string;
     state?: string;
     clientType?: string;
+    dealerSubType?: string;
     employeeName?: string;
     primaryContact?: string;
     page?: number;
@@ -1250,6 +1251,7 @@ export class API {
     city?: string;
     state?: string;
     clientType?: string;
+    dealerSubType?: string;
     employeeName?: string;
     primaryContact?: string;
     page?: number;
@@ -1265,6 +1267,7 @@ export class API {
     if (params.city) queryParams.append('city', params.city);
     if (params.state) queryParams.append('state', params.state);
     if (params.clientType) queryParams.append('clientType', params.clientType);
+    if (params.dealerSubType) queryParams.append('dealerSubType', params.dealerSubType);
     if (params.employeeName) queryParams.append('employeeName', params.employeeName);
     if (params.primaryContact) {
       const cleanedPhone = params.primaryContact.replace(/\D/g, '');
@@ -1273,10 +1276,19 @@ export class API {
     if (params.page !== undefined) queryParams.append('page', params.page.toString());
     if (params.size !== undefined) queryParams.append('size', params.size.toString());
     
-    // Always sort alphabetically by store name by default
+    // Handle sorting - use sortBy/sortOrder for calculated fields (visitCount, lastVisitDate)
+    // and regular sort parameter for database fields
     const sortBy = params.sortBy || 'storeName';
     const sortOrder = params.sortOrder || 'asc';
-    queryParams.append('sort', `${sortBy},${sortOrder}`);
+    
+    // For calculated fields (visitCount, lastVisitDate), use sortBy/sortOrder params
+    if (sortBy === 'visitCount' || sortBy === 'lastVisitDate') {
+      queryParams.append('sortBy', sortBy);
+      queryParams.append('sortOrder', sortOrder);
+    } else {
+      // For database fields, use Spring's sort parameter
+      queryParams.append('sort', `${sortBy},${sortOrder}`);
+    }
 
     return this.makeRequest<StoreResponse>(`/store/filteredValues?${queryParams.toString()}`);
   }

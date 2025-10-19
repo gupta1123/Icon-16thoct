@@ -21,6 +21,7 @@ import { Pagination, PaginationContent, PaginationLink, PaginationItem, Paginati
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
+import SearchableSelect from "@/components/searchable-select";
 
 interface Task {
     id: number;
@@ -50,6 +51,8 @@ interface Employee {
 interface Store {
     id: number;
     storeName: string;
+    storeCity?: string;
+    city?: string;
 }
 
 interface AttachmentResponse {
@@ -298,16 +301,21 @@ const Complaints = () => {
         if (!token) return;
         
         try {
-            const response = await fetch('/api/proxy/employee/getAll', {
+            const response = await fetch('/api/proxy/employee/getAllFieldOfficers', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
             });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch field officers: ${response.status}`);
+            }
+
             const data = await response.json();
             const sortedEmployees = sortBy(data, (emp: { firstName: string; lastName: string }) => `${emp.firstName} ${emp.lastName}`);
             setAllEmployees(sortedEmployees);
         } catch (error) {
-            console.error('Error fetching employees:', error);
+            console.error('Error fetching field officers:', error);
         }
     }, [token]);
 
@@ -1001,44 +1009,52 @@ const Complaints = () => {
                                     <Label htmlFor="assignedToId">
                                         Assigned To {isManager && teamMembers.length > 0 && <span className="text-xs text-muted-foreground">(Team Members Only)</span>}
                                     </Label>
-                                    <Select
-                                        value={newTask.assignedToId ? newTask.assignedToId.toString() : ''}
-                                        onValueChange={(value) => {
-                                            const selectedEmployee = assignmentEmployees.find(emp => emp.id === parseInt(value));
-                                            setNewTask({ 
-                                                ...newTask, 
-                                                assignedToId: parseInt(value), 
-                                                assignedToName: selectedEmployee ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}` : 'Unknown',
-                                                storeId: 0, // Reset store selection when employee changes
+                                    <SearchableSelect<Employee>
+                                        options={assignmentEmployees.map((employee) => ({
+                                            value: employee.id.toString(),
+                                            label: `${employee.firstName} ${employee.lastName}`.trim(),
+                                            data: employee,
+                                        }))}
+                                        value={newTask.assignedToId ? newTask.assignedToId.toString() : undefined}
+                                        onSelect={(option) => {
+                                            if (!option) {
+                                                setNewTask({
+                                                    ...newTask,
+                                                    assignedToId: 0,
+                                                    assignedToName: '',
+                                                    storeId: 0,
+                                                    storeName: ''
+                                                });
+                                                setStores([]);
+                                                return;
+                                            }
+
+                                            const selectedEmployee = option.data ?? assignmentEmployees.find(emp => emp.id === parseInt(option.value, 10));
+                                            if (!selectedEmployee) {
+                                                return;
+                                            }
+
+                                            setNewTask({
+                                                ...newTask,
+                                                assignedToId: parseInt(option.value, 10),
+                                                assignedToName: `${selectedEmployee.firstName} ${selectedEmployee.lastName}`.trim(),
+                                                storeId: 0,
                                                 storeName: ''
                                             });
-                                            // Clear existing stores and fetch new ones for selected employee
                                             setStores([]);
                                         }}
-                                    >
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder={
-                                                isManager && teamMembers.length === 0 && allEmployees.length > 0 ? "Loading team members..." : 
-                                                "Select an employee"
-                                            } />
-              </SelectTrigger>
-              <SelectContent>
-                                            {assignmentEmployees.length === 0 ? (
-                                                <div className="flex items-center justify-center p-4">
-                                                    <span className="text-sm text-muted-foreground">
-                                                        {isManager ? "No team members available" : "No employees available"}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                assignmentEmployees.map((employee) => (
-                                                <SelectItem key={employee.id} value={employee.id.toString()}>
-                                                    {employee.firstName} {employee.lastName}
-                  </SelectItem>
-                                                ))
-                                            )}
-              </SelectContent>
-            </Select>
-          </div>
+                                        placeholder={
+                                            assignmentEmployees.length === 0
+                                                ? (isManager ? "No team members available" : "No employees available")
+                                                : "Select an employee"
+                                        }
+                                        emptyMessage={isManager ? "No team members available" : "No employees available"}
+                                        noResultsMessage="No employees match your search"
+                                        searchPlaceholder="Search employees..."
+                                        disabled={assignmentEmployees.length === 0}
+                                        allowClear={newTask.assignedToId > 0}
+                                    />
+                                </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="priority">Priority</Label>
                                     <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value })}>
@@ -1054,47 +1070,57 @@ const Complaints = () => {
                                 </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="storeId">Store</Label>
-                                    <Select
-                                        value={newTask.storeId ? newTask.storeId.toString() : ''}
-                                        onValueChange={(value) => setNewTask({ ...newTask, storeId: parseInt(value) })}
-                                        disabled={isStoresLoading}
+                                    <SearchableSelect<Store>
+                                        options={stores.map((store) => ({
+                                            value: store.id.toString(),
+                                            label: (store.storeCity || store.city)
+                                                ? `${store.storeName} (${store.storeCity || store.city})`
+                                                : store.storeName,
+                                            data: store,
+                                        }))}
+                                        value={newTask.storeId ? newTask.storeId.toString() : undefined}
+                                        onSelect={(option) => {
+                                            if (!option) {
+                                                setNewTask({
+                                                    ...newTask,
+                                                    storeId: 0,
+                                                    storeName: ''
+                                                });
+                                                return;
+                                            }
+
+                                            const selectedStore = option.data ?? stores.find(store => store.id === parseInt(option.value, 10));
+                                            if (!selectedStore) {
+                                                return;
+                                            }
+
+                                            setNewTask({
+                                                ...newTask,
+                                                storeId: parseInt(option.value, 10),
+                                                storeName: selectedStore.storeName
+                                            });
+                                        }}
+                                        placeholder={
+                                            !newTask.assignedToId
+                                                ? "Select employee first"
+                                                : stores.length === 0
+                                                ? "Search stores..."
+                                                : "Select a store"
+                                        }
+                                        emptyMessage="No stores available for this employee"
+                                        noResultsMessage="No stores match your search"
+                                        searchPlaceholder="Search stores..."
+                                        disabled={!newTask.assignedToId}
+                                        allowClear={newTask.storeId > 0}
+                                        loading={isStoresLoading}
+                                        loadingMessage="Loading stores..."
                                         onOpenChange={(open) => {
-                                            if (open && stores.length === 0 && !isStoresLoading && newTask.assignedToId) {
+                                            if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) {
                                                 fetchStores(newTask.assignedToId);
                                             }
                                         }}
-                                    >
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder={
-                                                isStoresLoading ? "Loading stores..." : 
-                                                !newTask.assignedToId ? "Select employee first" : 
-                                                "Select a store"
-                                            } />
-              </SelectTrigger>
-              <SelectContent>
-                                            {!newTask.assignedToId ? (
-                                                <div className="flex items-center justify-center p-4">
-                                                    <span className="text-sm text-muted-foreground">Please select an employee first</span>
-                                                </div>
-                                            ) : isStoresLoading ? (
-                                                <div className="flex items-center justify-center p-4">
-                                                    <Loader className="w-4 h-4 animate-spin mr-2" />
-                                                    <span className="text-sm text-muted-foreground">Loading stores...</span>
-                                                </div>
-                                            ) : stores.length === 0 ? (
-                                                <div className="flex items-center justify-center p-4">
-                                                    <span className="text-sm text-muted-foreground">No stores available for this employee</span>
-                                                </div>
-                                            ) : (
-                                                stores.map((store) => (
-                                                    <SelectItem key={store.id} value={store.id.toString()}>
-                                                        {store.storeName}
-                  </SelectItem>
-                                                ))
-                                            )}
-              </SelectContent>
-            </Select>
-          </div>
+                                    />
+                                </div>
                                 <div className="flex justify-between mt-4">
                                     <Button variant="outline" onClick={handleBack}>Back</Button>
                                     <Button onClick={createTask} disabled={isCreating}>

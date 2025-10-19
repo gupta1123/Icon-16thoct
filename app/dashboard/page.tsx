@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from "react";
 import dynamic from "next/dynamic";
 import {
   format,
@@ -13,6 +13,7 @@ import {
   isYesterday,
 } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -226,6 +227,7 @@ export default function DashboardPage() {
   const [highlightedEmployee, setHighlightedEmployee] =
     useState<ExtendedEmployee | null>(null);
   const [selectedEmployeeForMap, setSelectedEmployeeForMap] = useState<ExtendedEmployee | null>(null);
+  const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
   const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -540,6 +542,24 @@ export default function DashboardPage() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [overview, summaryByEmployeeId, formatTimestamp, composeLocation]);
+
+  const filteredEmployeeList = useMemo(() => {
+    const term = employeeSearchTerm.trim().toLowerCase();
+    if (!term) {
+      return employeeList;
+    }
+
+    return employeeList.filter((employee) => {
+      const name = employee.name?.toLowerCase() ?? "";
+      const position = employee.position?.toLowerCase() ?? "";
+      const location = employee.location?.toLowerCase() ?? "";
+      return (
+        name.includes(term) ||
+        position.includes(term) ||
+        location.includes(term)
+      );
+    });
+  }, [employeeList, employeeSearchTerm]);
 
   const states = useMemo<StateItem[]>(() => {
     if (!overview) return [];
@@ -1096,7 +1116,7 @@ export default function DashboardPage() {
 
                   <div className="w-full lg:w-96">
                     <Card className="flex h-[600px] flex-col overflow-hidden rounded-xl">
-                      <CardHeader className="border-b">
+                      <CardHeader className="border-b space-y-3">
                         <CardTitle className="flex items-center gap-2 text-lg">
                           <Users className="h-5 w-5" />
                           <span>{selectedEmployeeForMap ? `${selectedEmployeeForMap.name}'s Data` : 'Active Employees'}</span>
@@ -1112,14 +1132,28 @@ export default function DashboardPage() {
                               </Button>
                             )}
                             <Badge variant="secondary">
-                              {selectedEmployeeForMap ? '1 selected' : `${employeeList.length} active`}
+                              {selectedEmployeeForMap
+                                ? "1 selected"
+                                : employeeSearchTerm.trim()
+                                ? `${filteredEmployeeList.length} of ${employeeList.length}`
+                                : `${employeeList.length} active`}
                             </Badge>
                           </div>
                         </CardTitle>
+                        <Input
+                          type="search"
+                          value={employeeSearchTerm}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setEmployeeSearchTerm(event.target.value)
+                          }
+                          placeholder="Search employees by name, role, or location..."
+                          className="h-9"
+                          aria-label="Search employees"
+                        />
                       </CardHeader>
                       <CardContent className="flex-1 overflow-y-auto p-0">
                         <div className="divide-y">
-                          {employeeList.length === 0 && (
+                          {employeeList.length === 0 ? (
                             <div className="p-6 text-center text-muted-foreground">
                               <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                               <p className="font-medium">No employees with location data</p>
@@ -1127,60 +1161,64 @@ export default function DashboardPage() {
                                 No employees have location information available.
                               </p>
                             </div>
-                          )}
-                          {employeeList.map((employee) => (
-                            <button
-                              type="button"
-                              key={employee.listId}
-                              className={`w-full p-4 text-left transition-colors ${
-                                highlightedEmployee?.listId === employee.listId
-                                  ? "border-l-4 border-primary bg-accent"
-                                  : "hover:bg-accent/50"
-                              }`}
-                              onClick={() => handleEmployeeSelect(employee)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className="relative">
-                                    <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-semibold text-sm">
-                                      {getInitials(employee.name)}
+                          ) : filteredEmployeeList.length === 0 ? (
+                            <div className="p-6 text-center text-muted-foreground">
+                              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                              <p className="font-medium">No matches found</p>
+                              <p className="text-sm mt-1">
+                                Try adjusting your search to find specific employees.
+                              </p>
+                            </div>
+                          ) : (
+                            filteredEmployeeList.map((employee) => (
+                              <button
+                                type="button"
+                                key={employee.listId}
+                                className={`w-full p-4 text-left transition-colors ${
+                                  highlightedEmployee?.listId === employee.listId
+                                    ? "border-l-4 border-primary bg-accent"
+                                    : "hover:bg-accent/50"
+                                }`}
+                                onClick={() => handleEmployeeSelect(employee)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="relative">
+                                      <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-semibold text-sm">
+                                        {getInitials(employee.name)}
+                                      </div>
+                                      <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-green-500" />
                                     </div>
-                                    <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-green-500" />
+                                    <div>
+                                      <Heading as="p" size="md" className="text-foreground">
+                                        {employee.name}
+                                      </Heading>
+                                      <Text size="sm" tone="muted">
+                                        {employee.position}
+                                      </Text>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <Heading as="p" size="md" className="text-foreground">
-                                      {employee.name}
-                                    </Heading>
-                                    <Text size="sm" tone="muted">
-                                      {employee.position}
+                                  <div className="text-right">
+                                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <MapPin className="h-3 w-3" />
+                                      <span>{employee.location}</span>
+                                    </div>
+                                    <Text as="div" size="xs" tone="muted" className="mt-1">
+                                      {employee.formattedLastUpdated ?? "—"}
                                     </Text>
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                    <MapPin className="h-3 w-3" />
-                                    <span>{employee.location}</span>
-                                  </div>
-                                  <Text as="div" size="xs" tone="muted" className="mt-1">
-                                    {employee.formattedLastUpdated ?? "—"}
-                                  </Text>
-                                </div>
-                              </div>
-                              <div className="mt-3 flex items-center gap-2">
-                                <Badge variant="secondary" className="text-xs capitalize">
-                                  {employee.status}
-                                </Badge>
-                                <Badge variant="outline" className="text-xs">
-                                  {employee.visitsInRange} visits in range
-                                </Badge>
-                                {selectedEmployeeForMap && (
-                                  <Badge variant="default" className="text-xs">
-                                    Click to view details
+                                <div className="mt-3 flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs capitalize">
+                                    {employee.status}
                                   </Badge>
-                                )}
-                              </div>
-                            </button>
-                          ))}
+                                  <Badge variant="outline" className="text-xs">
+                                    {employee.visitsInRange} visits in range
+                                  </Badge>
+                                </div>
+                              </button>
+                            ))
+                          )}
                         </div>
                       </CardContent>
                     </Card>

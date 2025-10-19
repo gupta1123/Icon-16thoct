@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Calendar, User, DollarSign, MapPin, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
+import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 
 interface DailyBreakdownData {
     date: string;
@@ -119,7 +119,6 @@ const DailyBreakdown: React.FC = () => {
                         return nameA.localeCompare(nameB);
                     });
                 setEmployees(fieldOfficers);
-                // Auto-select first employee if none selected
                 if (fieldOfficers.length > 0 && selectedEmployee === 'all') {
                     setSelectedEmployee(fieldOfficers[0].id.toString());
                 }
@@ -127,7 +126,7 @@ const DailyBreakdown: React.FC = () => {
         } catch (error) {
             console.error('Error fetching employees:', error);
         }
-    }, [token]);
+    }, [token, selectedEmployee]);
 
     const fetchAllData = useCallback(async () => {
         if (!token || !startDate || !endDate) return;
@@ -173,25 +172,27 @@ const DailyBreakdown: React.FC = () => {
         }).format(amount);
     };
 
-    // Get employee options for dropdown
-    const employeeOptions = employees.map(emp => ({
-        id: emp.id,
-        name: `${emp.firstName} ${emp.lastName}`
-    }));
+    const employeeOptions = useMemo<SearchableOption<Employee>[]>(() => {
+        return employees.map((emp) => ({
+            value: emp.id.toString(),
+            label: `${emp.firstName} ${emp.lastName}`,
+            data: emp,
+        }));
+    }, [employees]);
 
     // Get date range display name
     const getDateRangeDisplay = () => {
         if (!startDate || !endDate) {
             return 'Select Date Range';
         }
-        return `${format(new Date(startDate), 'MMM dd, yyyy')} - ${format(new Date(endDate), 'MMM dd, yyyy')}`;
+        return `${format(new Date(startDate), 'd MMM yyyy')} - ${format(new Date(endDate), 'd MMM yyyy')}`;
     };
 
     // Get selected employee display name
     const getSelectedEmployeeDisplay = () => {
         if (selectedEmployee === 'all') return 'All Employees';
-        const selected = employeeOptions.find(e => e.id.toString() === selectedEmployee);
-        return selected ? selected.name : 'Selected Employee';
+        const selected = employeeOptions.find(e => e.value === selectedEmployee);
+        return selected ? selected.label : 'Selected Employee';
     };
 
     return (
@@ -206,19 +207,23 @@ const DailyBreakdown: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-muted/30 rounded-lg">
                         <div className="space-y-2">
                             <Label htmlFor="employee" className="text-sm font-medium text-foreground">Employee</Label>
-                            <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Select Employee" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Employees</SelectItem>
-                                    {employeeOptions.map((employee) => (
-                                        <SelectItem key={employee.id} value={employee.id.toString()}>
-                                            {employee.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <SearchableSelect<Employee>
+                                options={employeeOptions}
+                                value={selectedEmployee !== 'all' ? selectedEmployee : undefined}
+                                onSelect={(option) => {
+                                    if (!option) {
+                                        setSelectedEmployee('all');
+                                        return;
+                                    }
+                                    setSelectedEmployee(option.value);
+                                }}
+                                placeholder="Select employee"
+                                emptyMessage="No employees available"
+                                noResultsMessage="No employees match your search"
+                                searchPlaceholder="Search employees..."
+                                allowClear={selectedEmployee !== 'all'}
+                                disabled={employeeOptions.length === 0}
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="startDate" className="text-sm font-medium text-foreground">From Date</Label>
@@ -318,12 +323,7 @@ const DailyBreakdown: React.FC = () => {
                                                                     <div>
                                                                         <div className="font-medium text-lg text-foreground">{day.employeeName}</div>
                                                                         <div className="text-sm text-muted-foreground">
-                                                                            {new Date(day.date).toLocaleDateString('en-IN', {
-                                                                                weekday: 'long',
-                                                                                year: 'numeric',
-                                                                                month: 'short',
-                                                                                day: 'numeric'
-                                                                            })}
+                                                                            {format(new Date(day.date), 'd MMM yyyy')}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -400,8 +400,6 @@ const DailyBreakdown: React.FC = () => {
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
-                                                        <TableHead>Employee Name</TableHead>
-                                                        <TableHead>Date</TableHead>
                                                         <TableHead>Day</TableHead>
                                                         <TableHead>Day Type</TableHead>
                                                         <TableHead>Completed Visits</TableHead>
@@ -416,8 +414,6 @@ const DailyBreakdown: React.FC = () => {
                                                 <TableBody>
                                                     {dailyBreakdownData.map((day, index) => (
                                                         <TableRow key={index}>
-                                                            <TableCell className="font-medium">{day.employeeName}</TableCell>
-                                                            <TableCell>{new Date(day.date).toLocaleDateString('en-IN')}</TableCell>
                                                             <TableCell>{formatDayName(day.dayOfWeek)}</TableCell>
                                                             <TableCell>
                                                                 <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>

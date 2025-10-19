@@ -32,7 +32,18 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 // Removed dropdown menu imports as Actions now shows a direct link
 import { API, type CombinedTimelineItem, type VisitDto, type ActivityDto, type CurrentUserDto } from "@/lib/api";
-import { format as formatDate, formatDistanceToNow, isToday, isYesterday, parseISO } from "date-fns";
+import {
+  addDays,
+  differenceInCalendarDays,
+  endOfMonth,
+  format as formatDate,
+  formatDistanceToNow,
+  isToday,
+  isYesterday,
+  parseISO,
+  startOfMonth,
+  subDays,
+} from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
@@ -137,6 +148,7 @@ export default function VisitsTable() {
   
   const [startDate, setStartDate] = useState<Date | undefined>(defaultStartDate);
   const [endDate, setEndDate] = useState<Date | undefined>(defaultEndDate);
+  const [quickRange, setQuickRange] = useState<string>("last7Days");
   const [selectedPurpose, setSelectedPurpose] = useState<string>("all");
   const [selectedExecutive, setSelectedExecutive] = useState<string>("all");
   const [customerName, setCustomerName] = useState<string>("");
@@ -152,12 +164,131 @@ export default function VisitsTable() {
   const [isExporting, setIsExporting] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const router = useRouter();
+  const MAX_RANGE_DAYS = 31;
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+
+  const endDateDisabled = useMemo(() => {
+    if (!startDate) return undefined;
+    const minAllowed = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const maxAllowed = addDays(minAllowed, MAX_RANGE_DAYS - 1);
+    return (date: Date) => {
+      const current = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      return current < minAllowed || current > maxAllowed;
+    };
+  }, [startDate]);
+
+  const QUICK_RANGES = [
+    { value: "last7Days", label: "Last 7 Days" },
+    { value: "last15Days", label: "Last 15 Days" },
+    { value: "last30Days", label: "Last 30 Days" },
+    { value: "thisMonth", label: "This Month" },
+    { value: "lastMonth", label: "Last Month" },
+  ] as const;
 
   const viewDetails = (id: number) => {
     setIsNavigating(true);
     router.push(`/dashboard/visits/${id}`);
   };
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const applyQuickRange = (range: string) => {
+    const today = new Date();
+    let newStart: Date | undefined;
+    let newEnd: Date = new Date(today);
+
+    switch (range) {
+      case "last7Days":
+        newStart = subDays(newEnd, 6);
+        break;
+      case "last15Days":
+        newStart = subDays(newEnd, 14);
+        break;
+      case "last30Days":
+        newStart = subDays(newEnd, 29);
+        break;
+      case "thisMonth":
+        newStart = startOfMonth(today);
+        newEnd = today;
+        break;
+      case "lastMonth": {
+        const lastMonthReference = subDays(startOfMonth(today), 1);
+        newStart = startOfMonth(lastMonthReference);
+        newEnd = endOfMonth(lastMonthReference);
+        break;
+      }
+      default:
+        return;
+    }
+
+    if (!newStart) return;
+
+    if (differenceInCalendarDays(newEnd, newStart) > MAX_RANGE_DAYS - 1) {
+      newStart = subDays(newEnd, MAX_RANGE_DAYS - 1);
+    }
+
+    setStartDate(newStart);
+    setEndDate(newEnd);
+    setDateRangeError(null);
+  };
+
+  const handleQuickRangeChange = (value: string) => {
+    if (value === "custom") {
+      setQuickRange("custom");
+      setDateRangeError(null);
+      return;
+    }
+    setQuickRange(value);
+    applyQuickRange(value);
+  };
+
+  const handleStartDateChange = (date: Date | undefined) => {
+    setQuickRange("custom");
+    if (!date) {
+      setStartDate(undefined);
+      setDateRangeError(null);
+      return;
+    }
+
+    let adjustedEnd = endDate ? new Date(endDate) : undefined;
+
+    if (!adjustedEnd || adjustedEnd < date) {
+      adjustedEnd = date;
+    }
+
+    if (differenceInCalendarDays(adjustedEnd, date) > MAX_RANGE_DAYS - 1) {
+      adjustedEnd = addDays(date, MAX_RANGE_DAYS - 1);
+      setDateRangeError("Date range is limited to 31 days. End date adjusted automatically.");
+    } else {
+      setDateRangeError(null);
+    }
+
+    setStartDate(date);
+    setEndDate(adjustedEnd);
+  };
+
+  const handleEndDateChange = (date: Date | undefined) => {
+    setQuickRange("custom");
+    if (!date) {
+      setEndDate(undefined);
+      setDateRangeError(null);
+      return;
+    }
+
+    let adjustedStart = startDate ? new Date(startDate) : undefined;
+
+    if (!adjustedStart || date < adjustedStart) {
+      adjustedStart = date;
+    }
+
+    if (differenceInCalendarDays(date, adjustedStart) > MAX_RANGE_DAYS - 1) {
+      adjustedStart = subDays(date, MAX_RANGE_DAYS - 1);
+      setDateRangeError("Date range is limited to 31 days. Start date adjusted automatically.");
+    } else {
+      setDateRangeError(null);
+    }
+
+    setStartDate(adjustedStart);
+    setEndDate(date);
+  };
   
   useEffect(() => {
     let isMounted = true;
@@ -483,6 +614,11 @@ export default function VisitsTable() {
         {error && (
           <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>
         )}
+        {dateRangeError && (
+          <div className="mb-4 text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded p-3">
+            {dateRangeError}
+          </div>
+        )}
         
         {/* Status indicator */}
         {!startDate || !endDate ? (
@@ -503,7 +639,23 @@ export default function VisitsTable() {
         </div>
 
         {/* Desktop Filters */}
-        <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+        <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
+          <div className="space-y-2">
+            <Label>Quick Range</Label>
+            <Select value={quickRange} onValueChange={handleQuickRangeChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select range" />
+              </SelectTrigger>
+              <SelectContent>
+                {QUICK_RANGES.map((range) => (
+                  <SelectItem key={range.value} value={range.value}>
+                    {range.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2">
             <Label>Start Date</Label>
             <Popover>
@@ -526,7 +678,7 @@ export default function VisitsTable() {
                   mode="single"
                   defaultMonth={startDate}
                   selected={startDate}
-                  onSelect={setStartDate}
+                  onSelect={handleStartDateChange}
                   numberOfMonths={1}
                 />
               </PopoverContent>
@@ -555,7 +707,8 @@ export default function VisitsTable() {
                   mode="single"
                   defaultMonth={endDate}
                   selected={endDate}
-                  onSelect={setEndDate}
+                  onSelect={handleEndDateChange}
+                  disabled={endDateDisabled}
                   numberOfMonths={1}
                 />
               </PopoverContent>
@@ -632,6 +785,22 @@ export default function VisitsTable() {
             </SheetHeader>
             <div className="py-4 space-y-4">
               <div className="space-y-2">
+                <Label>Quick Range</Label>
+                <Select value={quickRange} onValueChange={handleQuickRangeChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {QUICK_RANGES.map((range) => (
+                      <SelectItem key={range.value} value={range.value}>
+                        {range.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Start Date</Label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -641,7 +810,7 @@ export default function VisitsTable() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={setStartDate} numberOfMonths={1} />
+                    <Calendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={handleStartDateChange} numberOfMonths={1} />
                   </PopoverContent>
                 </Popover>
               </div>
@@ -656,7 +825,7 @@ export default function VisitsTable() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={setEndDate} numberOfMonths={1} />
+                    <Calendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={handleEndDateChange} numberOfMonths={1} disabled={endDateDisabled} />
                   </PopoverContent>
                 </Popover>
               </div>
@@ -704,14 +873,12 @@ export default function VisitsTable() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  const resetEnd = new Date();
-                  const resetStart = new Date();
-                  resetStart.setDate(resetEnd.getDate() - 7);
-                  setStartDate(resetStart);
-                  setEndDate(resetEnd);
+                  setQuickRange('last7Days');
+                  applyQuickRange('last7Days');
                   setSelectedPurpose('all');
                   setSelectedExecutive('all');
                   setCustomerName('');
+                  setDateRangeError(null);
                 }}
               >
                 Clear All

@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Save, X, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Save, X, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { apiService, type EmployeeDto, type StoreDto, type VisitDto } from "@/lib/api";
 
@@ -28,21 +29,70 @@ export default function AssignVisitsPage() {
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
   const [stores, setStores] = useState<StoreDto[]>([]);
   const [existingVisits, setExistingVisits] = useState<Record<number, Record<string, VisitDto | null>>>({});
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const initialStartDateRef = useRef<Date | null>(null);
+  if (!initialStartDateRef.current) {
+    initialStartDateRef.current = startDate;
+  }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Dates: today to next 15 days
   const dateCols = useMemo(() => {
-    const start = new Date();
-    start.setHours(0,0,0,0);
     const arr: { date: Date; key: string; isSunday: boolean }[] = [];
-    for (let i=0;i<16;i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
+    for (let i = 0; i < 15; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
       arr.push({ date: d, key: formatDateKey(d), isSunday: d.getDay() === 0 });
     }
     return arr;
+  }, [startDate]);
+
+  const moveDateRange = useCallback((offset: number) => {
+    setStartDate(prev => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + offset);
+      next.setHours(0, 0, 0, 0);
+      return next;
+    });
   }, []);
+
+  const goToPreviousRange = useCallback(() => {
+    if (!initialStartDateRef.current) return;
+    if (startDate.getTime() <= initialStartDateRef.current.getTime()) return;
+    moveDateRange(-15);
+  }, [moveDateRange, startDate]);
+  const goToNextRange = useCallback(() => moveDateRange(15), [moveDateRange]);
+
+  const dateRangeLabel = useMemo(() => {
+    if (dateCols.length === 0) return "";
+    const startLabel = dateCols[0].date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    const endLabel = dateCols[dateCols.length - 1].date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return `${startLabel} - ${endLabel}`;
+  }, [dateCols]);
+
+  const canGoPrevious = useMemo(() => {
+    if (!initialStartDateRef.current) return false;
+    return startDate.getTime() > initialStartDateRef.current.getTime();
+  }, [startDate]);
+
+  useEffect(() => {
+    setNoVisitFilters((prev) => {
+      const validKeys = new Set(dateCols.map(col => col.key));
+      const entries = Object.entries(prev).filter(([key]) => validKeys.has(key));
+      if (entries.length === Object.keys(prev).length) {
+        return prev;
+      }
+      return entries.reduce<Record<string, boolean>>((acc, [key, value]) => {
+        if (value) acc[key] = true;
+        return acc;
+      }, {});
+    });
+  }, [dateCols]);
 
   // Load employees based on role
   const loadEmployees = useCallback(async () => {
@@ -105,11 +155,16 @@ export default function AssignVisitsPage() {
       // Load existing visits for the grid
       if (employeeData.length > 0) {
         const employeeIds = employeeData.map(emp => emp.id);
-        const startDate = dateCols[0].key;
-        const endDate = dateCols[dateCols.length - 1].key;
-        
-        const visitsData = await apiService.bulkGetForGrid(employeeIds, startDate, endDate);
-        setExistingVisits(visitsData);
+        const startKey = dateCols[0]?.key;
+        const endKey = dateCols[dateCols.length - 1]?.key;
+        if (startKey && endKey) {
+          const visitsData = await apiService.bulkGetForGrid(employeeIds, startKey, endKey);
+          setExistingVisits(visitsData);
+        } else {
+          setExistingVisits({});
+        }
+      } else {
+        setExistingVisits({});
       }
     } catch (err) {
       console.error('Error loading employees:', err);
@@ -126,23 +181,84 @@ export default function AssignVisitsPage() {
     }
   }, [loadEmployees, authLoading, userRole]);
 
-  // Group employees by city
-  const groupedByCity = useMemo(() => {
-    console.log('Grouping employees:', employees.length, employees);
-    const map: Record<string, EmployeeDto[]> = {};
-    employees.forEach(e => {
-      if (!map[e.city]) map[e.city] = [];
-      map[e.city].push(e);
-    });
-    console.log('Grouped by city:', map);
-    return map;
-  }, [employees]);
-
   // Assignments state: key = `${empId}-${dateKey}` => store
   type CellKey = string;
   type Assignment = { employeeId: number; dateKey: string; store: Store };
   const [assignments, setAssignments] = useState<Record<CellKey, Assignment>>({});
   const [dirty, setDirty] = useState(false);
+
+  // Group employees by city
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [noVisitFilters, setNoVisitFilters] = useState<Record<string, boolean>>({});
+
+  const filteredEmployees = useMemo(() => {
+    const search = employeeSearch.trim().toLowerCase();
+    const sorted = [...employees].sort((a, b) => {
+      const cityCompare = (a.city || '').localeCompare(b.city || '', undefined, { sensitivity: 'base' });
+      if (cityCompare !== 0) return cityCompare;
+      const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim();
+      const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim();
+      return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+    });
+    if (!search) {
+      return sorted;
+    }
+    return sorted.filter(emp =>
+      `${emp.firstName || ''} ${emp.lastName || ''}`.toLowerCase().includes(search)
+    );
+  }, [employees, employeeSearch]);
+
+  const filteredByVisitEmployees = useMemo(() => {
+    const activeFilters = Object.entries(noVisitFilters)
+      .filter(([, value]) => value)
+      .map(([key]) => key);
+
+    if (activeFilters.length === 0) {
+      return filteredEmployees;
+    }
+
+    return filteredEmployees.filter(emp =>
+      activeFilters.every(dateKey => {
+        const assignmentKey = `${emp.id}-${dateKey}`;
+        const hasAssignment = Boolean(assignments[assignmentKey]);
+        const hasExistingVisit = Boolean(existingVisits[emp.id]?.[dateKey]);
+        return !hasAssignment && !hasExistingVisit;
+      })
+    );
+  }, [filteredEmployees, noVisitFilters, assignments, existingVisits]);
+
+  const groupedEmployees = useMemo(() => {
+    const map = new Map<string, EmployeeDto[]>();
+    filteredByVisitEmployees.forEach((employee) => {
+      const cityKey = (employee.city || 'Unknown').trim();
+      const list = map.get(cityKey) ?? [];
+      list.push(employee);
+      map.set(cityKey, list);
+    });
+
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
+      .map(([city, list]) => ({
+        city,
+        employees: [...list].sort((a, b) => {
+          const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim();
+          const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim();
+          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+        }),
+      }));
+  }, [filteredByVisitEmployees]);
+
+  const toggleNoVisitFilter = useCallback((dateKey: string, value: boolean) => {
+    setNoVisitFilters(prev => {
+      if (value) {
+        if (prev[dateKey]) return prev;
+        return { ...prev, [dateKey]: true };
+      }
+      if (!prev[dateKey]) return prev;
+      const { [dateKey]: _, ...rest } = prev;
+      return rest;
+    });
+  }, []);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -152,6 +268,10 @@ export default function AssignVisitsPage() {
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const openCellModal = async (employee: EmployeeDto, dateKey: string) => {
+    const column = dateCols.find((col) => col.key === dateKey);
+    if (column?.isSunday) {
+      return; // Do not allow adding on Sundays
+    }
     setModalCell({ employee, dateKey });
     setStoreQuery('');
     setLoadingStores(true);
@@ -330,7 +450,7 @@ export default function AssignVisitsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Assign Visits</h1>
         <div className="flex items-center gap-2">
           {dirty && (
@@ -350,6 +470,26 @@ export default function AssignVisitsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={goToPreviousRange} disabled={!canGoPrevious}>
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            Previous 15 Days
+          </Button>
+          <div className="text-sm text-muted-foreground">{dateRangeLabel}</div>
+          <Button variant="outline" onClick={goToNextRange}>
+            Next 15 Days
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+        <Input
+          className="w-full max-w-xs"
+          placeholder="Search employees..."
+          value={employeeSearch}
+          onChange={(e) => setEmployeeSearch(e.target.value)}
+        />
+      </div>
+
       {saveMessage && (
         <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">{saveMessage}</div>
       )}
@@ -359,27 +499,52 @@ export default function AssignVisitsPage() {
       )}
 
       <div className="overflow-auto rounded border">
-        <table className="min-w-[900px] w-full text-sm">
+        <table className="min-w-[1200px] w-full text-sm">
           <thead>
             <tr className="bg-muted/50">
               <th className="sticky left-0 bg-muted/50 backdrop-blur px-3 py-2 text-left">Employee</th>
-              {dateCols.map(col => (
-                <th key={col.key} className={`px-2 py-2 text-center ${col.isSunday ? 'bg-red-50 text-red-700' : ''}`}>
-                  <div className="font-medium">{formatDayLabel(col.date)}</div>
-                  <div className="text-xs">{col.date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
-                </th>
-              ))}
+              {dateCols.map(col => {
+                const isNoVisitActive = Boolean(noVisitFilters[col.key]);
+                const headerClassNames = [
+                  "px-2 py-2 text-center align-top w-32",
+                  col.isSunday ? "bg-red-50 text-red-700" : "",
+                  isNoVisitActive ? "ring-1 ring-primary/40" : "",
+                ].join(" ").trim();
+
+                return (
+                  <th key={col.key} className={headerClassNames}>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="font-medium">{formatDayLabel(col.date)}</div>
+                      <div className="text-xs">{col.date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <Checkbox
+                          id={`no-visit-${col.key}`}
+                          className="h-3.5 w-3.5"
+                          checked={isNoVisitActive}
+                          onCheckedChange={(checked) => toggleNoVisitFilter(col.key, checked === true)}
+                        />
+                        <label
+                          htmlFor={`no-visit-${col.key}`}
+                          className="cursor-pointer select-none"
+                        >
+                          No visit
+                        </label>
+                      </div>
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {Object.keys(groupedByCity).length === 0 ? (
+            {groupedEmployees.length === 0 ? (
               <tr>
                 <td colSpan={dateCols.length + 1} className="px-3 py-8 text-center text-muted-foreground">
                   {loading ? 'Loading employees...' : 'No employees found for your role.'}
                 </td>
               </tr>
             ) : (
-              Object.entries(groupedByCity).map(([city, emps]) => (
+              groupedEmployees.map(({ city, employees }) => (
                 <React.Fragment key={city}>
                   <tr>
                     <td className="bg-muted/40 px-3 py-2 font-semibold sticky left-0">{city}</td>
@@ -387,28 +552,48 @@ export default function AssignVisitsPage() {
                       <td key={`${city}-${col.key}`} className={`${col.isSunday ? 'bg-red-50/40' : ''}`}></td>
                     ))}
                   </tr>
-                  {emps.map(emp => (
+                  {employees.map(emp => (
                     <tr key={emp.id} className="hover:bg-muted/20">
                       <td className="px-3 py-2 sticky left-0 bg-background/90 backdrop-blur whitespace-nowrap">{emp.firstName} {emp.lastName}</td>
                       {dateCols.map(col => {
                         const key = `${emp.id}-${col.key}`;
                         const assigned = assignments[key];
                         const existingVisit = existingVisits[emp.id]?.[col.key];
+                        const isNoVisitActive = Boolean(noVisitFilters[col.key]);
                         
                         return (
-                          <td key={key} className={`px-2 py-1 text-center ${col.isSunday ? 'bg-red-50/40' : ''}`}>
+                          <td
+                            key={key}
+                            className={[
+                              "px-2 py-1 text-center",
+                              col.isSunday ? "bg-red-50/40" : "",
+                              isNoVisitActive ? "bg-primary/5" : "",
+                            ].join(" ").trim()}
+                          >
                             {existingVisit ? (
                               <div className="flex items-center justify-center">
-                                <Badge variant="secondary" className="max-w-[140px] truncate">
+                                <div 
+                                  className="max-w-[180px] px-2 py-1 bg-secondary text-secondary-foreground rounded-md text-xs font-medium truncate cursor-help"
+                                  title={existingVisit.storeName}
+                                >
                                   {existingVisit.storeName}
-                                </Badge>
+                                </div>
                               </div>
                             ) : assigned ? (
                               <div className="flex items-center justify-center gap-1">
-                                <Badge variant="outline" className="max-w-[140px] truncate">{assigned.store.storeName}</Badge>
+                                <div 
+                                  className="max-w-[160px] px-2 py-1 bg-outline text-foreground rounded-md text-xs font-medium truncate cursor-help"
+                                  title={assigned.store.storeName}
+                                >
+                                  {assigned.store.storeName}
+                                </div>
                                 <Button size="icon" variant="ghost" onClick={() => removeAssignment(emp.id, col.key)}>
                                   <X className="h-4 w-4" />
                                 </Button>
+                              </div>
+                            ) : col.isSunday ? (
+                              <div className="flex h-9 items-center justify-center">
+                                <span className="sr-only">Assignments disabled on Sundays</span>
                               </div>
                             ) : (
                               <Button size="icon" variant="outline" onClick={() => openCellModal(emp, col.key)}>

@@ -1412,6 +1412,16 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Exclusive Dealer Tag */}
+              {customerData?.clientType === 'Dealer' && customerData?.dealerSubType === 'EXCLUSIVE' && (
+                <div className="flex justify-start">
+                  <Badge variant="secondary" className="bg-black text-white font-semibold px-3 py-1">
+                    <i className="fas fa-crown mr-1"></i>
+                    Exclusive Dealer
+                  </Badge>
+                </div>
+              )}
+              
               <div className="flex items-start gap-4">
                                 <div className="h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center">
                                     <span className="text-lg font-semibold text-muted-foreground">
@@ -1729,6 +1739,17 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                                 </div>
                                                                 <span className="text-xs text-muted-foreground">{v.employeeName}</span>
                                                             </div>
+                                                        </div>
+                                                        <div className="mt-3 flex justify-end">
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm"
+                                                                onClick={() => router.push(`/dashboard/visits/${v.id}`)}
+                                                                className="text-xs"
+                                                            >
+                                                                <i className="fas fa-eye mr-1"></i>
+                                                                View Visit
+                                                            </Button>
                                                         </div>
                                                     </div>
                   );

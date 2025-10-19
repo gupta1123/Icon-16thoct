@@ -28,9 +28,13 @@ interface AttendanceData {
   id: number;
   employeeId: number;
   employeeName: string;
-  attendanceStatus: 'full day' | 'half day' | 'absent';
+  attendanceStatus: string; // Can be: 'full day', 'half day', 'present', 'absent', 'paid leave', 'full day (activity)'
   checkinDate: string;
   checkoutDate: string;
+  visitCount?: number;
+  assignedVisits?: number;
+  hasActivity?: boolean;
+  activityCount?: number;
 }
 
 interface Employee {
@@ -149,23 +153,9 @@ export default function AttendancePage() {
 
       const data = await response.json();
 
-      const modifiedData = data.map((item: Record<string, unknown>) => {
-        // Normalize the attendance status values
-        let normalizedStatus = item.attendanceStatus;
-        
-        if (item.attendanceStatus === "Present") {
-          normalizedStatus = "full day";
-        } else if (item.attendanceStatus === "Absent") {
-          normalizedStatus = "absent";
-        } else if (item.attendanceStatus === "Half Day") {
-          normalizedStatus = "half day";
-        }
-        // If status is already in the correct format (full day, half day, absent), keep it as is
-        
-        return { ...item, attendanceStatus: normalizedStatus };
-      });
-
-      setAttendanceData(modifiedData);
+      // Backend now returns correct status with activity-based logic
+      // No normalization needed - use data as-is
+      setAttendanceData(data);
       setNoDataMessage("");
 
       if (data.length === 0) {
@@ -188,10 +178,22 @@ export default function AttendancePage() {
       }
 
       try {
-        const url = `/api/proxy/visit/getByDateSorted?startDate=${date}&endDate=${date}&employeeName=${employeeName}&page=0&size=100&sort=id,desc`;
+        // Find the employee ID from the name
+        const employee = employees.find(emp => 
+          `${emp.firstName} ${emp.lastName}` === employeeName
+        );
         
-        console.log('Making API request to:', url);
-        console.log('Request params:', { date, employeeName, token: token ? 'Present' : 'Missing' });
+        if (!employee) {
+          console.error('Employee not found:', employeeName);
+          setVisitData([]);
+          return;
+        }
+
+        // Use timeline API to get both visits AND activities for the date
+        const url = `/api/proxy/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
+        
+        console.log('Making timeline API request to:', url);
+        console.log('Request params:', { date, employeeId: employee.id, employeeName, token: token ? 'Present' : 'Missing' });
         
         const response = await fetch(url, {
           headers: {
@@ -200,34 +202,34 @@ export default function AttendancePage() {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to fetch visit data");
+          throw new Error("Failed to fetch timeline data");
         }
 
         const data = await response.json();
         
-        console.log('Visit API Response:', {
+        console.log('Timeline API Response:', {
           date,
           employeeName,
-          totalElements: data.totalElements,
-          contentLength: data.content?.length,
-          content: data.content
+          activityCount: data.activityCount,
+          visitCount: data.visitCount,
+          completedVisitCount: data.completedVisitCount,
+          attendanceStatus: data.attendanceStatus,
+          activities: data.activities,
+          visits: data.visits
         });
 
-        // The API already filters by employeeName, so we can use all the content directly
-        setVisitData(data.content || []);
+        // Store the complete timeline data (visits + activities)
+        setVisitData(data);
         setSelectedDate(date);
         setSelectedEmployeeName(employeeName);
         setIsModalOpen(true);
 
-        if (data.content.length === 0) {
-          setVisitData([]);
-        }
       } catch (error) {
-        console.error("Error fetching visit data:", error);
+        console.error("Error fetching timeline data:", error);
         setVisitData([]);
       }
     },
-    [token]
+    [token, employees]
   );
 
   useEffect(() => {
@@ -288,18 +290,30 @@ export default function AttendancePage() {
           </div>
         </div>
         <div className="mb-4">
-          <p className="text-lg font-bold">Legend:</p>
-          <div className="flex space-x-4">
+          <p className="text-sm font-semibold mb-2">Legend:</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
             <div className="flex items-center">
-              <div className="w-4 h-4 bg-green-500 mr-2"></div>
+              <div className="w-3 h-3 bg-purple-500 mr-1.5 rounded"></div>
+              <p>Paid Leave</p>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-cyan-500 mr-1.5 rounded"></div>
+              <p>Activity</p>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-green-500 mr-1.5 rounded"></div>
               <p>Full Day</p>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 bg-yellow-500 mr-2"></div>
+              <div className="w-3 h-3 bg-yellow-500 mr-1.5 rounded"></div>
               <p>Half Day</p>
             </div>
             <div className="flex items-center">
-              <div className="w-4 h-4 bg-red-500 mr-2"></div>
+              <div className="w-3 h-3 bg-blue-500 mr-1.5 rounded"></div>
+              <p>Present</p>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-red-500 mr-1.5 rounded"></div>
               <p>Absent</p>
             </div>
           </div>

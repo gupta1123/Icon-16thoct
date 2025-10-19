@@ -58,6 +58,7 @@ function CustomerListContent() {
         city: '',
         state: '',
         clientType: '',
+        dealerSubType: '',
     });
     const [mobileFilters, setMobileFilters] = useState({
         storeName: '',
@@ -66,6 +67,7 @@ function CustomerListContent() {
         city: '',
         state: '',
         clientType: '',
+        dealerSubType: '',
     });
     const [isDesktopFilterExpanded, setIsDesktopFilterExpanded] = useState(false);
     const [isMobileFilterExpanded, setIsMobileFilterExpanded] = useState(false);
@@ -274,6 +276,7 @@ function CustomerListContent() {
                         city: desktopFilters.city || undefined,
                         state: desktopFilters.state || undefined,
                         clientType: desktopFilters.clientType || undefined,
+                        dealerSubType: desktopFilters.dealerSubType || undefined,
                         primaryContact: desktopFilters.primaryContact || undefined,
                         page: currentPage - 1,
                         size: 10,
@@ -290,6 +293,7 @@ function CustomerListContent() {
                     city: desktopFilters.city || undefined,
                     state: desktopFilters.state || undefined,
                     clientType: desktopFilters.clientType || undefined,
+                    dealerSubType: desktopFilters.dealerSubType || undefined,
                     primaryContact: desktopFilters.primaryContact || undefined,
                     page: currentPage - 1,
                     size: 10,
@@ -517,6 +521,7 @@ function CustomerListContent() {
             city: '',
             state: '',
             clientType: '',
+            dealerSubType: '',
         };
         setDesktopFilters(emptyFilters);
         setMobileFilters(emptyFilters);
@@ -673,6 +678,7 @@ function CustomerListContent() {
                                 {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, false)}
                                 {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, false)}
                                 {renderFilterInput('clientType', 'Client Type', <Target className="h-4 w-4" />, false)}
+                                {renderFilterInput('dealerSubType', 'Dealer Sub Type', <Briefcase className="h-4 w-4" />, false)}
                             </div>
                         </CardContent>
                     </Card>
@@ -696,6 +702,7 @@ function CustomerListContent() {
                             {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, true)}
                             {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, true)}
                             {renderFilterInput('clientType', 'Client Type', <Target className="h-4 w-4" />, true)}
+                            {renderFilterInput('dealerSubType', 'Dealer Sub Type', <Briefcase className="h-4 w-4" />, true)}
                         </div>
                         <SheetFooter className="flex gap-2">
                             <Button variant="outline" onClick={clearAllFilters}>Clear All</Button>

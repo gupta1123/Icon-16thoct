@@ -47,6 +47,7 @@ import {
   X,
 } from "lucide-react";
 import { normalizeRoleValue } from "@/lib/role-utils";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 
 type TeamCardProps = {
   team: TeamResponseDto;
@@ -57,6 +58,7 @@ type TeamCardProps = {
   canDelete: boolean;
   canModify: boolean;
   isDeleting: boolean;
+  showConfirmationDialog: (title: string, description: string, onConfirm: () => void, isLoading?: boolean) => void;
 };
 
 const getTeamCategory = (team: TeamResponseDto): 'coordinator' | 'regional' | null => {
@@ -137,7 +139,7 @@ const getTeamTypeLabel = (teamType: string) => {
   }
 };
 
-function TeamCard({ team, onEdit, onDelete, onRemoveOfficer, canEdit, canDelete, canModify, isDeleting }: TeamCardProps) {
+function TeamCard({ team, onEdit, onDelete, onRemoveOfficer, canEdit, canDelete, canModify, isDeleting, showConfirmationDialog }: TeamCardProps) {
   const teamCities = deriveTeamCities(team);
   const fieldOfficers = team.fieldOfficers;
 
@@ -237,10 +239,11 @@ function TeamCard({ team, onEdit, onDelete, onRemoveOfficer, canEdit, canDelete,
                     <button
                       onClick={() => {
                         const officerName = formatEmployeeName(officer);
-                        const confirmed = window.confirm(`Are you sure you want to remove ${officerName} from this team?`);
-                        if (confirmed) {
-                          onRemoveOfficer(team.id, officer.id);
-                        }
+                        showConfirmationDialog(
+                          "Remove Field Officer",
+                          `Are you sure you want to remove ${officerName} from this team?`,
+                          () => onRemoveOfficer(team.id, officer.id)
+                        );
                       }}
                       className="ml-1 hover:bg-red-100 rounded-full p-1 text-red-600 hover:text-red-800 transition-colors opacity-0 group-hover:opacity-100"
                       title={`Remove ${formatEmployeeName(officer)} from team`}
@@ -289,6 +292,21 @@ export default function TeamSettings() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [deleteInProgress, setDeleteInProgress] = useState<number | null>(null);
+
+  // Confirmation dialog state
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    isLoading?: boolean;
+  }>({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+    isLoading: false,
+  });
 
   const assignedFieldOfficerIdsByType = useMemo(() => {
     const coordinator = new Set<number>();
@@ -478,6 +496,21 @@ export default function TeamSettings() {
     }
   };
 
+  const showConfirmationDialog = (
+    title: string,
+    description: string,
+    onConfirm: () => void,
+    isLoading = false
+  ) => {
+    setConfirmationDialog({
+      open: true,
+      title,
+      description,
+      onConfirm,
+      isLoading,
+    });
+  };
+
   const fetchEmployees = async () => {
     setLoadingEmployees(true);
     setError(null);
@@ -596,19 +629,23 @@ export default function TeamSettings() {
 
   const handleDeleteTeam = async (teamId: number) => {
     if (!canCreateTeam) return;
-    const confirmed = window.confirm("Are you sure you want to delete this team?");
-    if (!confirmed) return;
-    setDeleteInProgress(teamId);
-    setError(null);
-    try {
-      await API.deleteTeam(teamId);
-      await fetchTeams();
-    } catch (err) {
-      console.error("Failed to delete team", err);
-      setError("Failed to delete team. Please try again.");
-    } finally {
-      setDeleteInProgress(null);
-    }
+    showConfirmationDialog(
+      "Delete Team",
+      "Are you sure you want to delete this team? This action cannot be undone.",
+      async () => {
+        setDeleteInProgress(teamId);
+        setError(null);
+        try {
+          await API.deleteTeam(teamId);
+          await fetchTeams();
+        } catch (err) {
+          console.error("Failed to delete team", err);
+          setError("Failed to delete team. Please try again.");
+        } finally {
+          setDeleteInProgress(null);
+        }
+      }
+    );
   };
 
   const handleRemoveFieldOfficerFromTeam = async (teamId: number, officerId: number) => {
@@ -645,22 +682,28 @@ export default function TeamSettings() {
   const removeOfficerFromNewTeam = (id: number) => {
     const officer = fieldOfficerOptions.find((o) => o.id === id);
     const officerName = formatEmployeeName(officer ?? null);
-    const confirmed = window.confirm(`Are you sure you want to remove ${officerName} from this team?`);
-    if (confirmed) {
-      setNewTeam((prev) => ({
-        ...prev,
-        fieldOfficerIds: prev.fieldOfficerIds.filter((officerId) => officerId !== id),
-      }));
-    }
+    showConfirmationDialog(
+      "Remove Field Officer",
+      `Are you sure you want to remove ${officerName} from this team?`,
+      () => {
+        setNewTeam((prev) => ({
+          ...prev,
+          fieldOfficerIds: prev.fieldOfficerIds.filter((officerId) => officerId !== id),
+        }));
+      }
+    );
   };
 
   const removeOfficerFromEditingTeam = (id: number) => {
     const officer = fieldOfficerOptions.find((o) => o.id === id);
     const officerName = formatEmployeeName(officer ?? null);
-    const confirmed = window.confirm(`Are you sure you want to remove ${officerName} from this team?`);
-    if (confirmed) {
-      setEditingFieldOfficerIds((prev) => prev.filter((officerId) => officerId !== id));
-    }
+    showConfirmationDialog(
+      "Remove Field Officer",
+      `Are you sure you want to remove ${officerName} from this team?`,
+      () => {
+        setEditingFieldOfficerIds((prev) => prev.filter((officerId) => officerId !== id));
+      }
+    );
   };
 
   return (
@@ -820,6 +863,7 @@ export default function TeamSettings() {
               canDelete={canCreateTeam}
               canModify={canModifyTeams}
               isDeleting={deleteInProgress === team.id}
+              showConfirmationDialog={showConfirmationDialog}
             />
           ))}
         </div>
@@ -921,6 +965,18 @@ export default function TeamSettings() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmationDialog
+        open={confirmationDialog.open}
+        onOpenChange={(open) => setConfirmationDialog(prev => ({ ...prev, open }))}
+        title={confirmationDialog.title}
+        description={confirmationDialog.description}
+        onConfirm={confirmationDialog.onConfirm}
+        isLoading={confirmationDialog.isLoading}
+        variant="destructive"
+        confirmText="Remove"
+        cancelText="Cancel"
+      />
     </div>
   );
 }
