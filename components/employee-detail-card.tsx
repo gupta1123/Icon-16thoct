@@ -27,9 +27,10 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { format, parseISO } from "date-fns";
-import { ClipLoader } from 'react-spinners';
-import { useRouter } from 'next/navigation';
+import { ClipLoader } from "react-spinners";
+import { useRouter } from "next/navigation";
 import { API, type VisitDto, type EmployeeStatsWithVisits } from "@/lib/api";
+import type { DateRangeKey } from "@/components/dashboard/types";
 
 interface Employee {
   id: number;
@@ -286,9 +287,10 @@ const VisitsTable = ({ visits, onViewDetails, currentPage, onPageChange }: Visit
 interface EmployeeDetailCardProps {
   employee: Employee;
   dateRange: { start: Date; end: Date };
+  selectedDateRangeKey?: DateRangeKey;
 }
 
-export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDetailCardProps) {
+export default function EmployeeDetailCard({ employee, dateRange, selectedDateRangeKey }: EmployeeDetailCardProps) {
   const [employeeDetails, setEmployeeDetails] = useState<EmployeeStatsWithVisits | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -309,7 +311,21 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
         const data = await API.getEmployeeStatsWithVisits(employee.id, start, end);
         setEmployeeDetails(data);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load employee details');
+        console.error('Error loading employee details:', e);
+        if (e instanceof Error && e.message.includes('404')) {
+
+          setEmployeeDetails({
+            visitDto: [],
+            statsDto: {
+              visitCount: 0,
+              fullDays: 0,
+              halfDays: 0,
+              absences: 0
+            }
+          });
+        } else {
+          setError(e instanceof Error ? e.message : 'Failed to load employee details');
+        }
       } finally {
         setLoading(false);
       }
@@ -343,8 +359,26 @@ export default function EmployeeDetailCard({ employee, dateRange }: EmployeeDeta
   }, [employeeDetails]);
 
   const handleViewDetails = (visitId: number) => {
-    // Navigate to Visit detail page for that visit
-    router.push(`/dashboard/visits/${visitId}`);
+    if (typeof window !== 'undefined') {
+      const returnContext = {
+        route: `/dashboard?view=employeeDetail&employeeId=${employee.id}${selectedDateRangeKey ? `&dateRange=${selectedDateRangeKey}` : ''}`,
+        timestamp: Date.now(),
+      };
+      try {
+        window.localStorage.setItem('visitReturnContext', JSON.stringify(returnContext));
+      } catch (storageError) {
+        console.error('Failed to store visit return context:', storageError);
+      }
+    }
+
+    const searchParams = new URLSearchParams({
+      from: "dashboardEmployee",
+      employeeId: String(employee.id),
+    });
+    if (selectedDateRangeKey) {
+      searchParams.set("dateRange", selectedDateRangeKey);
+    }
+    router.push(`/dashboard/visits/${visitId}?${searchParams.toString()}`);
   };
 
   if (error) {

@@ -1,10 +1,16 @@
 import VisitDetailPage from "@/components/visit-detail-page";
 import { API } from "@/lib/api";
 
-export default function VisitDetail() {
-  // VisitDetailPage is a client component that uses useParams internally
-  // No need to pass props
-  return <VisitDetailPage />;
+export default async function VisitDetail({ 
+  searchParams 
+}: { 
+  searchParams: Promise<{ from?: string; employeeId?: string; [key: string]: string | string[] | undefined }>
+}) {
+  // Await searchParams in Next.js 13+ App Router
+  const resolvedSearchParams = await searchParams;
+  
+  // Pass searchParams to the client component for proper back navigation
+  return <VisitDetailPage searchParams={resolvedSearchParams} />;
 }
 
 function calculateDuration(startTime: string, endTime: string): string {

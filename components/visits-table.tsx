@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus } from "lucide-react";
+import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus, ChevronDown, Check, ChevronsUpDown } from "lucide-react";
 import { format } from "date-fns";
 import {
   Popover,
@@ -46,7 +46,238 @@ import {
 } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
+
+const VISITS_STATE_STORAGE_KEY = "visitsTableState";
+
+type PurposeComboboxProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  triggerClassName?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  allLabel?: string;
+};
+
+const PurposeCombobox = ({
+  value,
+  onChange,
+  options,
+  triggerClassName,
+  placeholder = "Select option",
+  disabled,
+  allLabel = "All",
+}: PurposeComboboxProps) => {
+  const [open, setOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setSearchTerm("");
+    }
+  }, [open]);
+
+  const normalizedOptions = useMemo(() => {
+    const unique = Array.from(new Set(options));
+    return unique.map((option) => ({
+      value: option,
+      label: option,
+    }));
+  }, [options]);
+
+  const filteredOptions = useMemo(() => {
+    const baseOptions = [
+      { value: "all", label: allLabel },
+      ...normalizedOptions,
+    ];
+
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) {
+      return baseOptions;
+    }
+
+    return baseOptions.filter((option) =>
+      option.label.toLowerCase().includes(query)
+    );
+  }, [normalizedOptions, searchTerm, allLabel]);
+
+  const handleSelect = (nextValue: string) => {
+    onChange(nextValue);
+    setOpen(false);
+  };
+
+  const selectedLabel =
+    value === "all"
+      ? allLabel
+      : normalizedOptions.find((item) => item.value === value)?.label || value || placeholder;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          disabled={disabled}
+          className={cn("w-full justify-between", triggerClassName)}
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-64" align="start">
+        <div className="p-2">
+          <Input
+            placeholder="Search purpose"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            autoFocus
+          />
+        </div>
+        <ScrollArea className="max-h-60">
+          <div className="py-1">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                No purposes found
+              </div>
+            ) : (
+              filteredOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted",
+                    value === option.value ? "bg-muted" : undefined
+                  )}
+                  onClick={() => handleSelect(option.value)}
+                >
+                  <Check
+                    className={cn(
+                      "h-4 w-4",
+                      value === option.value ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+const ExecutiveCombobox = ({
+  value,
+  onChange,
+  options,
+  triggerClassName,
+  placeholder = "Select executive",
+  disabled,
+}: PurposeComboboxProps) => {
+  const [open, setOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setSearchTerm("");
+    }
+  }, [open]);
+
+  const normalizedOptions = useMemo(() => {
+    const unique = Array.from(new Set(options));
+    return unique.map((option) => ({
+      value: option,
+      label: option,
+    }));
+  }, [options]);
+
+  const filteredOptions = useMemo(() => {
+    const baseOptions = [
+      { value: "all", label: "All Executives" },
+      ...normalizedOptions,
+    ];
+
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) {
+      return baseOptions;
+    }
+
+    return baseOptions.filter((option) =>
+      option.label.toLowerCase().includes(query)
+    );
+  }, [normalizedOptions, searchTerm]);
+
+  const handleSelect = (nextValue: string) => {
+    onChange(nextValue);
+    setOpen(false);
+  };
+
+  const selectedLabel =
+    value === "all"
+      ? "All Executives"
+      : normalizedOptions.find((item) => item.value === value)?.label || value || placeholder;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={cn("w-full justify-between", triggerClassName)}
+          disabled={disabled}
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-full p-0">
+        <div className="p-2">
+          <Input
+            placeholder="Search executive"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-8"
+          />
+        </div>
+        <ScrollArea className="h-72">
+          <div className="p-1">
+            {filteredOptions.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No executives found
+              </div>
+            ) : (
+              filteredOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted",
+                    value === option.value ? "bg-muted" : undefined
+                  )}
+                  onClick={() => handleSelect(option.value)}
+                >
+                  <Check
+                    className={cn(
+                      "h-4 w-4",
+                      value === option.value ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 type Row = {
   id: number;
@@ -97,7 +328,7 @@ const formatTime = (timeStr?: string): string => {
       date.setHours(parseInt(hours), parseInt(minutes), seconds ? parseInt(seconds) : 0);
       return formatDate(date, 'h:mm a');
     }
-  } catch (error) {
+  } catch {
     // Fallback to original format if parsing fails
     return timeStr;
   }
@@ -131,7 +362,7 @@ const formatLastUpdated = (dateStr: string, timeStr?: string): string => {
       const timeFormat = formatDate(date, 'h:mm a');
       return `${dateFormat} ${timeFormat}`;
     }
-  } catch (error) {
+  } catch {
     // Fallback to original format if parsing fails
     return timeStr ? `${dateStr} ${timeStr}` : dateStr;
   }
@@ -160,12 +391,89 @@ export default function VisitsTable() {
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isRestoringState, setIsRestoringState] = useState(true);
   const router = useRouter();
   const MAX_RANGE_DAYS = 31;
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+  const hasInitializedFiltersRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setIsRestoringState(false);
+      return;
+    }
+
+    const restoreState = () => {
+      try {
+        const stored = window.localStorage.getItem(VISITS_STATE_STORAGE_KEY);
+        if (!stored) {
+          return;
+        }
+
+        const parsed = JSON.parse(stored) as {
+          startDate?: string;
+          endDate?: string;
+          quickRange?: string;
+          selectedPurpose?: string;
+          selectedExecutive?: string;
+          customerName?: string;
+          currentPage?: number;
+          pageSize?: number;
+        };
+
+        if (parsed.startDate) {
+          const parsedStart = new Date(parsed.startDate);
+          if (!Number.isNaN(parsedStart.getTime())) {
+            setStartDate(parsedStart);
+          }
+        }
+
+        if (parsed.endDate) {
+          const parsedEnd = new Date(parsed.endDate);
+          if (!Number.isNaN(parsedEnd.getTime())) {
+            setEndDate(parsedEnd);
+          }
+        }
+
+        if (parsed.quickRange) {
+          setQuickRange(parsed.quickRange);
+        }
+
+        if (parsed.selectedPurpose) {
+          setSelectedPurpose(parsed.selectedPurpose);
+        }
+
+        if (parsed.selectedExecutive) {
+          setSelectedExecutive(parsed.selectedExecutive);
+        }
+
+        if (typeof parsed.customerName === "string") {
+          setCustomerName(parsed.customerName);
+        }
+
+        if (typeof parsed.currentPage === "number" && parsed.currentPage >= 0) {
+          setCurrentPage(parsed.currentPage);
+        }
+
+        if (typeof parsed.pageSize === "number" && parsed.pageSize > 0) {
+          setPageSize(parsed.pageSize);
+        }
+      } catch (error) {
+        console.error("Failed to restore visits filters:", error);
+      }
+    };
+
+    restoreState();
+
+    const finalizeRestore = () => setIsRestoringState(false);
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(finalizeRestore);
+    } else {
+      setTimeout(finalizeRestore, 0);
+    }
+  }, []);
 
   const endDateDisabled = useMemo(() => {
     if (!startDate) return undefined;
@@ -186,6 +494,17 @@ export default function VisitsTable() {
   ] as const;
 
   const viewDetails = (id: number) => {
+    if (typeof window !== "undefined") {
+      const returnContext = {
+        route: "/dashboard/visits",
+        timestamp: Date.now(),
+      };
+      try {
+        window.localStorage.setItem("visitReturnContext", JSON.stringify(returnContext));
+      } catch (error) {
+        console.error("Failed to store return context for visits:", error);
+      }
+    }
     setIsNavigating(true);
     router.push(`/dashboard/visits/${id}`);
   };
@@ -409,6 +728,7 @@ export default function VisitsTable() {
 
   useEffect(() => {
     if (!startDate || !endDate) return;
+    if (isRestoringState) return;
 
     const startStr = formatDate(startDate, 'yyyy-MM-dd');
     const endStr = formatDate(endDate, 'yyyy-MM-dd');
@@ -432,7 +752,6 @@ export default function VisitsTable() {
         setAvailablePurposes((response.availablePurposes || []).slice().sort((a, b) => a.localeCompare(b)));
         setAvailableExecutives((response.availableExecutives || []).slice().sort((a, b) => a.localeCompare(b)));
         setTotalPages(response.totalPages || 0);
-        setTotalElements(response.totalElements || 0);
       } catch (err: unknown) {
         console.error("Failed to load combined timeline:", err);
         setError(err instanceof Error ? err.message : "Failed to load visits");
@@ -440,19 +759,45 @@ export default function VisitsTable() {
         setAvailablePurposes([]);
         setAvailableExecutives([]);
         setTotalPages(0);
-        setTotalElements(0);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchCombinedTimeline();
-  }, [startDate, endDate, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize]);
+  }, [startDate, endDate, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize, isRestoringState]);
 
   // Reset to first page when filters change
   useEffect(() => {
+    if (isRestoringState) return;
+    if (!hasInitializedFiltersRef.current) {
+      hasInitializedFiltersRef.current = true;
+      return;
+    }
     setCurrentPage(0);
-  }, [startDate, endDate, selectedPurpose, customerName, selectedExecutive, pageSize]);
+  }, [startDate, endDate, selectedPurpose, customerName, selectedExecutive, pageSize, isRestoringState]);
+
+  useEffect(() => {
+    if (isRestoringState) return;
+    if (typeof window === "undefined") return;
+
+    const payload = {
+      startDate: startDate ? startDate.toISOString() : null,
+      endDate: endDate ? endDate.toISOString() : null,
+      quickRange,
+      selectedPurpose,
+      selectedExecutive,
+      customerName,
+      currentPage,
+      pageSize,
+    };
+
+    try {
+      window.localStorage.setItem(VISITS_STATE_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error("Failed to persist visits filters:", error);
+    }
+  }, [startDate, endDate, quickRange, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize, isRestoringState]);
 
   const combinedRows = useMemo<CombinedDisplayRow[]>(() => {
     const rowsList: CombinedDisplayRow[] = [];
@@ -717,19 +1062,13 @@ export default function VisitsTable() {
           
           <div className="space-y-2">
             <Label>Purpose</Label>
-            <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select purpose" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Purposes</SelectItem>
-                {availablePurposes.map((purpose) => (
-                  <SelectItem key={purpose} value={purpose}>
-                    {purpose}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PurposeCombobox
+              value={selectedPurpose}
+              onChange={setSelectedPurpose}
+              options={availablePurposes}
+              allLabel="All Purposes"
+              placeholder="Select purpose"
+            />
           </div>
           
           <div className="space-y-2">
@@ -743,19 +1082,12 @@ export default function VisitsTable() {
           
           <div className="space-y-2">
             <Label>Executive</Label>
-            <Select value={selectedExecutive} onValueChange={setSelectedExecutive}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select executive" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Executives</SelectItem>
-                {availableExecutives.map((executive) => (
-                  <SelectItem key={executive} value={executive}>
-                    {executive}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ExecutiveCombobox
+              value={selectedExecutive}
+              onChange={setSelectedExecutive}
+              options={availableExecutives}
+              placeholder="Select executive"
+            />
           </div>
           
           {(isAdmin || isDataManager) && (
@@ -832,19 +1164,14 @@ export default function VisitsTable() {
 
               <div className="space-y-2">
                 <Label>Purpose</Label>
-                <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select purpose" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Purposes</SelectItem>
-                    {availablePurposes.map((purpose) => (
-                      <SelectItem key={purpose} value={purpose}>
-                        {purpose}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <PurposeCombobox
+                  value={selectedPurpose}
+                  onChange={setSelectedPurpose}
+                  options={availablePurposes}
+                  triggerClassName="w-full"
+                  allLabel="All Purposes"
+                  placeholder="Select purpose"
+                />
               </div>
 
               <div className="space-y-2">
@@ -854,19 +1181,13 @@ export default function VisitsTable() {
 
               <div className="space-y-2">
                 <Label>Executive</Label>
-                <Select value={selectedExecutive} onValueChange={setSelectedExecutive}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select executive" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Executives</SelectItem>
-                    {availableExecutives.map((executive) => (
-                      <SelectItem key={executive} value={executive}>
-                        {executive}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <ExecutiveCombobox
+                  value={selectedExecutive}
+                  onChange={setSelectedExecutive}
+                  options={availableExecutives}
+                  placeholder="Select executive"
+                  triggerClassName="w-full"
+                />
               </div>
             </div>
             <SheetFooter className="flex gap-2">

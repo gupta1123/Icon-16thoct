@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,10 +31,14 @@ import { API, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/
 import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export default function CustomerListPage() {
-    return <CustomerListContent />;
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <CustomerListContent />
+        </Suspense>
+    );
 }
 
 type Customer = StoreDto & {
@@ -45,30 +49,28 @@ type Customer = StoreDto & {
     totalVisitCount: number;
 };
 
+const FILTER_KEYS = ['storeName', 'primaryContact', 'ownerName', 'city', 'state', 'clientType', 'dealerSubType'] as const;
+const FILTER_EXPANDED_PARAM = 'filters';
+type FilterKey = (typeof FILTER_KEYS)[number];
+type FiltersState = Record<FilterKey, string>;
+const INITIAL_FILTERS: FiltersState = {
+    storeName: '',
+    primaryContact: '',
+    ownerName: '',
+    city: '',
+    state: '',
+    clientType: '',
+    dealerSubType: '',
+};
+
 function CustomerListContent() {
     const { token, userData } = useAuth();
     const [selectedColumns, setSelectedColumns] = useState<string[]>([
         'shopName', 'ownerName', 'city', 'state', 'phone', 'monthlySales',
         'clientType', 'totalVisits', 'lastVisitDate',
     ]);
-    const [desktopFilters, setDesktopFilters] = useState({
-        storeName: '',
-        primaryContact: '',
-        ownerName: '',
-        city: '',
-        state: '',
-        clientType: '',
-        dealerSubType: '',
-    });
-    const [mobileFilters, setMobileFilters] = useState({
-        storeName: '',
-        primaryContact: '',
-        ownerName: '',
-        city: '',
-        state: '',
-        clientType: '',
-        dealerSubType: '',
-    });
+    const [desktopFilters, setDesktopFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
+    const [mobileFilters, setMobileFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
     const [isDesktopFilterExpanded, setIsDesktopFilterExpanded] = useState(false);
     const [isMobileFilterExpanded, setIsMobileFilterExpanded] = useState(false);
     const [expandedCards, setExpandedCards] = useState<number[]>([]);
@@ -101,12 +103,141 @@ function CustomerListContent() {
     // Mock auth data - replace with actual auth context
     const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+    const [isFiltersInitialized, setIsFiltersInitialized] = useState(false);
 
     const viewCustomer = (id: number | string) => {
         setIsNavigating(true);
         router.push(`/dashboard/customers/${id}`);
     };
     const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
+
+    useEffect(() => {
+        if (isFiltersInitialized) {
+            return;
+        }
+
+        const params = new URLSearchParams(searchParams.toString());
+        const filtersExpandedParam = params.get(FILTER_EXPANDED_PARAM);
+        if (filtersExpandedParam === 'open') {
+            setIsDesktopFilterExpanded((prev) => (prev ? prev : true));
+        }
+        let updatedFilters: FiltersState | null = null;
+
+        setDesktopFilters(prev => {
+            const next = { ...prev };
+            let changed = false;
+
+            FILTER_KEYS.forEach(key => {
+                const paramValue = params.get(key);
+                if (paramValue !== null && next[key] !== paramValue) {
+                    next[key] = paramValue;
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                updatedFilters = next;
+                return next;
+            }
+
+            return prev;
+        });
+
+        if (updatedFilters) {
+            setMobileFilters(updatedFilters);
+        }
+
+        const pageParam = params.get('page');
+        if (pageParam) {
+            const parsedPage = Number(pageParam);
+            if (!Number.isNaN(parsedPage) && parsedPage > 0) {
+                setCurrentPage(prev => (prev === parsedPage ? prev : parsedPage));
+            }
+        }
+
+        const sortByParam = params.get('sortBy');
+        if (sortByParam) {
+            setSortColumn(prev => (prev === sortByParam ? prev : sortByParam));
+        }
+
+        const sortOrderParam = params.get('sortOrder');
+        if (sortOrderParam === 'asc' || sortOrderParam === 'desc') {
+            setSortDirection(prev => (prev === sortOrderParam ? prev : sortOrderParam));
+        }
+
+        setIsFiltersInitialized(true);
+    }, [searchParams, isFiltersInitialized]);
+
+    useEffect(() => {
+        if (!isFiltersInitialized) {
+            return;
+        }
+
+        const params = new URLSearchParams(searchParams.toString());
+        let hasUpdates = false;
+
+        FILTER_KEYS.forEach(key => {
+            const value = desktopFilters[key];
+            if (value) {
+                if (params.get(key) !== value) {
+                    params.set(key, value);
+                    hasUpdates = true;
+                }
+            } else if (params.has(key)) {
+                params.delete(key);
+                hasUpdates = true;
+            }
+        });
+
+        if (currentPage > 1) {
+            if (params.get('page') !== String(currentPage)) {
+                params.set('page', String(currentPage));
+                hasUpdates = true;
+            }
+        } else if (params.has('page')) {
+            params.delete('page');
+            hasUpdates = true;
+        }
+
+        if (sortColumn && sortColumn !== 'storeName') {
+            if (params.get('sortBy') !== sortColumn) {
+                params.set('sortBy', sortColumn);
+                hasUpdates = true;
+            }
+        } else if (params.has('sortBy')) {
+            params.delete('sortBy');
+            hasUpdates = true;
+        }
+
+        if (sortDirection !== 'asc') {
+            if (params.get('sortOrder') !== sortDirection) {
+                params.set('sortOrder', sortDirection);
+                hasUpdates = true;
+            }
+        } else if (params.has('sortOrder')) {
+            params.delete('sortOrder');
+            hasUpdates = true;
+        }
+
+        if (isDesktopFilterExpanded) {
+            if (params.get(FILTER_EXPANDED_PARAM) !== 'open') {
+                params.set(FILTER_EXPANDED_PARAM, 'open');
+                hasUpdates = true;
+            }
+        } else if (params.has(FILTER_EXPANDED_PARAM)) {
+            params.delete(FILTER_EXPANDED_PARAM);
+            hasUpdates = true;
+        }
+
+        if (!hasUpdates) {
+            return;
+        }
+
+        const queryString = params.toString();
+        router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
+    }, [desktopFilters, currentPage, sortColumn, sortDirection, isDesktopFilterExpanded, isFiltersInitialized, pathname, router, searchParams]);
 
     // Fetch current user data to determine role
     useEffect(() => {
@@ -338,7 +469,7 @@ function CustomerListContent() {
         setIsDeleteModalOpen(false);
     };
 
-    const handleDesktopFilterChange = (filterName: keyof typeof desktopFilters, value: string) => {
+    const handleDesktopFilterChange = (filterName: FilterKey, value: string) => {
         if (filterName === 'ownerName') {
             setDesktopFilters((prevFilters) => ({
                 ...prevFilters,
@@ -353,7 +484,7 @@ function CustomerListContent() {
         setCurrentPage(1);
     };
 
-    const handleMobileFilterChange = (filterName: keyof typeof mobileFilters, value: string) => {
+    const handleMobileFilterChange = (filterName: FilterKey, value: string) => {
         if (filterName === 'ownerName') {
             setMobileFilters((prevFilters) => ({
                 ...prevFilters,
@@ -367,8 +498,12 @@ function CustomerListContent() {
         }
     };
 
-    const handleFilterClear = (filterName: keyof typeof desktopFilters) => {
+    const handleFilterClear = (filterName: FilterKey) => {
         setDesktopFilters((prevFilters) => ({
+            ...prevFilters,
+            [filterName]: '',
+        }));
+        setMobileFilters((prevFilters) => ({
             ...prevFilters,
             [filterName]: '',
         }));
@@ -508,23 +643,14 @@ function CustomerListContent() {
     };
 
     const applyMobileFilters = () => {
-        setDesktopFilters(mobileFilters);
+        setDesktopFilters({ ...mobileFilters });
         setIsMobileFilterExpanded(false);
         setCurrentPage(1);
     };
 
     const clearAllFilters = () => {
-        const emptyFilters = {
-            storeName: '',
-            primaryContact: '',
-            ownerName: '',
-            city: '',
-            state: '',
-            clientType: '',
-            dealerSubType: '',
-        };
-        setDesktopFilters(emptyFilters);
-        setMobileFilters(emptyFilters);
+        setDesktopFilters({ ...INITIAL_FILTERS });
+        setMobileFilters({ ...INITIAL_FILTERS });
         setCurrentPage(1);
     };
 

@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import Image from "next/image";
+import { normalizeRoleValue, extractAuthorityRoles, hasAnyRole } from "@/lib/role-utils";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +23,19 @@ export default function LoginPage() {
     setError(null);
     
     try {
-      await login(email, password);
+      const response = await login(email, password);
+      
+      // Check if user is a Field Officer
+      const normalizedRole = normalizeRoleValue(response.userRole);
+      const authorityRoles = extractAuthorityRoles(response.currentUser?.authorities ?? null);
+      const isFieldOfficer = hasAnyRole(normalizedRole, authorityRoles, ['FIELD_OFFICER']);
+      
+      if (isFieldOfficer) {
+        // Field Officers are not allowed to access this system
+        setError("Access Denied: Field Officers cannot access this management system. Please contact your administrator for assistance.");
+        return;
+      }
+      
       // Login successful, redirect to dashboard
       router.push("/dashboard");
     } catch (error) {
@@ -45,8 +58,22 @@ export default function LoginPage() {
 
             <form onSubmit={handleLogin} className="space-y-4">
               {error && (
-                <div className="px-4 py-3 rounded-md text-sm border border-destructive/40 text-destructive bg-destructive/10">
-                  {error}
+                <div className={`px-4 py-3 rounded-md text-sm border ${
+                  error.includes("Access Denied") 
+                    ? "border-orange-400 text-orange-800 bg-orange-50 dark:border-orange-600 dark:text-orange-200 dark:bg-orange-900/20" 
+                    : "border-destructive/40 text-destructive bg-destructive/10"
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">
+                        {error.includes("Access Denied") ? "Access Restricted" : "Login Error"}
+                      </div>
+                      <div className="text-sm mt-1">
+                        {error}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 

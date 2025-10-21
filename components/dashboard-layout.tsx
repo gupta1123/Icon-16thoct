@@ -233,6 +233,39 @@ export default function DashboardLayout({
     });
     return initialState;
   });
+  
+  // Check if user is a Field Officer and redirect them
+  const isFieldOfficerUser = hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER']);
+  
+  if (isFieldOfficerUser) {
+    // Field Officers are not allowed to access this system
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-100 dark:bg-neutral-900">
+        <div className="max-w-md w-full mx-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-lg p-8 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 bg-orange-100 dark:bg-orange-900/20 rounded-full flex items-center justify-center">
+              <UserCheck className="w-8 h-8 text-orange-600 dark:text-orange-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Access Restricted
+            </h1>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              Field Officers cannot access this management system. Please contact your administrator for assistance.
+            </p>
+            <Button 
+              onClick={() => {
+                logout();
+                router.push('/login');
+              }}
+              className="w-full"
+            >
+              Return to Login
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Role hierarchy: Admin > Data Manager > Coordinator > Regional Manager > Field Officer > HR
   // HR is separate from the main hierarchy as it's a specialized role
@@ -393,8 +426,8 @@ export default function DashboardLayout({
                               onClick={() => setSidebarOpen(false)}
                               className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
                                 isActive(item.href)
-                                  ? "bg-primary text-primary-foreground"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                  ? "bg-muted text-foreground"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                               }`}
                             >
                               <ItemIcon className="h-4 w-4" />

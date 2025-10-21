@@ -33,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import AddTeam from "@/components/AddTeam";
 import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import { normalizeRoleValue } from "@/lib/role-utils";
 
 interface User {
@@ -82,7 +83,27 @@ interface OfficeManager {
   role?: string;
 }
 
+const EMPLOYEE_LIST_STATE_KEY = "employeeListState";
+const EMPLOYEE_LIST_RETURN_CONTEXT_KEY = "employeeListReturnContext";
+const SORTABLE_COLUMNS: Array<keyof User> = [
+  'firstName',
+  'role',
+  'userName',
+  'primaryContact',
+  'city',
+  'state',
+];
+const ALL_COLUMN_KEYS = ['name', 'email', 'city', 'state', 'role', 'assignedCities', 'department', 'userName', 'dateOfJoining', 'primaryContact', 'actions'] as const;
+const INITIAL_MOBILE_FILTERS = {
+  name: '',
+  role: '',
+  city: '',
+  state: '',
+  email: '',
+};
+
 export default function EmployeeList() {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [officeManager, setOfficeManager] = useState<OfficeManager | null>(null);
@@ -92,13 +113,7 @@ export default function EmployeeList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [isMobileFilterExpanded, setIsMobileFilterExpanded] = useState(false);
-  const [mobileFilters, setMobileFilters] = useState({
-    name: '',
-    role: '',
-    city: '',
-    state: '',
-    email: '',
-  });
+  const [mobileFilters, setMobileFilters] = useState(INITIAL_MOBILE_FILTERS);
   const [resetPasswordUserId, setResetPasswordUserId] = useState<number | string | null>(null);
   const [selectedColumns, setSelectedColumns] = useState(['name', 'email', 'city', 'state', 'role', 'assignedCities', 'department', 'userName', 'dateOfJoining', 'primaryContact', 'actions']);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
@@ -133,6 +148,7 @@ export default function EmployeeList() {
   const [primaryContactError, setPrimaryContactError] = useState<string | null>(null);
   const [secondaryContactError, setSecondaryContactError] = useState<string | null>(null);
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
+  const [isRestoringState, setIsRestoringState] = useState(true);
 
   // Location state for employee
   const [employeeStates, setEmployeeStates] = useState<StateDto[]>([]);
@@ -181,6 +197,101 @@ export default function EmployeeList() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
   const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
   const officeManagerId = typeof window !== 'undefined' ? localStorage.getItem('officeManagerId') : null;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setIsRestoringState(false);
+      return;
+    }
+
+    try {
+      const storedState = window.localStorage.getItem(EMPLOYEE_LIST_STATE_KEY);
+      if (!storedState) {
+        return;
+      }
+
+      const parsed = JSON.parse(storedState) as {
+        searchQuery?: unknown;
+        currentPage?: unknown;
+        itemsPerPage?: unknown;
+        selectedColumns?: unknown;
+        sortColumn?: unknown;
+        sortDirection?: unknown;
+        mobileFilters?: unknown;
+      };
+
+      if (typeof parsed.searchQuery === 'string') {
+        setSearchQuery(parsed.searchQuery);
+      }
+
+      if (typeof parsed.currentPage === 'number' && Number.isFinite(parsed.currentPage) && parsed.currentPage > 0) {
+        setCurrentPage(parsed.currentPage);
+      }
+
+      if (typeof parsed.itemsPerPage === 'number' && Number.isFinite(parsed.itemsPerPage) && parsed.itemsPerPage > 0) {
+        setItemsPerPage(parsed.itemsPerPage);
+      }
+
+      if (Array.isArray(parsed.selectedColumns)) {
+        const validColumns = parsed.selectedColumns.filter(
+          (column): column is typeof ALL_COLUMN_KEYS[number] =>
+            typeof column === 'string' && (ALL_COLUMN_KEYS as readonly string[]).includes(column)
+        );
+        if (validColumns.length > 0) {
+          setSelectedColumns(validColumns.slice());
+        }
+      }
+
+      if (typeof parsed.sortColumn === 'string' && SORTABLE_COLUMNS.includes(parsed.sortColumn as keyof User)) {
+        setSortColumn(parsed.sortColumn as keyof User);
+      }
+
+      if (parsed.sortDirection === 'asc' || parsed.sortDirection === 'desc') {
+        setSortDirection(parsed.sortDirection);
+      }
+
+      if (parsed.mobileFilters && typeof parsed.mobileFilters === 'object' && parsed.mobileFilters !== null) {
+        const nextFilters = { ...INITIAL_MOBILE_FILTERS };
+        (['name', 'role', 'city', 'state', 'email'] as const).forEach((key) => {
+          const value = (parsed.mobileFilters as Record<string, unknown>)[key];
+          if (typeof value === 'string') {
+            nextFilters[key] = value;
+          }
+        });
+        setMobileFilters(nextFilters);
+      }
+    } catch (error) {
+      console.error('Failed to restore employee list state:', error);
+    } finally {
+      setIsRestoringState(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isRestoringState) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const payload = {
+      searchQuery,
+      currentPage,
+      itemsPerPage,
+      selectedColumns,
+      sortColumn,
+      sortDirection,
+      mobileFilters,
+    };
+
+    try {
+      window.localStorage.setItem(EMPLOYEE_LIST_STATE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error('Failed to persist employee list state:', error);
+    }
+  }, [searchQuery, currentPage, itemsPerPage, selectedColumns, sortColumn, sortDirection, mobileFilters, isRestoringState]);
 
   const fetchEmployees = useCallback(async () => {
     setIsLoading(true);
@@ -800,7 +911,17 @@ export default function EmployeeList() {
   };
 
   const handleViewUser = (userId: number) => {
-    window.location.href = `/dashboard/employee/${userId}`;
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(
+          EMPLOYEE_LIST_RETURN_CONTEXT_KEY,
+          JSON.stringify({ route: '/dashboard/employees', timestamp: Date.now() })
+        );
+      } catch (error) {
+        console.error('Failed to store employee return context:', error);
+      }
+    }
+    router.push(`/dashboard/employee/${userId}`);
   };
 
   const handleNextClick = () => {
@@ -825,13 +946,7 @@ export default function EmployeeList() {
   };
 
   const clearMobileFilters = () => {
-    setMobileFilters({
-      name: '',
-      role: '',
-      city: '',
-      state: '',
-      email: '',
-    });
+    setMobileFilters(INITIAL_MOBILE_FILTERS);
   };
 
   const applyMobileFilters = () => {

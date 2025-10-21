@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Head from 'next/head';
 import { useAuth } from '@/components/auth-provider';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,23 @@ import {
   SelectItem
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
+
+type VisitFilterOption = 'today' | 'yesterday' | 'last-2-days' | 'this-month' | 'last-month';
+
+const VALID_VISIT_FILTERS: Record<VisitFilterOption, true> = {
+  today: true,
+  yesterday: true,
+  "last-2-days": true,
+  "this-month": true,
+  "last-month": true,
+};
+
+const VISIT_FILTER_STORAGE_PREFIX = "employeeVisitFilter:";
+const buildVisitFilterStorageKey = (employeeId: string) =>
+  `${VISIT_FILTER_STORAGE_PREFIX}${employeeId}`;
+
+const isValidVisitFilter = (value: string | null): value is VisitFilterOption =>
+  !!value && Object.prototype.hasOwnProperty.call(VALID_VISIT_FILTERS, value);
 
 interface Visit {
   id: number;
@@ -77,8 +94,11 @@ interface PricingData {
   city: string;
 }
 
+const EMPLOYEE_LIST_RETURN_CONTEXT_KEY = 'employeeListReturnContext';
+
 export default function SalesExecutivePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const resolvedParams = use(params);
   const id = resolvedParams.id;
   const { token } = useAuth();
@@ -95,7 +115,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const [attendanceStats, setAttendanceStats] = useState<Record<string, unknown> | null>(null);
   const [dailyPricing, setDailyPricing] = useState<PricingData[]>([]);
 
-  const [visitFilter, setVisitFilter] = useState<string>('today');
+  const [visitFilter, setVisitFilter] = useState<VisitFilterOption>('today');
+  const [isVisitFilterInitialized, setIsVisitFilterInitialized] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [expenseStartDate, setExpenseStartDate] = useState<Date | undefined>(new Date());
@@ -105,6 +126,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
   const [showPricingStartCalendar, setShowPricingStartCalendar] = useState(false);
   const [showPricingEndCalendar, setShowPricingEndCalendar] = useState(false);
+  const visitFilterParam = searchParams?.get('visitFilter') ?? null;
 
   const getInitials = (name: string) => {
     return name
@@ -126,6 +148,28 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   };
   
   const handleBack = () => {
+    if (typeof window !== 'undefined') {
+      const storedContext = window.localStorage.getItem(EMPLOYEE_LIST_RETURN_CONTEXT_KEY);
+      if (storedContext) {
+        try {
+          const parsedContext = JSON.parse(storedContext) as { route?: string | null };
+          window.localStorage.removeItem(EMPLOYEE_LIST_RETURN_CONTEXT_KEY);
+          if (parsedContext?.route) {
+            router.push(parsedContext.route);
+            return;
+          }
+        } catch (error) {
+          console.error('Failed to parse employee list return context:', error);
+          window.localStorage.removeItem(EMPLOYEE_LIST_RETURN_CONTEXT_KEY);
+        }
+      }
+
+      if (window.history.length <= 1) {
+        router.push('/dashboard/employees');
+        return;
+      }
+    }
+
     router.back();
   };
 
@@ -153,50 +197,158 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   }, [token, id]);
 
   useEffect(() => {
-    const fetchVisitsAndStats = async () => {
-      if (token && id) {
-        let startDate, endDate;
-        const now = new Date();
+    if (!id) {
+      return;
+    }
 
-        // Determine date range based on visitFilter
-        if (visitFilter === 'today') {
-          startDate = now.toISOString().split('T')[0];
-          endDate = now.toISOString().split('T')[0];
-        } else if (visitFilter === 'yesterday') {
-          const yesterday = new Date(now);
-          yesterday.setDate(yesterday.getDate() - 1);
-          startDate = yesterday.toISOString().split('T')[0];
-          endDate = yesterday.toISOString().split('T')[0];
-        } else if (visitFilter === 'last-2-days') {
-          const twoDaysAgo = new Date(now);
-          twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-          startDate = twoDaysAgo.toISOString().split('T')[0];
-          endDate = now.toISOString().split('T')[0];
-        } else if (visitFilter === 'this-month') {
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-        } else if (visitFilter === 'last-month') {
-          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
-          endDate = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+    let nextFilter: VisitFilterOption = 'today';
+
+    if (isValidVisitFilter(visitFilterParam)) {
+      nextFilter = visitFilterParam;
+    } else if (typeof window !== 'undefined') {
+      try {
+        const storedFilter = window.localStorage.getItem(buildVisitFilterStorageKey(id));
+        if (isValidVisitFilter(storedFilter)) {
+          nextFilter = storedFilter;
         }
+      } catch (error) {
+        console.error('Failed to read stored visit filter:', error);
+      }
+    }
 
+    setVisitFilter(prev => (prev === nextFilter ? prev : nextFilter));
+    setIsVisitFilterInitialized(prev => (prev ? prev : true));
+  }, [id, visitFilterParam]);
+
+  useEffect(() => {
+    if (!id || typeof window === 'undefined' || !isVisitFilterInitialized) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        buildVisitFilterStorageKey(id),
+        visitFilter,
+      );
+    } catch (error) {
+      console.error('Failed to persist visit filter selection:', error);
+    }
+  }, [id, visitFilter, isVisitFilterInitialized]);
+
+  const handleViewVisit = useCallback(
+    (visitId: number) => {
+      const params = new URLSearchParams({
+        from: 'employee',
+        employeeId: id,
+      });
+
+      const returnParams = new URLSearchParams();
+
+      if (isVisitFilterInitialized && VALID_VISIT_FILTERS[visitFilter]) {
+        params.set('visitFilter', visitFilter);
+        returnParams.set('visitFilter', visitFilter);
+      }
+
+      const returnRoute = returnParams.toString()
+        ? `/dashboard/employee/${id}?${returnParams.toString()}`
+        : `/dashboard/employee/${id}`;
+
+      if (typeof window !== 'undefined') {
         try {
-          const response = await fetch(`/api/proxy/visit/getByDateRangeAndEmployeeStats?id=${id}&start=${startDate}&end=${endDate}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          const data = await response.json();
-          setVisits(data.visitDto);
-          setStats(data.statsDto);
-        } catch (error) {
-          console.error("Error fetching visits and stats:", error);
+          window.localStorage.setItem(
+            'visitReturnContext',
+            JSON.stringify({
+              route: returnRoute,
+              timestamp: Date.now(),
+            }),
+          );
+        } catch (storageError) {
+          console.error('Failed to store visit return context:', storageError);
         }
+      }
+
+      router.push(`/dashboard/visits/${visitId}?${params.toString()}`);
+    },
+    [id, visitFilter, isVisitFilterInitialized, router],
+  );
+
+  useEffect(() => {
+    const fetchVisitsAndStats = async () => {
+      if (!token || !id || !isVisitFilterInitialized) {
+        return;
+      }
+
+      let startDate: string | undefined;
+      let endDate: string | undefined;
+      const now = new Date();
+
+      // Determine date range based on visitFilter
+      if (visitFilter === 'today') {
+        startDate = now.toISOString().split('T')[0];
+        endDate = now.toISOString().split('T')[0];
+      } else if (visitFilter === 'yesterday') {
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        startDate = yesterday.toISOString().split('T')[0];
+        endDate = yesterday.toISOString().split('T')[0];
+      } else if (visitFilter === 'last-2-days') {
+        const twoDaysAgo = new Date(now);
+        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+        startDate = twoDaysAgo.toISOString().split('T')[0];
+        endDate = now.toISOString().split('T')[0];
+      } else if (visitFilter === 'this-month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      } else if (visitFilter === 'last-month') {
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+      }
+
+      try {
+        console.log(`Fetching visit data for employee ${id} from ${startDate} to ${endDate}`);
+        const response = await fetch(`/api/proxy/visit/getByDateRangeAndEmployeeStats?id=${id}&start=${startDate}&end=${endDate}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.warn(`No visit data found for employee ${id} in date range ${startDate} to ${endDate}`);
+            setVisits([]);
+            setStats({
+              visitCount: 0,
+              fullDays: 0,
+              halfDays: 0,
+              absences: 0
+            });
+            return;
+          }
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setVisits(data.visitDto || []);
+        setStats(data.statsDto || {
+          visitCount: 0,
+          fullDays: 0,
+          halfDays: 0,
+          absences: 0
+        });
+      } catch (error) {
+        console.error("Error fetching visits and stats:", error);
+        setVisits([]);
+        setStats({
+          visitCount: 0,
+          fullDays: 0,
+          halfDays: 0,
+          absences: 0
+        });
       }
     };
 
     fetchVisitsAndStats();
-  }, [token, id, visitFilter]);
+  }, [token, id, visitFilter, isVisitFilterInitialized]);
 
   useEffect(() => {
     const fetchExpenses = async () => {
@@ -501,7 +653,10 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                 {activeTab === 'visits' && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-4">
-                      <Select value={visitFilter} onValueChange={setVisitFilter}>
+                      <Select
+                        value={visitFilter}
+                        onValueChange={(value) => setVisitFilter(value as VisitFilterOption)}
+                      >
                         <SelectTrigger className="w-[180px]">
                           <SelectValue placeholder="Select Filter" />
                         </SelectTrigger>
@@ -522,13 +677,13 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         } else if (visit.checkinDate && visit.checkinTime) {
                           status = 'In Progress';
                         }
-                        const { emoji, color } = getStatusInfo(status);
+                        const { color } = getStatusInfo(status);
 
     return (
                           <div 
                             key={visit.id} 
                             className="rounded-lg border bg-card p-4 cursor-pointer hover:shadow-sm transition-shadow"
-                            onClick={() => router.push(`/dashboard/visits/${visit.id}`)}
+                            onClick={() => handleViewVisit(visit.id)}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
@@ -552,6 +707,18 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                                 }))}
                               </div>
                             )}
+                            <div className="flex justify-end mt-3">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleViewVisit(visit.id);
+                                }}
+                              >
+                                View Visit
+                              </Button>
+                            </div>
                           </div>
                         );
                       })}

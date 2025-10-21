@@ -4,10 +4,18 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 import { authService, UserRoleResponse, CurrentUserDto } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
+interface LoginResponse {
+  token: string;
+  role: string;
+  userRole: string | null;
+  userData: UserRoleResponse | null;
+  currentUser: CurrentUserDto | null;
+}
+
 interface AuthContextType {
   isAuthenticated: boolean;
   token: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   isLoading: boolean;
   userRole: string | null;
@@ -75,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<LoginResponse> => {
     setIsLoading(true);
     try {
       const response = await authService.login({ username, password });
@@ -89,6 +97,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserRole(storedUserRole);
       setUserData(storedUserData);
       setCurrentUser(storedCurrentUser);
+      
+      return {
+        token: response.token,
+        role: response.role,
+        userRole: storedUserRole,
+        userData: storedUserData,
+        currentUser: storedCurrentUser
+      };
     } catch (error) {
       throw error;
     } finally {
@@ -104,6 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserRole(null);
       setUserData(null);
       setCurrentUser(null);
+      // Clear pricing modal session flag on logout
+      sessionStorage.removeItem('pricingModalShown');
       router.replace('/login');
     } catch (error) {
       // Still clear local state even if API call fails
@@ -111,6 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsAuthenticated(false);
       setUserRole(null);
       setUserData(null);
+      // Clear pricing modal session flag on logout even if API fails
+      sessionStorage.removeItem('pricingModalShown');
       throw error;
     }
   };

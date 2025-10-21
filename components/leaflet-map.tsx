@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -96,17 +96,6 @@ const formatHumanTime = (value?: string | null) => {
 
 const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee, markers = [], onMarkerClick }) => {
   const [isClient, setIsClient] = useState(false);
-  const markerSignature = useMemo(
-    () =>
-      markers
-        .map(
-          (marker) =>
-            `${marker.id}-${marker.lat}-${marker.lng}-${marker.variant ?? 'na'}-${marker.number ?? 'x'}`
-        )
-        .join('|'),
-    [markers]
-  );
-
   const svgIcons = useMemo(() => {
     return Object.entries(markerColors).reduce<Record<Exclude<MarkerVariant, undefined>, L.Icon>>((acc, [variant, color]) => {
           const svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -173,19 +162,25 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
   const fallbackMarkersRef = useRef<L.Marker[]>([]);
 
   useEffect(() => {
-    // Import markercluster dynamically to avoid SSR issues
-    import('leaflet.markercluster').then((MarkerClusterGroup) => {
+    let isMounted = true;
+    let createdCluster: L.MarkerClusterGroup | null = null;
+
+    const loadClusterPlugin = async () => {
       try {
-        const cluster = new (MarkerClusterGroup as { default: new (options: { chunkedLoading: boolean; chunkProgress: (processed: number, total: number) => void; iconCreateFunction?: (cluster: L.MarkerCluster) => L.DivIcon }) => L.MarkerClusterGroup }).default({
+        await import('leaflet.markercluster');
+        if (!isMounted) {
+          return;
+        }
+
+        const cluster = L.markerClusterGroup({
           chunkedLoading: true,
           chunkProgress: (_processed: number, _total: number) => {
-            // Optional: show loading progress
+            // Optional: hook for showing progress if needed
           },
-          // Custom cluster icon
           iconCreateFunction: (cluster: L.MarkerCluster) => {
             const count = cluster.getChildCount();
             let className = 'marker-cluster-small';
-            
+
             if (count < 10) {
               className = 'marker-cluster-small';
             } else if (count < 100) {
@@ -197,27 +192,33 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
             return new L.DivIcon({
               html: `<div><span>${count}</span></div>`,
               className: `marker-cluster ${className}`,
-              iconSize: new L.Point(40, 40)
+              iconSize: new L.Point(40, 40),
             });
-          }
+          },
         });
 
+        createdCluster = cluster;
         setClusterGroup(cluster);
         map.addLayer(cluster);
-      } catch (_error) {
-        console.warn('Marker clustering failed to load, falling back to individual markers');
-        // Fallback: create individual markers without clustering
-        setClusterGroup(null);
+      } catch (error) {
+        console.warn('Marker clustering failed to load, falling back to individual markers', error);
+        createdCluster = null;
+        if (isMounted) {
+          setClusterGroup(null);
+        }
       }
-    }).catch((_error) => {
-      console.warn('Marker clustering library failed to load:', _error);
-      // Fallback: create individual markers without clustering
-      setClusterGroup(null);
-    });
+    };
+
+    loadClusterPlugin();
 
     return () => {
-      if (clusterGroup) {
-        map.removeLayer(clusterGroup);
+      isMounted = false;
+      if (createdCluster) {
+        try {
+          map.removeLayer(createdCluster);
+        } catch {
+          // Layer might already be removed; ignore cleanup errors
+        }
       }
     };
   }, [map]);
@@ -369,7 +370,6 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
 
   return (
     <MapContainer 
-      key={markerSignature}
       center={center} 
       zoom={zoom} 
       style={{ height: '100%', width: '100%' }}

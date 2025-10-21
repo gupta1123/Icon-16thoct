@@ -267,11 +267,42 @@ const Requirements = () => {
                 .map((task: Record<string, unknown>) => {
                     const desc = task.taskDesciption || task.taskDescription || '';
                     const title = (task.taskTitle && String(task.taskTitle).trim()) || (desc ? String(desc) : 'Requirement');
+                    
+                    // Try to resolve assignedToName from multiple sources
+                    let assignedToName = task.assignedToName;
+                    
+                    // If assignedToName is missing but we have assignedToId, try to find the employee
+                    if (!assignedToName && task.assignedToId && allEmployees.length > 0) {
+                        const employee = allEmployees.find((emp: Employee) => emp.id === Number(task.assignedToId));
+                        if (employee) {
+                            assignedToName = `${employee.firstName} ${employee.lastName}`.trim();
+                        }
+                    }
+                    
+                    // If still no name, check for other possible fields
+                    if (!assignedToName) {
+                        assignedToName = task.assignedTo || task.assignedToFirstName || task.assignedToLastName;
+                        if (task.assignedToFirstName && task.assignedToLastName) {
+                            assignedToName = `${task.assignedToFirstName} ${task.assignedToLastName}`.trim();
+                        }
+                    }
+                    
+                    // Debug logging for tasks with missing names
+                    if (!assignedToName) {
+                        console.warn('Task with missing assignedToName:', {
+                            taskId: task.id,
+                            assignedToId: task.assignedToId,
+                            assignedToName: task.assignedToName,
+                            assignedTo: task.assignedTo,
+                            taskTitle: task.taskTitle
+                        });
+                    }
+                    
                     return {
                         ...task,
                         taskTitle: title,
                         taskDescription: desc, // normalize
-                        assignedToName: task.assignedToName || 'Unknown',
+                        assignedToName: assignedToName || 'Unknown',
                         taskType: task.taskType || 'requirement', // normalize missing taskType
                     } as Task;
                 })
