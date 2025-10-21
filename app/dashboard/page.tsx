@@ -182,7 +182,14 @@ const isValidDateRangeKey = (value: string | null): value is DateRangeKey =>
 function DashboardPageContent() {
   const { token } = useAuth();
   // Default to "today" for immediate daily insights
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRangeKey>("today");
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRangeKey>(() => {
+    if (typeof window === "undefined") {
+      return "today";
+    }
+    const params = new URLSearchParams(window.location.search);
+    const dr = params.get("dateRange");
+    return isValidDateRangeKey(dr) ? (dr as DateRangeKey) : "today";
+  });
   const [view, setView] = useState<"dashboard" | "state" | "employeeDetail">(() => {
     if (typeof window === "undefined") {
       return "dashboard";
@@ -407,16 +414,17 @@ function DashboardPageContent() {
         if (response.ok) {
           const currentUserDetails: CurrentUserDto = await response.json();
           
-          // Extract role from authorities
+          // Extract roles from authorities (consider all authorities, not only first)
           const authorities = currentUserDetails.authorities || [];
-          const role = authorities.length > 0 ? authorities[0].authority : null;
+          const roles = authorities.map((a) => a.authority);
+          const hasRole = (r: string) => roles.includes(r);
           
           // Set role flags based on hierarchy: Admin > Data Manager > Coordinator > Regional Manager > Field Officer > HR
-          const isAdminRole = role === 'ROLE_ADMIN';
-          const isDataManagerRole = role === 'ROLE_DATA_MANAGER';
-          const isCoordinatorRole = role === 'ROLE_COORDINATOR';
-          const isManagerRole = role === 'ROLE_MANAGER' || role === 'ROLE_OFFICE MANAGER';
-          const isHRRole = role === 'ROLE_HR';
+          const isAdminRole = hasRole('ROLE_ADMIN');
+          const isDataManagerRole = hasRole('ROLE_DATA_MANAGER');
+          const isCoordinatorRole = hasRole('ROLE_COORDINATOR');
+          const isManagerRole = hasRole('ROLE_MANAGER') || hasRole('ROLE_OFFICE MANAGER');
+          const isHRRole = hasRole('ROLE_HR');
           setIsAdmin(isAdminRole);
           setIsDataManager(isDataManagerRole);
           setIsCoordinator(isCoordinatorRole);
