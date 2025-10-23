@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { SearchIcon, Loader2, Calendar, Sun, CloudSun, XCircle } from "lucide-react";
 import EmployeeAttendanceCard from "@/components/employee-attendance-card";
-import VisitDetailsModal from "@/components/visit-details-modal";
+import VisitDetailsModal, { type VisitDetail } from "@/components/visit-details-modal";
 import { Text } from "@/components/ui/typography";
 import { authService } from "@/lib/auth";
 import {
@@ -72,7 +72,7 @@ export default function AttendancePage() {
   const [nameFilter, setNameFilter] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [visitData, setVisitData] = useState<unknown[]>([]);
+  const [visitData, setVisitData] = useState<VisitDetail[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
 
@@ -218,8 +218,9 @@ export default function AttendancePage() {
           visits: data.visits
         });
 
-        // Store the complete timeline data (visits + activities)
-        setVisitData(data);
+        // Store only the visit list for the modal
+        const visits = Array.isArray(data?.visits) ? (data.visits as VisitDetail[]) : [];
+        setVisitData(visits);
         setSelectedDate(date);
         setSelectedEmployeeName(employeeName);
         setIsModalOpen(true);

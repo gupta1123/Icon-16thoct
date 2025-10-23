@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import AddTeam from "@/components/AddTeam";
+import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { normalizeRoleValue } from "@/lib/role-utils";
@@ -153,22 +154,24 @@ export default function EmployeeList() {
   // Location state for employee
   const [employeeStates, setEmployeeStates] = useState<StateDto[]>([]);
   const [employeeDistricts, setEmployeeDistricts] = useState<DistrictDto[]>([]);
-  
+  const [isLoadingEmployeeStates, setIsLoadingEmployeeStates] = useState(false);
+  const [isLoadingEmployeeDistricts, setIsLoadingEmployeeDistricts] = useState(false);
   const [selectedEmployeeStateId, setSelectedEmployeeStateId] = useState<number | null>(null);
   const [selectedEmployeeDistrictId, setSelectedEmployeeDistrictId] = useState<number | null>(null);
-  
-  // Search states for location dropdowns
-  const [employeeStateSearch, setEmployeeStateSearch] = useState('');
-  const [employeeDistrictSearch, setEmployeeDistrictSearch] = useState('');
-
-  // Filtered location data based on search
-  const filteredEmployeeStates = employeeStates.filter(state =>
-    state.stateName.toLowerCase().includes(employeeStateSearch.toLowerCase())
-  );
-  
-  const filteredEmployeeDistricts = employeeDistricts.filter(district =>
-    district.districtName.toLowerCase().includes(employeeDistrictSearch.toLowerCase())
-  );
+  const employeeStateOptions = useMemo<SearchableOption<StateDto>[]>(() =>
+    employeeStates.map((state) => ({
+      value: state.id.toString(),
+      label: state.stateName,
+      data: state,
+    })),
+  [employeeStates]);
+  const employeeDistrictOptions = useMemo<SearchableOption<DistrictDto>[]>(() =>
+    employeeDistricts.map((district) => ({
+      value: district.id.toString(),
+      label: district.districtName,
+      data: district,
+    })),
+  [employeeDistricts]);
 
   // Additional state for new employee form
   const initialNewEmployeeState = {
@@ -639,8 +642,6 @@ export default function EmployeeList() {
         setNewEmployee(initialNewEmployeeState);
         setSelectedEmployeeStateId(null);
         setSelectedEmployeeDistrictId(null);
-        setEmployeeStateSearch('');
-        setEmployeeDistrictSearch('');
         setPrimaryContactError(null);
         setSecondaryContactError(null);
         fetchEmployees();
@@ -731,18 +732,25 @@ export default function EmployeeList() {
   // Load states when modal opens
   useEffect(() => {
     const fetchEmployeeStates = async () => {
-      if (isModalOpen) {
-        try {
-          const statesData = await API.getAllStates();
-          setEmployeeStates(statesData);
-        } catch (error) {
-          console.error('Error fetching states:', error);
-          setEmployeeStates([]);
-        }
+      if (!isModalOpen) {
+        setEmployeeStates([]);
+        setIsLoadingEmployeeStates(false);
+        return;
+      }
+
+      try {
+        setIsLoadingEmployeeStates(true);
+        const statesData = await API.getAllStates();
+        setEmployeeStates(statesData);
+      } catch (error) {
+        console.error('Error fetching states:', error);
+        setEmployeeStates([]);
+      } finally {
+        setIsLoadingEmployeeStates(false);
       }
     };
 
-    fetchEmployeeStates();
+    void fetchEmployeeStates();
   }, [isModalOpen]);
 
   // Load districts when state changes
@@ -751,20 +759,24 @@ export default function EmployeeList() {
       if (!selectedEmployeeStateId) {
         setEmployeeDistricts([]);
         setSelectedEmployeeDistrictId(null);
+        setIsLoadingEmployeeDistricts(false);
         return;
       }
 
       try {
+        setIsLoadingEmployeeDistricts(true);
         const districtsData = await API.getDistrictsByStateId(selectedEmployeeStateId);
         setEmployeeDistricts(districtsData);
         setSelectedEmployeeDistrictId(null);
       } catch (error) {
         console.error('Error fetching districts:', error);
         setEmployeeDistricts([]);
+      } finally {
+        setIsLoadingEmployeeDistricts(false);
       }
     };
 
-    fetchEmployeeDistricts();
+    void fetchEmployeeDistricts();
   }, [selectedEmployeeStateId]);
 
   // Helper functions
@@ -1540,8 +1552,6 @@ export default function EmployeeList() {
           // Reset location selections
           setSelectedEmployeeStateId(null);
           setSelectedEmployeeDistrictId(null);
-          setEmployeeStateSearch('');
-          setEmployeeDistrictSearch('');
           setPrimaryContactError(null);
           setSecondaryContactError(null);
         }
@@ -1652,90 +1662,56 @@ export default function EmployeeList() {
                 {/* State & District */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
-                    <Select
-                      value={selectedEmployeeStateId?.toString() || ''}
-                      onValueChange={(value) => {
-                        const stateId = parseInt(value);
-                        setSelectedEmployeeStateId(stateId);
-                        const selectedState = employeeStates.find(s => s.id === stateId);
-                        if (selectedState) {
-                          setNewEmployee({ ...newEmployee, state: selectedState.stateName });
+                    <Label>State</Label>
+                    <SearchableSelect<StateDto>
+                      options={employeeStateOptions}
+                      value={selectedEmployeeStateId ? selectedEmployeeStateId.toString() : undefined}
+                      onSelect={(option) => {
+                        if (!option) {
+                          setSelectedEmployeeStateId(null);
+                          setSelectedEmployeeDistrictId(null);
+                          setNewEmployee((prev) => ({ ...prev, state: "" }));
+                          return;
                         }
-                        setEmployeeStateSearch('');
+                        const stateId = Number.parseInt(option.value, 10);
+                        setSelectedEmployeeStateId(stateId);
+                        setSelectedEmployeeDistrictId(null);
+                        setNewEmployee((prev) => ({
+                          ...prev,
+                          state: option.data?.stateName ?? "",
+                        }));
                       }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[300px]">
-                        <div className="sticky top-0 bg-background p-2 border-b">
-                          <Input
-                            placeholder="Search state..."
-                            value={employeeStateSearch}
-                            onChange={(e) => setEmployeeStateSearch(e.target.value)}
-                            className="h-8"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <div className="max-h-[200px] overflow-y-auto">
-                          {filteredEmployeeStates.length > 0 ? (
-                            filteredEmployeeStates.map((state) => (
-                              <SelectItem key={state.id} value={state.id.toString()}>
-                                {state.stateName}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <div className="py-6 text-center text-sm text-muted-foreground">
-                              No state found
-                            </div>
-                          )}
-                        </div>
-                      </SelectContent>
-                    </Select>
+                      placeholder="Select state"
+                      searchPlaceholder="Search state..."
+                      triggerClassName="w-full"
+                      contentClassName="[width:var(--radix-popover-trigger-width,280px)]"
+                      allowClear={Boolean(selectedEmployeeStateId)}
+                      loading={isLoadingEmployeeStates}
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="district">District</Label>
-                    <Select
-                      value={selectedEmployeeDistrictId?.toString() || ''}
-                      onValueChange={(value) => {
-                        const districtId = parseInt(value);
+                    <Label>District</Label>
+                    <SearchableSelect<DistrictDto>
+                      options={employeeDistrictOptions}
+                      value={selectedEmployeeDistrictId ? selectedEmployeeDistrictId.toString() : undefined}
+                      onSelect={(option) => {
+                        if (!option) {
+                          setSelectedEmployeeDistrictId(null);
+                          return;
+                        }
+                        const districtId = Number.parseInt(option.value, 10);
                         setSelectedEmployeeDistrictId(districtId);
-                        setEmployeeDistrictSearch('');
                       }}
+                      placeholder={selectedEmployeeStateId ? "Select district" : "Select state first"}
+                      searchPlaceholder="Search district..."
+                      triggerClassName="w-full"
+                      contentClassName="[width:var(--radix-popover-trigger-width,280px)]"
+                      allowClear={Boolean(selectedEmployeeDistrictId)}
                       disabled={!selectedEmployeeStateId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={!selectedEmployeeStateId ? "Select state first" : "Select district"} />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[300px]">
-                        <div className="sticky top-0 bg-background p-2 border-b">
-                          <Input
-                            placeholder="Search district..."
-                            value={employeeDistrictSearch}
-                            onChange={(e) => setEmployeeDistrictSearch(e.target.value)}
-                            className="h-8"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <div className="max-h-[200px] overflow-y-auto">
-                          {filteredEmployeeDistricts.length > 0 ? (
-                            filteredEmployeeDistricts.map((district) => (
-                              <SelectItem key={district.id} value={district.id.toString()}>
-                                {district.districtName}
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <div className="py-6 text-center text-sm text-muted-foreground">
-                              No district found
-                            </div>
-                          )}
-                        </div>
-                      </SelectContent>
-                    </Select>
+                      loading={isLoadingEmployeeDistricts}
+                      loadingMessage="Loading districts..."
+                    />
                   </div>
                 </div>
 

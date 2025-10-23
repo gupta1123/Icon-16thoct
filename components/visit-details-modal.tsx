@@ -26,10 +26,24 @@ import {
     PaginationEllipsis
 } from '@/components/ui/pagination'
 
+export interface VisitDetail {
+    id: number;
+    storeName?: string;
+    purpose?: string;
+    checkinDate?: string;
+    checkinTime?: string;
+    checkoutDate?: string;
+    checkoutTime?: string;
+    outcome?: string;
+    updatedAt?: string;
+    updatedTime?: string;
+    visit_date?: string;
+}
+
 interface VisitDetailsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    visitData: unknown[];
+    visitData: VisitDetail[];
     selectedDate: string;
     employeeName: string;
     hideViewAction?: boolean;
@@ -62,7 +76,7 @@ const formatDateTime = (dateString: string, timeString: string) => {
 };
 
 const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName, hideViewAction = false }) => {
-    const [selectedVisit, setSelectedVisit] = useState<Record<string, unknown> | null>(null);
+    const [selectedVisit, setSelectedVisit] = useState<VisitDetail | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const visitsPerPage = 7;
     const router = useRouter();
@@ -156,13 +170,12 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {currentVisits.map((visit) => {
-                                                const v = visit as { id: number; storeName?: string; purpose?: string; checkinDate?: string; checkinTime?: string; checkoutDate?: string; checkoutTime?: string; updatedAt?: string; updatedTime?: string };
+                                            {currentVisits.map((v) => {
                                                 const { emoji, status, color } = getOutcomeStatus(v);
                                                 return (
                                                     <TableRow key={v.id} className="hover:bg-muted/40">
                                                         <TableCell className="text-center font-medium px-3 py-3 w-[20%] truncate">
-                                                            {v.storeName || ''}
+                                                            {v.storeName ?? ''}
                                                         </TableCell>
                                                         <TableCell className="text-center px-3 py-3 w-[15%] truncate">
                                                             {employeeName || ''}
@@ -181,7 +194,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                             </span>
                                                         </TableCell>
                                                         <TableCell className="text-center px-3 py-3 w-[12%] truncate">
-                                                            {v.purpose || ''}
+                                                            {v.purpose ?? ''}
                                                         </TableCell>
                                                         <TableCell 
                                                             className="text-center px-3 py-3 w-[15%] truncate" 
@@ -328,12 +341,12 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
                         <DialogPrimitive.Content className="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200">
                             <DialogHeader>
-                                <DialogTitle>Visit Details for {String(selectedVisit.storeName || '')}</DialogTitle>
+                                <DialogTitle>Visit Details for {selectedVisit.storeName ?? ''}</DialogTitle>
                             </DialogHeader>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="font-semibold">Customer Name:</p>
-                                    <p>{String(selectedVisit.storeName || '')}</p>
+                                    <p>{selectedVisit.storeName ?? ''}</p>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Executive:</p>
@@ -341,25 +354,25 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                 </div>
                                 <div>
                                     <p className="font-semibold">Date:</p>
-                                    <p>{formatDateTime(String(selectedVisit.visit_date || ''), '') || ''}</p>
+                                    <p>{formatDateTime(selectedVisit.visit_date ?? '', '') || ''}</p>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Status:</p>
-                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium ${getOutcomeStatus(selectedVisit as { outcome?: string; checkinDate?: string; checkinTime?: string; checkoutDate?: string; checkoutTime?: string }).color}`}>
-                                        {getOutcomeStatus(selectedVisit as { outcome?: string; checkinDate?: string; checkinTime?: string; checkoutDate?: string; checkoutTime?: string }).emoji} {getOutcomeStatus(selectedVisit as { outcome?: string; checkinDate?: string; checkinTime?: string; checkoutDate?: string; checkoutTime?: string }).status}
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium ${getOutcomeStatus(selectedVisit).color}`}>
+                                        {getOutcomeStatus(selectedVisit).emoji} {getOutcomeStatus(selectedVisit).status}
                                     </span>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Purpose:</p>
-                                    <p>{String(selectedVisit.purpose || '')}</p>
+                                    <p>{selectedVisit.purpose ?? ''}</p>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Visit Start:</p>
-                                    <p>{formatDateTime(String(selectedVisit.checkinDate || ''), String(selectedVisit.checkinTime || '')) || ''}</p>
+                                    <p>{formatDateTime(selectedVisit.checkinDate ?? '', selectedVisit.checkinTime ?? '') || ''}</p>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Visit End:</p>
-                                    <p>{formatDateTime(String(selectedVisit.checkoutDate || ''), String(selectedVisit.checkoutTime || '')) || ''}</p>
+                                    <p>{formatDateTime(selectedVisit.checkoutDate ?? '', selectedVisit.checkoutTime ?? '') || ''}</p>
                                 </div>
                             </div>
                             <DialogFooter>
