@@ -488,7 +488,6 @@ export default function VisitsTable() {
   const QUICK_RANGES = [
     { value: "last7Days", label: "Last 7 Days" },
     { value: "last15Days", label: "Last 15 Days" },
-    { value: "last30Days", label: "Last 30 Days" },
     { value: "thisMonth", label: "This Month" },
     { value: "lastMonth", label: "Last Month" },
   ] as const;
@@ -520,9 +519,6 @@ export default function VisitsTable() {
         break;
       case "last15Days":
         newStart = subDays(newEnd, 14);
-        break;
-      case "last30Days":
-        newStart = subDays(newEnd, 29);
         break;
       case "thisMonth":
         newStart = startOfMonth(today);

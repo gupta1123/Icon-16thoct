@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,13 +23,10 @@ import {
   Loader,
   ChevronDown,
   ChevronUp,
-  Phone,
-  Mail,
   Calendar,
   DollarSign
 } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
-import { DateRange } from "react-day-picker";
+import { Matcher } from "react-day-picker";
 import {
   Popover,
   PopoverContent,
@@ -272,6 +269,16 @@ const ReportsPage: React.FC = () => {
     const [expandedSummaryCards, setExpandedSummaryCards] = useState<boolean>(true);
     const [expandedVisitCards, setExpandedVisitCards] = useState<Set<number>>(new Set());
 
+    const today = useMemo(() => dayjs().endOf('day').toDate(), []);
+    const startDateDisabled = useMemo(() => ({ after: today }), [today]);
+    const endDateDisabled = useMemo<Matcher[]>(() => {
+        const matchers: Matcher[] = [{ after: today }];
+        if (startDate) {
+            matchers.push({ before: dayjs(startDate).toDate() });
+        }
+        return matchers;
+    }, [startDate, today]);
+
     // Detect user role
     useEffect(() => {
         const fetchCurrentUser = async () => {
@@ -388,8 +395,8 @@ const ReportsPage: React.FC = () => {
                 }
                 
                 setFieldOfficers(activeFieldOfficers);
-                if (activeFieldOfficers.length > 0 && !selectedEmployeeId) {
-                    setSelectedEmployeeId(activeFieldOfficers[0].id.toString());
+                if (activeFieldOfficers.length > 0) {
+                    setSelectedEmployeeId((prev) => prev || activeFieldOfficers[0].id.toString());
                 }
             } catch (err: unknown) {
                 setEmployeesError(err instanceof Error ? err.message : 'Could not fetch employee data.');
@@ -588,12 +595,6 @@ const ReportsPage: React.FC = () => {
         `${officer.firstName} ${officer.lastName}`.toLowerCase().includes(employeeSearchTerm.toLowerCase())
     );
 
-  const formatDateRange = () => {
-        if (!startDate) return "Select date range";
-        if (!endDate) return dayjs(startDate).format('MMM D, YYYY');
-        return `${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`;
-  };
-
   const toggleVisitCardExpansion = (index: number) => {
     setExpandedVisitCards(prev => {
       const newSet = new Set(prev);
@@ -708,6 +709,7 @@ const ReportsPage: React.FC = () => {
                                         mode="single"
                                         selected={startDate ? dayjs(startDate).toDate() : undefined}
                                         onSelect={handleStartDateSelect}
+                                        disabled={startDateDisabled}
                     initialFocus
                                     />
                                 </PopoverContent>
@@ -733,7 +735,7 @@ const ReportsPage: React.FC = () => {
                                         mode="single"
                                         selected={endDate ? dayjs(endDate).toDate() : undefined}
                                         onSelect={handleEndDateSelect}
-                                        disabled={startDate ? { before: dayjs(startDate).toDate() } : undefined}
+                                        disabled={endDateDisabled}
                                         initialFocus
                   />
                 </PopoverContent>

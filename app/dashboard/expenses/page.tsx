@@ -1,18 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { SearchIcon, Loader2, Grid3X3, Table as TableIcon } from "lucide-react";
+import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CalendarIcon, Download } from "lucide-react";
 import EmployeeExpenseCard from "@/components/employee-expense-card";
 import { Text } from "@/components/ui/typography";
 import { apiService, ExpenseDto } from "@/lib/api";
@@ -25,10 +18,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { format, startOfMonth } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 interface Expense {
   id: number;
@@ -131,40 +126,34 @@ const mockEmployees = [
   },
 ];
 
-// Mock data for filters
-const months = [
-  { value: "all", label: "All Months" },
-  { value: "01", label: "January" },
-  { value: "02", label: "February" },
-  { value: "03", label: "March" },
-  { value: "04", label: "April" },
-  { value: "05", label: "May" },
-  { value: "06", label: "June" },
-  { value: "07", label: "July" },
-  { value: "08", label: "August" },
-  { value: "09", label: "September" },
-  { value: "10", label: "October" },
-  { value: "11", label: "November" },
-  { value: "12", label: "December" },
-];
-
-const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
-
 const today = new Date();
-const defaultMonth = (today.getMonth() + 1).toString().padStart(2, '0');
-const defaultYear = today.getFullYear().toString();
+const defaultStartDate = format(startOfMonth(today), 'yyyy-MM-dd');
+const defaultEndDate = format(today, 'yyyy-MM-dd');
 
 export default function ExpensesPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
-  const [selectedYear, setSelectedYear] = useState(defaultYear);
+  const [selectedStartDate, setSelectedStartDate] = useState(defaultStartDate);
+  const [selectedEndDate, setSelectedEndDate] = useState(defaultEndDate);
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
-  const { token } = useAuth();
+  const { token, userRole, currentUser } = useAuth();
+  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+
+  const hasAuthority = useCallback((role: string) => {
+    const normalizedRole = role.replace('ROLE_', '').toUpperCase();
+    const userRoleUpper = userRole?.toUpperCase();
+    if (userRoleUpper === role.toUpperCase() || userRoleUpper === normalizedRole) {
+      return true;
+    }
+    return currentUser?.authorities?.some((auth) => auth.authority === role) ?? false;
+  }, [currentUser, userRole]);
+
+  const canExport = hasAuthority('ROLE_ADMIN') || hasAuthority('ROLE_HR') || hasAuthority('ROLE_DATA_MANAGER');
 
   // Transform API data to match component interface
   const transformExpenseData = (expenses: ExpenseDto[]): Employee[] => {
@@ -392,52 +381,54 @@ export default function ExpensesPage() {
   };
 
   // Load expenses data
-  const loadExpenses = async () => {
+  const loadExpenses = useCallback(async () => {
+    if (!selectedStartDate || !selectedEndDate) {
+      setDateError('Please select both start and end dates.');
+      return;
+    }
+
+    const start = new Date(selectedStartDate);
+    const end = new Date(selectedEndDate);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setDateError('Please select valid dates.');
+      return;
+    }
+
+    if (start > end) {
+      setDateError('Start date cannot be after end date.');
+      return;
+    }
+
+    setDateError(null);
     setIsLoading(true);
     setError(null);
     
     try {
-      // Calculate date range based on selected month and year
-      let startDate: string;
-      let endDate: string;
-      
-      if (selectedMonth === "all") {
-        // Get all expenses for the selected year
-        startDate = `${selectedYear}-01-01`;
-        endDate = `${selectedYear}-12-31`;
-      } else {
-        // Get expenses for specific month and year
-        const month = selectedMonth.padStart(2, '0');
-        startDate = `${selectedYear}-${month}-01`;
-        const lastDay = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
-        endDate = `${selectedYear}-${month}-${lastDay.toString().padStart(2, '0')}`;
-      }
-
-      const expenses = await apiService.getExpensesByDateRange(startDate, endDate);
+      const expenses = await apiService.getExpensesByDateRange(
+        format(start, 'yyyy-MM-dd'),
+        format(end, 'yyyy-MM-dd')
+      );
       const transformedEmployees = transformExpenseData(expenses);
       setEmployees(transformedEmployees);
     } catch (err) {
       console.error('Error loading expenses:', err);
       setError('Failed to load expenses. Please try again.');
-      // Fallback to mock data
       setEmployees(mockEmployees as Employee[]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedStartDate, selectedEndDate, token]);
 
-  // Load data on component mount and when filters change
   useEffect(() => {
-    loadExpenses();
-  }, [selectedMonth, selectedYear]);
+    void loadExpenses();
+  }, [loadExpenses]);
 
   const filteredEmployees = employees.filter(employee => {
     const matchesSearch = searchTerm === "" || 
       employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.position.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // In a real app, you would filter based on the month and year of expenses
-    // For now, we'll just return all employees that match the search
+
     return matchesSearch;
   });
 
@@ -467,6 +458,44 @@ export default function ExpensesPage() {
       employeePosition: employee.position
     }))
   );
+
+  const handleExport = useCallback(() => {
+    if (!canExport || allExpenses.length === 0) {
+      return;
+    }
+
+    const header = ['Employee', 'Position', 'Date', 'Category', 'Description', 'Amount', 'Status'];
+    const rows = allExpenses.map((expense) => [
+      expense.employeeName,
+      expense.employeePosition,
+      format(new Date(expense.date), 'yyyy-MM-dd'),
+      expense.category,
+      expense.description,
+      expense.amount.toFixed(2),
+      expense.status.toUpperCase(),
+    ]);
+
+    const csv = [header, ...rows]
+      .map((values) =>
+        values
+          .map((value) => {
+            const stringValue = String(value ?? '');
+            return stringValue.includes(',') ? `"${stringValue.replace(/"/g, '""')}"` : stringValue;
+          })
+          .join(',')
+      )
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `expenses_${selectedStartDate}_${selectedEndDate}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [allExpenses, canExport, selectedEndDate, selectedStartDate]);
 
   // Helper to render the card grid (reused for mobile and desktop)
   const renderCards = () => (
@@ -504,6 +533,17 @@ export default function ExpensesPage() {
           </Text>
             </div>
             <div className="hidden md:flex items-center gap-2">
+              {canExport && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={isLoading || allExpenses.length === 0}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              )}
               <Text size="sm" tone="muted">View:</Text>
               <div className="flex border rounded-lg">
                 <Button
@@ -530,7 +570,7 @@ export default function ExpensesPage() {
         </CardHeader>
         <CardContent>
           <Separator className="mb-6" />
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_repeat(2,minmax(0,1fr))_auto] gap-4">
             <div className="space-y-2">
               <Label>Search Employee</Label>
               <div className="relative">
@@ -543,58 +583,97 @@ export default function ExpensesPage() {
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
-              <Label>Month</Label>
-              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select month">
-                    {months.find(month => month.value === selectedMonth)?.label || "Select month"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {months.map((month) => (
-                    <SelectItem key={month.value} value={month.value}>
-                      {month.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Start Date</Label>
+              <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-left font-normal text-sm bg-background border-border"
+                  >
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {selectedStartDate ? format(new Date(selectedStartDate + 'T00:00:00'), 'MMM d, yyyy') : 'Start date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={selectedStartDate ? new Date(selectedStartDate + 'T00:00:00') : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedStartDate(format(date, 'yyyy-MM-dd'));
+                      }
+                    }}
+                    initialFocus
+                    disabled={(date) => date > new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
-            
+
             <div className="space-y-2">
-              <Label>Year</Label>
-              <Select value={selectedYear} onValueChange={setSelectedYear}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {years.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>End Date</Label>
+              <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-left font-normal text-sm bg-background border-border"
+                  >
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {selectedEndDate ? format(new Date(selectedEndDate + 'T00:00:00'), 'MMM d, yyyy') : 'End date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={selectedEndDate ? new Date(selectedEndDate + 'T00:00:00') : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedEndDate(format(date, 'yyyy-MM-dd'));
+                      }
+                    }}
+                    initialFocus
+                    disabled={(date) => date > new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
-            
-            <div className="flex items-end">
-              <Button 
-                className="w-full" 
+
+            <div className="flex items-end justify-end gap-2">
+              {canExport && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="md:hidden"
+                  onClick={handleExport}
+                  disabled={isLoading || allExpenses.length === 0}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
+              )}
+              <Button
+                className="w-full md:w-auto"
                 onClick={loadExpenses}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
+                    Refreshing...
                   </>
                 ) : (
-                  "Apply Filters"
+                  "Refresh Data"
                 )}
               </Button>
             </div>
           </div>
+          {dateError && (
+            <p className="mt-3 text-sm text-destructive">{dateError}</p>
+          )}
         </CardContent>
       </Card>
 

@@ -26,7 +26,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, DollarSign, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, DollarSign, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2, MapPin, ExternalLink } from "lucide-react";
 import { API, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/api";
 import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,7 +66,7 @@ const INITIAL_FILTERS: FiltersState = {
 function CustomerListContent() {
     const { token, userData } = useAuth();
     const [selectedColumns, setSelectedColumns] = useState<string[]>([
-        'shopName', 'ownerName', 'city', 'state', 'phone', 'monthlySales',
+        'shopName', 'ownerName', 'city', 'state', 'storeLocation', 'phone', 'monthlySales',
         'clientType', 'totalVisits', 'lastVisitDate',
     ]);
     const [desktopFilters, setDesktopFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
@@ -112,6 +112,23 @@ function CustomerListContent() {
         router.push(`/dashboard/customers/${id}`);
     };
     const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
+
+    const openInGoogleMaps = useCallback((latitude?: number | null, longitude?: number | null) => {
+        if (latitude == null || longitude == null) {
+            return;
+        }
+        if (typeof window === 'undefined') {
+            return;
+        }
+        const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }, []);
+
+    const hasValidCoordinates = (latitude?: number | null, longitude?: number | null) =>
+        typeof latitude === 'number' &&
+        typeof longitude === 'number' &&
+        !Number.isNaN(latitude) &&
+        !Number.isNaN(longitude);
 
     useEffect(() => {
         if (isFiltersInitialized) {
@@ -744,6 +761,7 @@ function CustomerListContent() {
                                     { value: 'ownerName', label: 'Owner Name' },
                                     { value: 'city', label: 'City' },
                                     { value: 'state', label: 'State' },
+                                    { value: 'storeLocation', label: 'Store Location' },
                                     { value: 'phone', label: 'Phone' },
                                     { value: 'monthlySales', label: 'Monthly Sales' },
                                     { value: 'clientType', label: 'Client Type' },
@@ -868,13 +886,17 @@ function CustomerListContent() {
                             ))}
                         </>
                     ) : (
-                        customers.map((customer: Customer, index: number) => (
-                            <Card key={`mobile-customer-${customer.storeId}-${index}`} className="overflow-hidden">
-                                <CardHeader className="pb-2">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center space-x-3">
-                                            <Avatar>
-                                                <AvatarImage 
+                        customers.map((customer: Customer, index: number) => {
+                            const hasCoordinates = hasValidCoordinates(customer.latitude, customer.longitude);
+                            const showCoordinates = hasCoordinates && selectedColumns.includes('storeLocation');
+
+                            return (
+                                <Card key={`mobile-customer-${customer.storeId}-${index}`} className="overflow-hidden">
+                                    <CardHeader className="pb-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center space-x-3">
+                                                <Avatar>
+                                                    <AvatarImage 
                                                     src={`https://ui-avatars.com/api/?name=${encodeURIComponent(customer.clientFirstName + ' ' + customer.clientLastName)}&background=264653&color=fff&size=120&bold=true`}
                                                     onError={(e) => {
                                                         e.currentTarget.style.display = 'none';
@@ -913,6 +935,24 @@ function CustomerListContent() {
                                             )}
                                         </Button>
                                     </div>
+
+                                    {showCoordinates && (
+                                        <div className="mt-3 flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <MapPin className="h-4 w-4 text-primary" />
+                                                <span>Location available</span>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="gap-1"
+                                                onClick={() => openInGoogleMaps(customer.latitude, customer.longitude)}
+                                            >
+                                                <ExternalLink className="h-3.5 w-3.5" />
+                                                View on Map
+                                            </Button>
+                                        </div>
+                                    )}
 
                                     {expandedCards.includes(customer.storeId) && (
                                         <div className="mt-4 space-y-3 text-sm">
@@ -956,8 +996,9 @@ function CustomerListContent() {
                                         </DropdownMenu>
                                     </div>
                                 </CardContent>
-                            </Card>
-                        ))
+                                </Card>
+                            );
+                        })
                     )}
                 </div>
 
@@ -995,6 +1036,11 @@ function CustomerListContent() {
                                         {sortColumn === 'state' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}
+                                    </TableHead>
+                                )}
+                                {selectedColumns.includes('storeLocation') && (
+                                    <TableHead>
+                                        Store Location
                                     </TableHead>
                                 )}
                                 {selectedColumns.includes('phone') && (
@@ -1075,6 +1121,9 @@ function CustomerListContent() {
                                             {selectedColumns.includes('state') && (
                                                 <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                                             )}
+                                            {selectedColumns.includes('storeLocation') && (
+                                                <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                                            )}
                                             {selectedColumns.includes('phone') && (
                                                 <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                                             )}
@@ -1106,68 +1155,90 @@ function CustomerListContent() {
                                     ))}
                                 </>
                             ) : (
-                                customers.map((customer: Customer, index: number) => (
-                                    <TableRow key={`customer-${customer.storeId}-${index}`}>
-                                        {selectedColumns.includes('shopName') && <TableCell>{customer.storeName || ''}</TableCell>}
-                                        {selectedColumns.includes('ownerName') && (
-                                            <TableCell>
-                                                {customer.clientFirstName || customer.clientLastName
-                                                    ? `${customer.clientFirstName || ''} ${customer.clientLastName || ''}`.trim()
-                                                    : ''}
+                                customers.map((customer: Customer, index: number) => {
+                                    const hasCoordinates = hasValidCoordinates(customer.latitude, customer.longitude);
+
+                                    return (
+                                        <TableRow key={`customer-${customer.storeId}-${index}`}>
+                                            {selectedColumns.includes('shopName') && <TableCell>{customer.storeName || ''}</TableCell>}
+                                            {selectedColumns.includes('ownerName') && (
+                                                <TableCell>
+                                                    {customer.clientFirstName || customer.clientLastName
+                                                        ? `${customer.clientFirstName || ''} ${customer.clientLastName || ''}`.trim()
+                                                        : ''}
+                                                </TableCell>
+                                            )}
+                                            {selectedColumns.includes('city') && <TableCell>{customer.city || ''}</TableCell>}
+                                            {selectedColumns.includes('state') && <TableCell>{customer.state || ''}</TableCell>}
+                                            {selectedColumns.includes('storeLocation') && (
+                                                <TableCell>
+                                                    {hasCoordinates ? (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="gap-1 px-0 font-medium"
+                                                            onClick={() => openInGoogleMaps(customer.latitude, customer.longitude)}
+                                                        >
+                                                            <MapPin className="h-4 w-4 text-primary" />
+                                                            View on Map
+                                                            <ExternalLink className="ml-1 h-3.5 w-3.5 text-muted-foreground" />
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">Location unavailable</span>
+                                                    )}
+                                                </TableCell>
+                                            )}
+                                            {selectedColumns.includes('phone') && <TableCell>{customer.primaryContact || ''}</TableCell>}
+                                            {selectedColumns.includes('monthlySales') && (
+                                                <TableCell>
+                                                    {customer.monthlySale !== null && customer.monthlySale !== undefined
+                                                        ? `${customer.monthlySale.toLocaleString()} tonnes`
+                                                        : ''}
+                                                </TableCell>
+                                            )}
+                                            {/* Intent value removed */}
+                                            {selectedColumns.includes('fieldOfficer') && <TableCell>{customer.employeeName || ''}</TableCell>}
+                                            {selectedColumns.includes('clientType') && (
+                                                <TableCell>
+                                                    <Badge variant="outline">
+                                                        {customer.clientType || ''}
+                                                    </Badge>
+                                                </TableCell>
+                                            )}
+                                            {selectedColumns.includes('totalVisits') && <TableCell>{customer.totalVisitCount}</TableCell>}
+                                            {selectedColumns.includes('lastVisitDate') && (
+                                                <TableCell>
+                                                    {customer.lastVisitDate
+                                                        ? new Date(customer.lastVisitDate).toLocaleDateString('en-US', {
+                                                            year: 'numeric',
+                                                            month: '2-digit',
+                                                            day: '2-digit',
+                                                        })
+                                                        : ''}
+                                                </TableCell>
+                                            )}
+                                            {selectedColumns.includes('email') && <TableCell>{customer.email || ''}</TableCell>}
+                                            <TableCell className="w-20">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="sm">
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onSelect={() => viewCustomer(customer.storeId)}>
+                                                            View
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem onSelect={() => openDeleteModal(customer.storeId.toString())}>
+                                                            Delete
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
                                             </TableCell>
-                                        )}
-                                        {selectedColumns.includes('city') && <TableCell>{customer.city || ''}</TableCell>}
-                                        {selectedColumns.includes('state') && <TableCell>{customer.state || ''}</TableCell>}
-                                        {selectedColumns.includes('phone') && <TableCell>{customer.primaryContact || ''}</TableCell>}
-                                        {selectedColumns.includes('monthlySales') && (
-                                            <TableCell>
-                                                {customer.monthlySale !== null && customer.monthlySale !== undefined
-                                                    ? `${customer.monthlySale.toLocaleString()} tonnes`
-                                                    : ''}
-                                            </TableCell>
-                                        )}
-                                        {/* Intent value removed */}
-                                        {selectedColumns.includes('fieldOfficer') && <TableCell>{customer.employeeName || ''}</TableCell>}
-                                        {selectedColumns.includes('clientType') && (
-                                            <TableCell>
-                                                <Badge variant="outline">
-                                                    {customer.clientType || ''}
-                                                </Badge>
-                                            </TableCell>
-                                        )}
-                                        {selectedColumns.includes('totalVisits') && <TableCell>{customer.totalVisitCount}</TableCell>}
-                                        {selectedColumns.includes('lastVisitDate') && (
-                                            <TableCell>
-                                                {customer.lastVisitDate
-                                                    ? new Date(customer.lastVisitDate).toLocaleDateString('en-US', {
-                                                        year: 'numeric',
-                                                        month: '2-digit',
-                                                        day: '2-digit',
-                                                    })
-                                                    : ''}
-                                            </TableCell>
-                                        )}
-                                        {selectedColumns.includes('email') && <TableCell>{customer.email || ''}</TableCell>}
-                                        <TableCell className="w-20">
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="sm">
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onSelect={() => viewCustomer(customer.storeId)}>
-                                                        View
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem onSelect={() => openDeleteModal(customer.storeId.toString())}>
-                                                        Delete
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                        </TableRow>
+                                    );
+                                })
                             )}
                         </TableBody>
                     </Table>
@@ -1200,8 +1271,6 @@ function CustomerListContent() {
                     token={token || ''}
                     employeeId={employeeId ? Number(employeeId) : null}
                     onCustomerAdded={handleCustomerAdded}
-                    userRole={userRoleFromAPI || undefined}
-                    userData={userData as unknown as Record<string, unknown> | undefined}
                 />
             </div>
 

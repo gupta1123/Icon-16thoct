@@ -40,7 +40,7 @@ export type MapMarker = {
   timestamp?: string | null;
   storeName?: string | null;
   description?: string | null;
-  variant?: "current" | "home" | "checkin" | "checkout" | "visit";
+  variant?: "current" | "home" | "checkin" | "checkout" | "visit" | "store";
   number?: number;
   employeeColor?: string;
 };

@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Loader2, MapPin, Users, Clock, RefreshCw, Navigation } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { API, type StoreDto } from '@/lib/api';
 
 // Dynamically import the map component to avoid SSR issues
 const LeafletMap = dynamic(() => import("@/components/leaflet-map"), {
@@ -22,12 +25,18 @@ interface LiveLocation {
   updatedTime: string;
 }
 
+type StoreWithCoordinates = StoreDto & { latitude: number; longitude: number };
+
 const LiveLocations: React.FC = () => {
   const [liveLocations, setLiveLocations] = useState<LiveLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<LiveLocation | null>(null);
+  const [stores, setStores] = useState<StoreWithCoordinates[]>([]);
+  const [isStoresLoading, setIsStoresLoading] = useState(false);
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const [showStores, setShowStores] = useState(false);
 
   // Get auth data from localStorage
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -61,11 +70,61 @@ const LiveLocations: React.FC = () => {
     }
   }, [token]);
 
+  const fetchStoreLocations = useCallback(async () => {
+    if (!token) {
+      setStoreError('Authentication token not found. Please log in.');
+      return;
+    }
+
+    setIsStoresLoading(true);
+    setStoreError(null);
+
+    try {
+      const pageSize = 500;
+      let page = 0;
+      let totalPages = 1;
+      const collectedStores: StoreDto[] = [];
+
+      do {
+        const response = await API.getStoresFilteredPaginated({
+          page,
+          size: pageSize,
+          sortBy: 'storeName',
+          sortOrder: 'asc',
+        });
+
+        if (response?.content?.length) {
+          collectedStores.push(...response.content);
+        }
+
+        totalPages = response?.totalPages ?? totalPages;
+        page += 1;
+
+        if (!response || response.content.length < pageSize) {
+          break;
+        }
+      } while (page < totalPages);
+
+      const storesWithCoordinates = collectedStores.filter(
+        (store): store is StoreWithCoordinates =>
+          typeof store.latitude === 'number' &&
+          typeof store.longitude === 'number'
+      );
+
+      setStores(storesWithCoordinates);
+    } catch (err) {
+      console.error('Error fetching store locations:', err);
+      setStoreError(err instanceof Error ? err.message : 'Failed to load store locations');
+    } finally {
+      setIsStoresLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (token) {
       fetchLiveLocations();
     }
-  }, [fetchLiveLocations]);
+  }, [fetchLiveLocations, token]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -149,14 +208,61 @@ const LiveLocations: React.FC = () => {
     }
   };
 
-  // Prepare markers for the map
-  const markers = liveLocations.map(location => ({
-    id: location.id,
-    name: location.empName,
-    lat: location.latitude,
-    lng: location.longitude,
-    subtitle: `${formatDate(location.updatedAt)} ${formatTime(location.updatedTime)}`
-  }));
+  const employeeMarkers = useMemo(
+    () =>
+      liveLocations.map((location) => ({
+        id: location.id,
+        label: location.empName,
+        name: location.empName,
+        lat: location.latitude,
+        lng: location.longitude,
+        description: `Last update: ${formatDate(location.updatedAt)} ${formatTime(location.updatedTime)}`,
+        timestamp: `${location.updatedAt}T${location.updatedTime}`,
+        variant: 'current' as const,
+      })),
+    [liveLocations]
+  );
+
+  const storeMarkers = useMemo(() => {
+    return stores.map((store) => ({
+      id: `store-${store.storeId}`,
+      label: store.storeName || 'Store',
+      name: store.storeName || 'Store',
+      storeName: store.storeName || undefined,
+      description: [store.city, store.state].filter(Boolean).join(', ') || undefined,
+      lat: store.latitude,
+      lng: store.longitude,
+      variant: 'store' as const,
+    }));
+  }, [stores]);
+
+  const mapMarkers = useMemo(() => {
+    if (!showStores) {
+      return employeeMarkers;
+    }
+    return [...employeeMarkers, ...storeMarkers];
+  }, [employeeMarkers, showStores, storeMarkers]);
+
+  const handleToggleStores = useCallback(
+    (checked: boolean) => {
+      if (checked && !token) {
+        setStoreError('Authentication token not found. Please log in.');
+        setShowStores(false);
+        return;
+      }
+
+      setShowStores(checked);
+
+      if (checked && stores.length === 0 && !isStoresLoading) {
+        void fetchStoreLocations();
+      }
+
+      if (!checked) {
+        setStoreError(null);
+      }
+    },
+    [fetchStoreLocations, isStoresLoading, stores.length, token]
+  );
 
   return (
     <div className="space-y-6">
@@ -269,12 +375,50 @@ const LiveLocations: React.FC = () => {
                 <div className="space-y-4">
                   <div className="rounded-lg border bg-card shadow-sm dark:bg-neutral-950 dark:border-neutral-800">
                     <div className="p-4 border-b bg-muted/40 dark:bg-neutral-900 border-border/60 dark:border-neutral-800">
-                      <h3 className="text-lg font-semibold text-foreground dark:text-neutral-100">Location Map</h3>
-                      <p className="text-sm text-muted-foreground dark:text-neutral-400">Interactive map showing all employee locations</p>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <h3 className="text-lg font-semibold text-foreground dark:text-neutral-100">Location Map</h3>
+                          <p className="text-sm text-muted-foreground dark:text-neutral-400">
+                            Interactive map showing all employee locations
+                            {showStores ? ' with stored store locations' : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {showStores && (
+                            <>
+                              {isStoresLoading ? (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  Loading stores...
+                                </div>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">
+                                  {stores.length} stores
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id="toggle-stores"
+                              checked={showStores}
+                              onCheckedChange={handleToggleStores}
+                            />
+                            <Label htmlFor="toggle-stores" className="text-sm font-medium text-foreground">
+                              Show stores
+                            </Label>
+                          </div>
+                        </div>
+                      </div>
+                      {showStores && storeError && (
+                        <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/10 p-2 text-xs text-destructive">
+                          {storeError}
+                        </div>
+                      )}
                     </div>
                     <div className="h-96 w-full bg-muted/30 dark:bg-neutral-900">
                       <LeafletMap
-                        markers={markers}
+                        markers={mapMarkers}
                         center={[20.5937, 78.9629]} // Default to India's geographic center
                         zoom={5}
                         onMarkerClick={(marker) => {
@@ -285,6 +429,12 @@ const LiveLocations: React.FC = () => {
                       />
                     </div>
                   </div>
+                </div>
+              )}
+
+              {showStores && !isStoresLoading && stores.length === 0 && (
+                <div className="rounded-md border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground dark:bg-neutral-900 dark:text-neutral-300">
+                  No store locations with coordinates are available to display.
                 </div>
               )}
 

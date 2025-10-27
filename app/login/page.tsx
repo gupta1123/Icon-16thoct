@@ -145,7 +145,23 @@ export default function LoginPage() {
           />
 
           {/* Subtle overlay for better contrast */}
-          <div className="absolute inset-0 bg-white/5 dark:bg-black/20" />
+          <div className="absolute inset-0 bg-white/5 dark:bg-black/25 z-10" />
+
+          {/* Company logo - top right corner */}
+          <div className="absolute top-8 right-8 z-20">
+            <div className="relative">
+              <Image
+                src="/IconLogo.jpeg"
+                alt="Icon Steel logo"
+                width={120}
+                height={45}
+                className="h-auto w-16 object-contain opacity-95 dark:opacity-90 transition-opacity duration-300"
+                style={{
+                  filter: 'drop-shadow(0 2px 8px rgba(0, 0, 0, 0.15)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.2))',
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

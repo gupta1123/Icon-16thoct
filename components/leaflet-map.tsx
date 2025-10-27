@@ -18,7 +18,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-type MarkerVariant = "current" | "home" | "checkin" | "checkout" | "visit" | undefined;
+type MarkerVariant = "current" | "home" | "checkin" | "checkout" | "visit" | "store" | undefined;
 
 interface MarkerData {
   id: number | string;
@@ -60,7 +60,7 @@ const MapController: FC<{ center: [number, number]; zoom: number }> = ({ center,
     } catch {
       // no-op
     }
-  }, [center[0], center[1], zoom]);
+  }, [center, map, zoom]);
   return null;
 };
 
@@ -71,6 +71,7 @@ const markerColors: Record<Exclude<MarkerVariant, undefined>, string> = {
   checkin: '#2563eb',
   checkout: '#f59e0b',
   visit: '#8b5cf6',
+  store: '#f97316',
 };
 
 const variantLabel: Record<Exclude<MarkerVariant, undefined>, string> = {
@@ -79,6 +80,7 @@ const variantLabel: Record<Exclude<MarkerVariant, undefined>, string> = {
   checkin: 'Check-in',
   checkout: 'Checkout',
   visit: 'Scheduled Visit',
+  store: 'Store',
 };
 
 const formatHumanTime = (value?: string | null) => {
@@ -94,8 +96,9 @@ const formatHumanTime = (value?: string | null) => {
   return format(date, "d MMM ''yy hh:mm a");
 };
 
-const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee, markers = [], onMarkerClick }) => {
+const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee: _highlightedEmployee, markers = [], onMarkerClick }) => {
   const [isClient, setIsClient] = useState(false);
+  void _highlightedEmployee;
   const svgIcons = useMemo(() => {
     return Object.entries(markerColors).reduce<Record<Exclude<MarkerVariant, undefined>, L.Icon>>((acc, [variant, color]) => {
           const svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -174,7 +177,7 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
 
         const cluster = L.markerClusterGroup({
           chunkedLoading: true,
-          chunkProgress: (_processed: number, _total: number) => {
+          chunkProgress: () => {
             // Optional: hook for showing progress if needed
           },
           iconCreateFunction: (cluster: L.MarkerCluster) => {

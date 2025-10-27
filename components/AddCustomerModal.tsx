@@ -1,20 +1,26 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { API, type EmployeeUserDto, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from '@/lib/api';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from '@/lib/api';
+
+const CUSTOM_CLIENT_TYPE_VALUE = 'Custom';
+const CUSTOM_CLIENT_TYPE_LABEL = 'Custom Mix';
+const CUSTOM_CLIENT_DEFAULT_OPTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'] as const;
 
 // Customer type options
 const CUSTOMER_TYPES = [
   { value: 'Dealer', label: 'Dealer/Shop' },
   { value: 'Professional', label: 'Engineer/Architect/Contractor' },
-  { value: 'Site Visit', label: 'Site Visit/Project' }
+  { value: 'Site Visit', label: 'Site Visit/Project' },
+  { value: CUSTOM_CLIENT_TYPE_VALUE, label: CUSTOM_CLIENT_TYPE_LABEL },
 ];
 
 // Project type options for Site Visit
@@ -86,7 +92,31 @@ interface CustomerData {
   longitude?: number;
 }
 
-// Using EmployeeUserDto from API instead of local interface
+const formatCustomCategory = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const decodeCustomClientType = (raw?: string | null): string[] => {
+  if (!raw) return [];
+  const normalized = raw.trim();
+  if (!normalized.toLowerCase().startsWith('custom')) return [];
+
+  const separatorIndex =
+    normalized.indexOf('-') !== -1 ? normalized.indexOf('-') : normalized.indexOf(':');
+  if (separatorIndex === -1) return [];
+
+  const listPortion = normalized.slice(separatorIndex + 1);
+  return listPortion
+    .split(',')
+    .map(formatCustomCategory)
+    .filter(Boolean);
+};
 
 interface AddCustomerModalProps {
   isOpen: boolean;
@@ -95,8 +125,6 @@ interface AddCustomerModalProps {
   employeeId: number | null;
   existingData?: CustomerData;
   onCustomerAdded?: () => void;
-  userRole?: string;
-  userData?: Record<string, unknown>;
 }
 
 const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
@@ -106,17 +134,69 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   employeeId,
   existingData,
   onCustomerAdded,
-  userRole,
-  userData,
 }) => {
-  const [customerData, setCustomerData] = useState<CustomerData>(
-    existingData || {
-      clientFirstName: '',
-      clientLastName: '',
-      email: '',
-      clientType: 'Dealer', // Default to Dealer
-    }
+  const initialCustomSelections = useMemo(
+    () => decodeCustomClientType(existingData?.clientType),
+    [existingData?.clientType]
   );
+  const existingDataRef = useRef<CustomerData | undefined>(existingData);
+  existingDataRef.current = existingData;
+
+  const [customerData, setCustomerData] = useState<CustomerData>(
+    existingData
+      ? {
+          ...existingData,
+          clientType:
+            initialCustomSelections.length > 0 ? CUSTOM_CLIENT_TYPE_VALUE : existingData.clientType,
+        }
+      : {
+          clientFirstName: '',
+          clientLastName: '',
+          email: '',
+          clientType: 'Dealer', // Default to Dealer
+        }
+  );
+  const [customClientOptions, setCustomClientOptions] = useState<string[]>(() => {
+    const base = Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS);
+    if (initialCustomSelections.length === 0) return base;
+    return Array.from(new Set([...base, ...initialCustomSelections]));
+  });
+  const [customClientSelections, setCustomClientSelections] = useState<string[]>(initialCustomSelections);
+  const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
+  const [customClientValidationError, setCustomClientValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const currentExisting = existingDataRef.current;
+    const selections = decodeCustomClientType(currentExisting?.clientType);
+
+    if (currentExisting) {
+      setCustomerData({
+        ...currentExisting,
+        clientType: selections.length > 0 ? CUSTOM_CLIENT_TYPE_VALUE : currentExisting.clientType,
+      });
+      setCustomClientOptions(() => {
+        const base = Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS);
+        return Array.from(new Set([...base, ...selections]));
+      });
+      setCustomClientSelections(selections);
+    } else {
+      setCustomerData({
+        clientFirstName: '',
+        clientLastName: '',
+        email: '',
+        clientType: 'Dealer',
+      });
+      setCustomClientOptions(Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS));
+      setCustomClientSelections([]);
+    }
+
+    setIsAddingCustomCategory(false);
+    setCustomCategoryInput('');
+    setCustomClientValidationError(null);
+  }, [isOpen, existingData?.id]);
   const [activeTab, setActiveTab] = useState<string>('basic');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState<boolean>(false);
@@ -290,6 +370,11 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       ...prevData,
       [field]: parsedValue,
     }));
+    if (field === 'clientType' && value !== CUSTOM_CLIENT_TYPE_VALUE) {
+      setCustomClientValidationError(null);
+      setIsAddingCustomCategory(false);
+      setCustomCategoryInput('');
+    }
   };
 
   // Get GPS location from browser
@@ -329,12 +414,15 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       case 'Dealer': return 'Shop Name';
       case 'Professional': return 'Firm Name';
       case 'Site Visit': return 'Project Name';
+      case CUSTOM_CLIENT_TYPE_VALUE: return 'Business Name';
       default: return 'Store Name';
     }
   };
 
   const getLabelForOwner = (clientType: string): string => {
-    return clientType === 'Site Visit' ? 'Site Owner Name' : 'Owner Name';
+    if (clientType === 'Site Visit') return 'Site Owner Name';
+    if (clientType === CUSTOM_CLIENT_TYPE_VALUE) return 'Primary Contact Name';
+    return 'Owner Name';
   };
 
   const handleSubmit = async () => {
@@ -398,8 +486,25 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         return s ? parseInt(s, 10) : undefined;
       };
 
+      let finalClientType =
+        typeof customerData.clientType === 'string' ? customerData.clientType : '';
+      if (customerData.clientType === CUSTOM_CLIENT_TYPE_VALUE) {
+        const uniqueSelections = Array.from(
+          new Set(customClientSelections.map(formatCustomCategory).filter(Boolean))
+        );
+        if (uniqueSelections.length === 0) {
+          const message = 'Select at least one material category or add your own.';
+          setCustomClientValidationError(message);
+          setSubmitError(message);
+          return;
+        }
+        setCustomClientValidationError(null);
+        finalClientType = `Custom - ${uniqueSelections.join(', ')}`;
+      }
+
       const requestBody = {
         ...customerData,
+        clientType: finalClientType,
         primaryContact: cleanDigits(customerData.primaryContact),
         secondaryContact: cleanDigits(customerData.secondaryContact),
         pincode: cleanDigits(customerData.pincode),
@@ -488,13 +593,25 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
             <TabsTrigger value="additional">Additional</TabsTrigger>
           </TabsList>
           <TabsContent value="basic" className="mt-4">
-            <div className="grid gap-4">
+            <div className="space-y-4">
               {/* Customer Type Selection */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="clientType" className="text-right">
                   Customer Type *
                 </Label>
-                <Select value={customerData.clientType || 'Dealer'} onValueChange={(value) => handleInputChange('clientType', value)}>
+                <Select
+                  value={customerData.clientType || 'Dealer'}
+                  onValueChange={(value) => {
+                    handleInputChange('clientType', value);
+                    if (value === CUSTOM_CLIENT_TYPE_VALUE) {
+                      setCustomClientValidationError(null);
+                    } else {
+                      setCustomClientValidationError(null);
+                      setIsAddingCustomCategory(false);
+                      setCustomCategoryInput('');
+                    }
+                  }}
+                >
                   <SelectTrigger className="col-span-3">
                     <SelectValue placeholder="Select customer type" />
                   </SelectTrigger>
@@ -507,6 +624,134 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Materials of Interest - Custom Mix Section */}
+              {customerData.clientType === CUSTOM_CLIENT_TYPE_VALUE && (
+                <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Materials of Interest</p>
+                    <p className="text-xs text-muted-foreground">
+                      Select all relevant categories. This helps tailor future follow-ups.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {customClientOptions.map((option) => {
+                      const normalized = formatCustomCategory(option);
+                      const isChecked = customClientSelections.includes(normalized);
+                      const inputId = `custom-client-option-${normalized.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
+                      return (
+                        <label
+                          key={option}
+                          htmlFor={inputId}
+                          className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-all cursor-pointer ${
+                            isChecked
+                              ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                              : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5'
+                          }`}
+                        >
+                          <Checkbox
+                            id={inputId}
+                            checked={isChecked}
+                            onCheckedChange={(checked) => {
+                              setCustomClientSelections((prev) => {
+                                if (checked) {
+                                  return prev.includes(normalized) ? prev : [...prev, normalized];
+                                }
+                                return prev.filter((item) => item !== normalized);
+                              });
+                              setCustomClientValidationError(null);
+                            }}
+                          />
+                          <span className="select-none">{option}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {customClientSelections.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <span className="text-xs text-muted-foreground mr-1">Selected:</span>
+                      {customClientSelections.map((selection) => (
+                        <Badge key={selection} variant="secondary" className="text-xs font-medium">
+                          {selection}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-2 pt-1">
+                    {isAddingCustomCategory ? (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          value={customCategoryInput}
+                          onChange={(e) => setCustomCategoryInput(e.target.value)}
+                          placeholder="Add another material type"
+                          className="sm:flex-1 h-9"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const formatted = formatCustomCategory(customCategoryInput);
+                              if (!formatted) {
+                                setCustomClientValidationError('Enter a material name before adding.');
+                                return;
+                              }
+                              const exists = customClientOptions.some(
+                                (option) => option.toLowerCase() === formatted.toLowerCase()
+                              );
+                              if (exists) {
+                                setCustomClientValidationError(`${formatted} is already in the list.`);
+                                return;
+                              }
+                              setCustomClientOptions((prev) => [...prev, formatted]);
+                              setCustomClientSelections((prev) => [...prev, formatted]);
+                              setCustomCategoryInput('');
+                              setIsAddingCustomCategory(false);
+                              setCustomClientValidationError(null);
+                            }}
+                            className="h-9"
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsAddingCustomCategory(false);
+                              setCustomCategoryInput('');
+                              setCustomClientValidationError(null);
+                            }}
+                            className="h-9"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0 py-1 text-xs font-medium"
+                        onClick={() => {
+                          setIsAddingCustomCategory(true);
+                          setCustomCategoryInput('');
+                        }}
+                      >
+                        + Add another material
+                      </Button>
+                    )}
+                    {customClientValidationError && (
+                      <p className="text-xs font-medium text-destructive flex items-center gap-1">
+                        <span className="inline-block w-1 h-1 rounded-full bg-destructive"></span>
+                        {customClientValidationError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Dynamic Store Name Label */}
               <div className="grid grid-cols-4 items-center gap-4">
@@ -600,6 +845,62 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 <Input id="addressLine2" value={customerData.addressLine2 || ''} className="col-span-3" onChange={(e) => handleInputChange('addressLine2', e.target.value)} />
               </div>
               
+              {/* District Dropdown */}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="district" className="text-right">
+                  District
+                </Label>
+                <div className="col-span-3 space-y-2">
+                  <Select
+                    value={selectedDistrictId?.toString() || ''}
+                    onValueChange={(value) => {
+                      const districtId = parseInt(value);
+                      setSelectedDistrictId(districtId);
+                      const selectedDistrict = districts.find(d => d.id === districtId);
+                      if (selectedDistrict) {
+                        handleInputChange('district', selectedDistrict.districtName);
+                      }
+                      setDistrictSearch(''); // Reset search on selection
+                    }}
+                    disabled={!selectedStateId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={!selectedStateId ? "Select state below first" : "Select district"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      <div className="sticky top-0 bg-background p-2 border-b">
+                        <Input
+                          placeholder="Search district..."
+                          value={districtSearch}
+                          onChange={(e) => setDistrictSearch(e.target.value)}
+                          className="h-8"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      <div className="max-h-[200px] overflow-y-auto">
+                        {filteredDistricts.length > 0 ? (
+                          filteredDistricts.map((district) => (
+                            <SelectItem key={district.id} value={district.id.toString()}>
+                              {district.districtName}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="py-6 text-center text-sm text-muted-foreground">
+                            No district found
+                          </div>
+                        )}
+                      </div>
+                    </SelectContent>
+                  </Select>
+                  {!selectedStateId && (
+                    <p className="text-xs text-muted-foreground">
+                      Select a state below to load available districts.
+                    </p>
+                  )}
+                </div>
+              </div>
+
               {/* State Dropdown */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="state" className="text-right">
@@ -642,57 +943,6 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                         ) : (
                           <div className="py-6 text-center text-sm text-muted-foreground">
                             No state found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* District Dropdown */}
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="district" className="text-right">
-                  District
-                </Label>
-                <div className="col-span-3">
-                  <Select
-                    value={selectedDistrictId?.toString() || ''}
-                    onValueChange={(value) => {
-                      const districtId = parseInt(value);
-                      setSelectedDistrictId(districtId);
-                      const selectedDistrict = districts.find(d => d.id === districtId);
-                      if (selectedDistrict) {
-                        handleInputChange('district', selectedDistrict.districtName);
-                      }
-                      setDistrictSearch(''); // Reset search on selection
-                    }}
-                    disabled={!selectedStateId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedStateId ? "Select state first" : "Select district"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search district..."
-                          value={districtSearch}
-                          onChange={(e) => setDistrictSearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredDistricts.length > 0 ? (
-                          filteredDistricts.map((district) => (
-                            <SelectItem key={district.id} value={district.id.toString()}>
-                              {district.districtName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No district found
                           </div>
                         )}
                       </div>

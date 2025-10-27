@@ -1538,7 +1538,41 @@ export class API {
 
   // Location APIs
   async getAllStates(): Promise<StateDto[]> {
-    return this.makeRequest<StateDto[]>('/location/states');
+    const allowedStatesConfig = [
+      { canonical: 'MAHARASHTRA', aliases: ['MAHARASHTRA'] },
+      { canonical: 'MADHYA PRADESH', aliases: ['MADHYA PRADESH', 'MP'] },
+      { canonical: 'GUJARAT', aliases: ['GUJARAT'] },
+      { canonical: 'KARNATAKA', aliases: ['KARNATAKA'] },
+    ] as const;
+
+    const aliasToCanonical = new Map<string, string>();
+    const sortOrder: Record<string, number> = {};
+
+    allowedStatesConfig.forEach((config, index) => {
+      sortOrder[config.canonical] = index;
+      config.aliases.forEach((alias) => {
+        aliasToCanonical.set(alias, config.canonical);
+      });
+    });
+
+    const states = await this.makeRequest<StateDto[]>('/location/states');
+
+    const filteredStateMap = new Map<string, StateDto>();
+    states.forEach((state) => {
+      const normalizedName = state.stateName?.trim().toUpperCase().replace(/\s+/g, ' ');
+      if (!normalizedName) return;
+
+      const canonical = aliasToCanonical.get(normalizedName);
+      if (!canonical) return;
+
+      if (!filteredStateMap.has(canonical)) {
+        filteredStateMap.set(canonical, state);
+      }
+    });
+
+    return Array.from(filteredStateMap.entries())
+      .sort((a, b) => (sortOrder[a[0]] ?? Number.MAX_SAFE_INTEGER) - (sortOrder[b[0]] ?? Number.MAX_SAFE_INTEGER))
+      .map(([, state]) => state);
   }
 
   async getDistrictsByStateId(stateId: number): Promise<DistrictDto[]> {

@@ -70,7 +70,7 @@ export default function HRAttendance() {
   // Get token from localStorage (you may need to adjust this based on your auth setup)
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
-  // Check if user is a coordinator and redirect if so
+
   useEffect(() => {
     const currentUser = authService.getCurrentUser();
     const userRole = authService.getUserRole();

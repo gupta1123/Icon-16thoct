@@ -38,6 +38,7 @@ interface Task {
     storeId: number;
     storeName: string;
     storeCity: string;
+    storeDistrict?: string;
     taskType: string;
 }
 
@@ -71,6 +72,7 @@ const Requirements = () => {
         storeId: 0,
         storeName: '',
         storeCity: '',
+        storeDistrict: '',
         taskType: 'requirement'
     });
     const router = useRouter();
@@ -83,6 +85,7 @@ const Requirements = () => {
         employee: '',
         priority: '',
         status: '',
+        district: 'all',
         search: '',
         startDate: format(new Date(), 'yyyy-MM-dd'),
         endDate: format(new Date(), 'yyyy-MM-dd')
@@ -90,6 +93,7 @@ const Requirements = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [filterEmployees, setFilterEmployees] = useState<{ id: number; name: string }[]>([]);
+    const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
     const [stores, setStores] = useState<Store[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
@@ -202,6 +206,7 @@ const Requirements = () => {
         if (filters.employee) qp.set('employee', filters.employee);
         if (filters.priority) qp.set('priority', filters.priority);
         if (filters.status) qp.set('status', filters.status);
+        if (filters.district && filters.district !== 'all') qp.set('district', filters.district);
         if (filters.search) qp.set('search', filters.search);
         qp.set('page', String(currentPage));
         router.push(`/dashboard/customers/${storeId}?${qp.toString()}`);
@@ -297,6 +302,10 @@ const Requirements = () => {
                             taskTitle: task.taskTitle
                         });
                     }
+                    const district =
+                        (typeof task.storeDistrict === 'string' && task.storeDistrict.trim()) ? String(task.storeDistrict).trim() :
+                        (typeof task.district === 'string' && task.district.trim()) ? String(task.district).trim() :
+                        '';
                     
                     return {
                         ...task,
@@ -304,6 +313,7 @@ const Requirements = () => {
                         taskDescription: desc, // normalize
                         assignedToName: assignedToName || 'Unknown',
                         taskType: task.taskType || 'requirement', // normalize missing taskType
+                        storeDistrict: district,
                     } as Task;
                 })
                 .sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
@@ -381,8 +391,9 @@ const Requirements = () => {
         const priority = sp.get('priority');
         const status = sp.get('status');
         const search = sp.get('search');
+        const districtParam = sp.get('district');
         const page = sp.get('page');
-        if (start || end || employee || priority || status || search || page) {
+        if (start || end || employee || priority || status || search || districtParam || page) {
             setFilters(prev => ({
                 ...prev,
                 startDate: start || prev.startDate,
@@ -390,6 +401,7 @@ const Requirements = () => {
                 employee: employee ?? prev.employee,
                 priority: priority ?? prev.priority,
                 status: status ?? prev.status,
+                district: districtParam ?? prev.district,
                 search: search ?? prev.search,
             }));
             if (page) {
@@ -417,8 +429,31 @@ const Requirements = () => {
             })), 'id');
             const sortedEmployees = sortBy(uniqueEmployees, 'name');
             setFilterEmployees(sortedEmployees);
+
+            const districtSet = new Set<string>();
+            tasks.forEach((task) => {
+                if (task.storeDistrict) {
+                    districtSet.add(task.storeDistrict);
+                }
+            });
+            const districtList = Array.from(districtSet).sort((a, b) => a.localeCompare(b));
+            setFilterDistricts(districtList);
+            if (filters.district !== 'all' && !districtList.includes(filters.district)) {
+                setFilters((prev) => ({
+                    ...prev,
+                    district: 'all',
+                }));
+            }
+        } else {
+            setFilterDistricts([]);
+            if (filters.district !== 'all') {
+                setFilters((prev) => ({
+                    ...prev,
+                    district: 'all',
+                }));
+            }
         }
-    }, [tasks]);
+    }, [tasks, filters.district]);
 
     useEffect(() => {
         applyFilters();
@@ -449,6 +484,10 @@ const Requirements = () => {
                     (filters.employee === '' || filters.employee === 'all' ? true : task.assignedToId === parseInt(filters.employee)) &&
                     (filters.priority === '' || filters.priority === 'all' ? true : task.priority === filters.priority) &&
                     ((filters.status === '' || filters.status === 'all') ? true : task.status === filters.status) &&
+                    (
+                        filters.district === 'all' ||
+                        (task.storeDistrict ? task.storeDistrict.toLowerCase() : '') === filters.district.toLowerCase()
+                    ) &&
                     // Only apply date filters for admin users (managers use team-based API)
                     (!isManager ? (
                         (filters.startDate === '' || new Date(task.dueDate) >= new Date(filters.startDate)) &&
@@ -718,6 +757,19 @@ const Requirements = () => {
                             <SelectItem value="Assigned">Assigned</SelectItem>
                             <SelectItem value="Work In Progress">Work In Progress</SelectItem>
                             <SelectItem value="Complete">Complete</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={filters.district} onValueChange={(value) => handleFilterChange('district', value)}>
+                        <SelectTrigger className="w-[180px] text-sm bg-background border-border">
+                            <SelectValue placeholder="Filter by district" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Districts</SelectItem>
+                            {filterDistricts.map((district) => (
+                                <SelectItem key={district} value={district}>
+                                    {district}
+                                </SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </div>

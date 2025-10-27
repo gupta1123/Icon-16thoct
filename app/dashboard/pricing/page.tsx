@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Table,
   TableBody,
   TableCell,
@@ -22,11 +29,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Loader, CalendarIcon } from "lucide-react";
 import { API, type TeamDataDto } from "@/lib/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 
 interface Brand {
     id: number;
@@ -56,26 +64,32 @@ const formatEmployeeName = (firstName?: string | null, lastName?: string | null)
 
 const PricingPage = () => {
     const [brandData, setBrandData] = useState<Brand[]>([]);
-    const [previousDayData, setPreviousDayData] = useState<Brand[]>([]);
-    const [selectedCity, setSelectedCity] = useState('');
-    const [selectedDate, setSelectedDate] = useState(() => {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    });
-    const [cities, setCities] = useState<string[]>([]);
+    const today = new Date();
+    const defaultStart = format(new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+    const defaultEnd = format(today, 'yyyy-MM-dd');
+
+    const [selectedStartDate, setSelectedStartDate] = useState(defaultStart);
+    const [selectedEndDate, setSelectedEndDate] = useState(defaultEnd);
+    const [selectedCities, setSelectedCities] = useState<string[]>([]);
+    const [availableCities, setAvailableCities] = useState<string[]>([]);
+    const [availableBrands, setAvailableBrands] = useState<string[]>([]);
+    const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
     const [gajkesariRate, setGajkesariRate] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [showGajkesariRate, setShowGajkesariRate] = useState(false);
     const [allEmployees, setAllEmployees] = useState<EmployeeOption[]>([]);
-    const [selectedFieldOfficer, setSelectedFieldOfficer] = useState("all");
+    const [selectedFieldOfficer, setSelectedFieldOfficer] = useState<string>('all');
     const [teamId, setTeamId] = useState<number | null>(null);
     const [teamData, setTeamData] = useState<TeamDataDto[]>([]);
     const [teamLoading, setTeamLoading] = useState(false);
     const [teamError, setTeamError] = useState<string | null>(null);
-    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+    const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+    const [dateError, setDateError] = useState<string | null>(null);
+    const [cityMenuOpen, setCityMenuOpen] = useState(false);
+    const [brandMenuOpen, setBrandMenuOpen] = useState(false);
+    const [cityQuery, setCityQuery] = useState("");
+    const [brandQuery, setBrandQuery] = useState("");
 
     const { token, userRole, currentUser, userData } = useAuth();
     
@@ -85,6 +99,7 @@ const PricingPage = () => {
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [isCoordinator, setIsCoordinator] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
+    const [roleResolved, setRoleResolved] = useState(false);
 
     // Fetch current user data to determine role
     useEffect(() => {
@@ -124,6 +139,8 @@ const PricingPage = () => {
                 }
             } catch (error) {
                 console.error('Error fetching current user:', error);
+            } finally {
+                setRoleResolved(true);
             }
         };
 
@@ -163,33 +180,16 @@ const PricingPage = () => {
         loadTeamData();
     }, [isManager, isFieldOfficer, isCoordinator, userData?.employeeId]);
 
-    useEffect(() => {
-        // Only fetch data when we have a valid date and token
-        if (selectedDate && token) {
-            const fetchData = async () => {
-                setIsLoading(true);
-                await Promise.all([fetchBrandData(), fetchPreviousDayData()]);
-                setIsLoading(false);
-            };
-            fetchData();
-        }
-    }, [selectedCity, selectedDate, teamId, token]);
+    const fetchBrandData = useCallback(async (startDate: Date, endDate: Date) => {
+        if (!token) return;
 
-    const fetchBrandData = useCallback(async () => {
-        if (!token || !selectedDate) return;
-        
-        // For managers, coordinators and field officers, wait until teamId is available
-        if ((isManager || isFieldOfficer || isCoordinator) && (teamId === null || teamId === undefined)) return;
-        
+        if ((isManager || isFieldOfficer || isCoordinator) && (teamId === null || teamId === undefined)) {
+            return;
+        }
+
         try {
-            const dateObj = new Date(selectedDate);
-            if (isNaN(dateObj.getTime())) {
-                console.error('Invalid selectedDate:', selectedDate);
-                return;
-            }
-            
-            const formattedStartDate = format(dateObj, 'yyyy-MM-dd');
-            const formattedEndDate = format(dateObj, 'yyyy-MM-dd');
+            const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+            const formattedEndDate = format(endDate, 'yyyy-MM-dd');
 
             console.log('fetchBrandData - isManager:', isManager, 'isCoordinator:', isCoordinator, 'teamId:', teamId);
 
@@ -225,16 +225,37 @@ const PricingPage = () => {
             const data: Brand[] = await response.json();
             setBrandData(data);
 
-            const uniqueCities = Array.from(new Set(data.map(brand => {
-                const employeeCity = brand.employeeDto?.city;
-                const brandCity = brand.city ?? employeeCity;
-                return brandCity;
-            }).filter(city => city && city.trim() !== "")));
-            setCities(uniqueCities);
+            const uniqueCities = Array.from(new Set(
+                data
+                    .map(brand => brand.city || brand.employeeDto?.city)
+                    .filter((city): city is string => Boolean(city && city.trim() !== ''))
+            )).sort((a, b) => a.localeCompare(b));
+            setAvailableCities(uniqueCities);
+            setSelectedCities((prev) => {
+                if (prev.length === 0) {
+                    return uniqueCities;
+                }
+                const nextSet = new Set(uniqueCities);
+                const filteredPrev = prev.filter((city) => nextSet.has(city));
+                const missing = uniqueCities.filter((city) => !filteredPrev.includes(city));
+                return [...filteredPrev, ...missing];
+            });
 
-            if (!selectedCity && uniqueCities.length > 0) {
-                setSelectedCity(uniqueCities[0]);
-            }
+            const uniqueBrands = Array.from(new Set(
+                data
+                    .map(brand => brand.brandName)
+                    .filter((brandName): brandName is string => Boolean(brandName && brandName.trim() !== ''))
+            )).sort((a, b) => a.localeCompare(b));
+            setAvailableBrands(uniqueBrands);
+            setSelectedBrands((prev) => {
+                if (prev.length === 0) {
+                    return uniqueBrands;
+                }
+                const nextSet = new Set(uniqueBrands);
+                const filteredPrev = prev.filter((brand) => nextSet.has(brand));
+                const missing = uniqueBrands.filter((brand) => !filteredPrev.includes(brand));
+                return [...filteredPrev, ...missing];
+            });
 
             // Extract unique employees with their city information
             const employeeMap = new Map<number, EmployeeOption>();
@@ -249,6 +270,16 @@ const PricingPage = () => {
                 }
             });
             setAllEmployees(Array.from(employeeMap.values()));
+            setSelectedFieldOfficer((prev) => {
+                if (prev === 'all') {
+                    return prev;
+                }
+                const prevId = Number(prev);
+                if (Number.isNaN(prevId) || !employeeMap.has(prevId)) {
+                    return 'all';
+                }
+                return prev;
+            });
 
             const gajkesariBrand = data.find(brand => brand.brandName.toLowerCase() === 'gajkesari');
             if (gajkesariBrand) {
@@ -264,145 +295,258 @@ const PricingPage = () => {
             setGajkesariRate(0);
             setShowGajkesariRate(false);
         }
-    }, [selectedDate, token, selectedCity, isManager, isCoordinator, teamId]);
+    }, [token, isManager, isCoordinator, isFieldOfficer, teamId]);
 
-    const fetchPreviousDayData = useCallback(async () => {
-        if (!token || !selectedDate) return;
-        
-        // For managers, coordinators and field officers, wait until teamId is available
-        if ((isManager || isFieldOfficer || isCoordinator) && (teamId === null || teamId === undefined)) return;
-        
-        const dateObj = new Date(selectedDate);
-        if (isNaN(dateObj.getTime())) {
-            console.error('Invalid selectedDate:', selectedDate);
+    useEffect(() => {
+        if (!token || !selectedStartDate || !selectedEndDate) {
             return;
         }
-        
-        const previousDay = format(new Date(dateObj.getTime() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
-        try {
-            let url: string;
-            
-            if (isManager && teamId !== null) {
-                // For managers, use team-based API call
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${previousDay}&end=${previousDay}`;
-                console.log('Manager Previous Day API call:', url);
-            } else if (isCoordinator && teamId !== null) {
-                // For coordinators, use team-based API call
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${previousDay}&end=${previousDay}`;
-                console.log('Coordinator Previous Day API call:', url);
-            } else if (isAdmin) {
-                // For admins, use the original API call
-                url = `/api/proxy/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
-                console.log('Admin Previous Day API call:', url);
-            } else if (isFieldOfficer) {
-                // For field officers, use team-based API call (same as manager for now)
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${previousDay}&end=${previousDay}`;
-                console.log('Field Officer Previous Day API call:', url);
-            } else {
-                // Default to admin API call
-                url = `/api/proxy/brand/getByDateRange?start=${previousDay}&end=${previousDay}`;
-                console.log('Default (Admin) Previous Day API call:', url);
-            }
 
-            const response = await fetch(url, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data: Brand[] = await response.json();
-            setPreviousDayData(data);
-        } catch (error) {
-            console.error('Error fetching previous day data:', error);
-            setPreviousDayData([]);
+        const start = new Date(selectedStartDate);
+        const end = new Date(selectedEndDate);
+
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            setDateError('Please pick a valid start and end date.');
+            return;
         }
-    }, [selectedDate, token, isManager, isCoordinator, teamId]);
+
+        if (start > end) {
+            setDateError('Start date cannot be after end date.');
+            return;
+        }
+
+        setDateError(null);
+
+        const fetchData = async () => {
+            setIsLoading(true);
+            await fetchBrandData(start, end);
+            setIsLoading(false);
+        };
+
+        fetchData();
+    }, [fetchBrandData, selectedStartDate, selectedEndDate, token]);
 
     // Smart filter: When city is selected, only show employees from that city
-    const filteredEmployees = selectedCity === "all" 
-        ? allEmployees 
-        : allEmployees.filter(emp => emp.city === selectedCity);
+    const selectedCitySet = new Set(selectedCities);
+    const filteredEmployees = selectedCities.length === 0
+        ? allEmployees
+        : allEmployees.filter(emp => emp.city && selectedCitySet.has(emp.city));
 
-    // Handler for city change
-    const handleCityChange = (city: string) => {
-        setSelectedCity(city);
-        
-        // If a specific city is selected and current employee is not from that city, reset to "all"
-        if (city !== "all" && selectedFieldOfficer !== "all") {
-            const selectedEmp = allEmployees.find(emp => emp.name === selectedFieldOfficer);
-            if (selectedEmp && selectedEmp.city !== city) {
-                setSelectedFieldOfficer("all");
-            }
+    const filteredCitiesList = useMemo(() => {
+        if (!cityQuery) {
+            return availableCities;
         }
+        const search = cityQuery.toLowerCase();
+        return availableCities.filter((city) => city.toLowerCase().includes(search));
+    }, [availableCities, cityQuery]);
+
+    const filteredBrandsList = useMemo(() => {
+        if (!brandQuery) {
+            return availableBrands;
+        }
+        const search = brandQuery.toLowerCase();
+        return availableBrands.filter((brand) => brand.toLowerCase().includes(search));
+    }, [availableBrands, brandQuery]);
+
+    useEffect(() => {
+        if (selectedFieldOfficer === 'all') {
+            return;
+        }
+        const exists = filteredEmployees.some((emp) => String(emp.id) === selectedFieldOfficer);
+        if (!exists) {
+            setSelectedFieldOfficer('all');
+        }
+    }, [filteredEmployees, selectedFieldOfficer]);
+
+    const employeeOptions = useMemo<SearchableOption<EmployeeOption | null>[]>(() => {
+        const base = filteredEmployees.map((employee) => ({
+            value: String(employee.id),
+            label: employee.name,
+            data: employee,
+        }));
+        return [
+            { value: 'all', label: 'All Field Officers' },
+            ...base,
+        ];
+    }, [filteredEmployees]);
+
+    const toggleCitySelection = (city: string) => {
+        setSelectedCities((prev) =>
+            prev.includes(city)
+                ? prev.filter((value) => value !== city)
+                : [...prev, city]
+        );
     };
 
-    // Handler for employee change
-    const handleEmployeeChange = (employeeName: string) => {
-        setSelectedFieldOfficer(employeeName);
-        
-        // Auto-set city based on selected employee
-        if (employeeName !== "all") {
-            const selectedEmp = allEmployees.find(emp => emp.name === employeeName);
-            if (selectedEmp) {
-                setSelectedCity(selectedEmp.city);
-            }
-        }
+    const toggleBrandSelection = (brand: string) => {
+        setSelectedBrands((prev) =>
+            prev.includes(brand)
+                ? prev.filter((value) => value !== brand)
+                : [...prev, brand]
+        );
     };
+
+    useEffect(() => {
+        if (!cityMenuOpen) {
+            setCityQuery("");
+        }
+    }, [cityMenuOpen]);
+
+    useEffect(() => {
+        if (!brandMenuOpen) {
+            setBrandQuery("");
+        }
+    }, [brandMenuOpen]);
 
     const filteredBrands = brandData.filter(brand => {
         const brandEmployeeCity = brand.employeeDto?.city;
         const effectiveCity = brand.brandName.toLowerCase() === 'gajkesari'
             ? (brand.city ?? brandEmployeeCity)
             : brandEmployeeCity;
-        const cityMatch = selectedCity === "all" || effectiveCity === selectedCity;
-        const officerName = brand.employeeDto ? formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName) : null;
-        const officerMatch = selectedFieldOfficer === "all" || (officerName ? officerName === selectedFieldOfficer : false);
-        return cityMatch && officerMatch;
+        const cityMatch = selectedCities.length === 0 || (effectiveCity && selectedCitySet.has(effectiveCity));
+        const officerMatch = selectedFieldOfficer === 'all' || (brand.employeeDto?.id != null && String(brand.employeeDto.id) === selectedFieldOfficer);
+        const brandMatch = selectedBrands.length === 0 || selectedBrands.includes(brand.brandName);
+        return cityMatch && officerMatch && brandMatch;
     });
 
-    // Find our brand (Icon or Icon Steel) - case insensitive
-    const ourBrand = filteredBrands.find(brand => 
-        brand.brandName.toLowerCase().includes('icon')
-    );
-    
-    // Define colors for each brand
-    const brandColors = [
-        '#3b82f6', // Blue
-        '#10b981', // Green  
-        '#f59e0b', // Orange
-        '#ef4444', // Red
-        '#8b5cf6', // Purple
-        '#06b6d4', // Cyan
-        '#84cc16', // Lime
-        '#f97316', // Orange
-    ];
-    
-    // Separate our brand from competitors
-    const competitorBrands = filteredBrands.filter(brand => 
-        !ourBrand || brand.brandName !== ourBrand.brandName
-    );
-    
-    // Create chart data with different colors for each competitor brand
-    const chartData = competitorBrands.map((brand, index) => {
-        const color = brandColors[index % brandColors.length];
-        
-        return {
-            brand: brand.brandName,
-            competitorPrice: brand.price,
-            ourPrice: 0, // No our price for competitor brands
-            fill: color // Add color to each data point
+    const scopedBrandNames = Array.from(new Set(filteredBrands.map((brand) => brand.brandName))).sort((a, b) => a.localeCompare(b));
+    const neutralPalette = ['hsl(var(--foreground))', 'hsl(var(--muted-foreground))', 'rgba(148,163,184,0.85)'];
+    let paletteCursor = 0;
+    const brandStyleMap = scopedBrandNames.reduce<Record<string, { stroke: string; strokeWidth: number; strokeDasharray?: string; dot: boolean; activeDot: { r: number; fill: string; strokeWidth: number }; }>>((acc, brandName) => {
+        const isPrimary = brandName.toLowerCase().includes('icon');
+        const stroke = isPrimary ? 'hsl(var(--primary))' : neutralPalette[(paletteCursor++) % neutralPalette.length];
+        const strokeWidth = isPrimary ? 3 : 2;
+        const strokeDasharray = isPrimary ? undefined : paletteCursor % 2 === 0 ? '6 4' : '4 3';
+        acc[brandName] = {
+            stroke,
+            strokeWidth,
+            strokeDasharray,
+            dot: isPrimary,
+            activeDot: { r: isPrimary ? 5 : 3, fill: stroke, strokeWidth: 0 },
         };
+        return acc;
+    }, {});
+
+    const brandDateAccumulator = new Map<string, { total: number; count: number }>();
+
+    filteredBrands.forEach((brand) => {
+        const timestamp = brand.createdAt || brand.updatedAt || new Date().toISOString();
+        const dateKey = format(new Date(timestamp), 'yyyy-MM-dd');
+        const accumulatorKey = `${dateKey}::${brand.brandName}`;
+        const current = brandDateAccumulator.get(accumulatorKey) ?? { total: 0, count: 0 };
+        current.total += brand.price;
+        current.count += 1;
+        brandDateAccumulator.set(accumulatorKey, current);
     });
-    
-    // Add our brand data if it exists
-    if (ourBrand) {
-        chartData.push({
-            brand: ourBrand.brandName,
-            competitorPrice: 0, // No competitor price for our brand
-            ourPrice: ourBrand.price,
-            fill: '#1f2937' // Dark gray for our brand
+
+    const lineChartMap = new Map<string, Record<string, number | string>>();
+    brandDateAccumulator.forEach((value, key) => {
+        const [dateKey, brandName] = key.split('::');
+        if (!lineChartMap.has(dateKey)) {
+            lineChartMap.set(dateKey, { date: dateKey });
+        }
+        const entry = lineChartMap.get(dateKey)!;
+        entry[brandName] = Number((value.total / value.count).toFixed(2));
+    });
+
+    const lineChartData = Array.from(lineChartMap.values()).sort((a, b) => {
+        const aDate = new Date(String(a.date)).getTime();
+        const bDate = new Date(String(b.date)).getTime();
+        return aDate - bDate;
+    });
+
+    const renderTooltip = useCallback(({ active, payload, label }: {
+        active?: boolean;
+        payload?: Array<{ color?: string; dataKey?: string | number; value?: number | string }>;
+        label?: string | number;
+    }) => {
+        if (!active || !payload || payload.length === 0 || label == null) {
+            return null;
+        }
+
+        const labelString = typeof label === 'number' ? String(label) : label;
+        const displayDate = format(new Date(labelString + 'T00:00:00'), 'EEE, MMM d yyyy');
+
+        return (
+            <div className="rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
+                <p className="font-medium text-foreground">{displayDate}</p>
+                <div className="mt-2 space-y-1">
+                    {payload.map((item) => (
+                        <div key={String(item.dataKey)} className="flex items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-2 text-foreground">
+                                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color ?? '#1f2937' }} />
+                                <span>{item.dataKey}</span>
+                            </div>
+                            <span className="font-semibold text-foreground">₹{Number(item.value ?? 0).toFixed(2)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }, []);
+
+    const handleExport = useCallback(() => {
+        if (filteredBrands.length === 0) {
+            return;
+        }
+
+        const header = ['Date', 'Brand', 'Price', 'City', 'State', 'Employee', 'Metric'];
+        const rows = filteredBrands.map((brand) => {
+            const timestamp = brand.createdAt || brand.updatedAt || new Date().toISOString();
+            const dateLabel = format(new Date(timestamp), 'yyyy-MM-dd');
+            const employeeName = brand.employeeDto ? formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName) : '—';
+            return [
+                dateLabel,
+                brand.brandName,
+                brand.price,
+                brand.city ?? brand.employeeDto?.city ?? '—',
+                brand.state ?? '—',
+                employeeName,
+                brand.metric ?? '—',
+            ];
         });
+
+        const csv = [header, ...rows]
+            .map((values) =>
+                values
+                    .map((value) => {
+                        const stringValue = String(value ?? '');
+                        return stringValue.includes(',')
+                            ? `"${stringValue.replace(/"/g, '""')}"`
+                            : stringValue;
+                    })
+                    .join(',')
+            )
+            .join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `pricing_${selectedStartDate}_${selectedEndDate}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, [filteredBrands, selectedEndDate, selectedStartDate]);
+
+
+    if (!roleResolved) {
+        return (
+            <div className="flex h-80 items-center justify-center">
+                <Loader className="h-6 w-6 animate-spin text-primary" />
+            </div>
+        );
     }
 
+    if (!isAdmin) {
+        return (
+            <div className="flex h-80 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                <p>Pricing analytics are restricted to administrators.</p>
+                <p>Please contact an admin if you believe this is a mistake.</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -411,25 +555,96 @@ const PricingPage = () => {
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                     <div className="flex flex-wrap gap-3 items-center">
                         <div className="space-y-2">
-                            <Label className="text-sm text-muted-foreground">City</Label>
-                            <Select value={selectedCity} onValueChange={handleCityChange}>
-                                <SelectTrigger className="w-[160px] text-sm bg-background border-border">
-                                    <SelectValue placeholder="Select city" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Cities</SelectItem>
-                                    {cities.map((city) => (
-                                        <SelectItem key={city} value={city}>
-                                            {city}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label className="text-sm text-muted-foreground">Cities</Label>
+                            <DropdownMenu open={cityMenuOpen} onOpenChange={setCityMenuOpen}>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="min-w-[220px] justify-between text-sm bg-background border-border"
+                                    >
+                                        <span>
+                                            {selectedCities.length === 0
+                                                ? 'All cities'
+                                                : `${selectedCities.length} selected`}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">Filter</span>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-60">
+                                    <div className="p-2 pb-1">
+                                        <Input
+                                            value={cityQuery}
+                                            onChange={(event) => setCityQuery(event.target.value)}
+                                            placeholder="Search cities..."
+                                            className="h-8"
+                                        />
+                                    </div>
+                                    <DropdownMenuSeparator />
+                                    {filteredCitiesList.length === 0 ? (
+                                        <div className="px-3 py-2 text-sm text-muted-foreground">No cities found</div>
+                                    ) : (
+                                        filteredCitiesList.map((city) => (
+                                            <DropdownMenuCheckboxItem
+                                                key={city}
+                                                checked={selectedCities.includes(city)}
+                                                onCheckedChange={() => toggleCitySelection(city)}
+                                            >
+                                                {city}
+                                            </DropdownMenuCheckboxItem>
+                                        ))
+                                    )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
-                        
+
                         <div className="space-y-2">
-                            <Label className="text-sm text-muted-foreground">Date</Label>
-                            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                            <Label className="text-sm text-muted-foreground">Brands</Label>
+                            <DropdownMenu open={brandMenuOpen} onOpenChange={setBrandMenuOpen}>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="min-w-[220px] justify-between text-sm bg-background border-border"
+                                    >
+                                        <span>
+                                            {selectedBrands.length === 0
+                                                ? 'All brands'
+                                                : `${selectedBrands.length} selected`}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">Filter</span>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-64">
+                                    <div className="p-2 pb-1">
+                                        <Input
+                                            value={brandQuery}
+                                            onChange={(event) => setBrandQuery(event.target.value)}
+                                            placeholder="Search brands..."
+                                            className="h-8"
+                                        />
+                                    </div>
+                                    <DropdownMenuSeparator />
+                                    {filteredBrandsList.length === 0 ? (
+                                        <div className="px-3 py-2 text-sm text-muted-foreground">No brands found</div>
+                                    ) : (
+                                        filteredBrandsList.map((brand) => (
+                                            <DropdownMenuCheckboxItem
+                                                key={brand}
+                                                checked={selectedBrands.includes(brand)}
+                                                onCheckedChange={() => toggleBrandSelection(brand)}
+                                            >
+                                                {brand}
+                                            </DropdownMenuCheckboxItem>
+                                        ))
+                                    )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm text-muted-foreground">Start Date</Label>
+                            <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
@@ -437,22 +652,17 @@ const PricingPage = () => {
                                         className="w-[160px] justify-start text-left font-normal text-sm bg-background border-border"
                                     >
                                         <CalendarIcon className="mr-2 h-3 w-3" />
-                                        {selectedDate ? format(new Date(selectedDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick date</span>}
+                                        {selectedStartDate ? format(new Date(selectedStartDate + 'T00:00:00'), 'MMM d, yyyy') : 'Start date'}
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0">
                                     <Calendar
                                         mode="single"
-                                        selected={selectedDate ? new Date(selectedDate + 'T00:00:00') : undefined}
+                                        selected={selectedStartDate ? new Date(selectedStartDate + 'T00:00:00') : undefined}
                                         onSelect={(date) => {
                                             if (date) {
-                                                const year = date.getFullYear();
-                                                const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                const day = String(date.getDate()).padStart(2, '0');
-                                                setSelectedDate(`${year}-${month}-${day}`);
-                                                setIsDatePickerOpen(false); // Auto-close after selection
-                                            } else {
-                                                setSelectedDate('');
+                                                setSelectedStartDate(format(date, 'yyyy-MM-dd'));
+                                                setIsStartDatePickerOpen(false);
                                             }
                                         }}
                                         initialFocus
@@ -460,40 +670,69 @@ const PricingPage = () => {
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        
+
                         <div className="space-y-2">
-                            <Label className="text-sm text-muted-foreground">
-                                Field Officer
-                                {selectedCity !== "all" && filteredEmployees.length < allEmployees.length && (
-                                    <span className="ml-1 text-xs text-blue-600">({filteredEmployees.length} in {selectedCity})</span>
-                                )}
-                            </Label>
-                            <Select value={selectedFieldOfficer} onValueChange={handleEmployeeChange}>
-                                <SelectTrigger className="w-[160px] text-sm bg-background border-border">
-                                    <SelectValue placeholder="Select field officer" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Field Officers</SelectItem>
-                                    {filteredEmployees.map((employee) => (
-                                        <SelectItem key={employee.id} value={employee.name}>
-                                            {employee.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label className="text-sm text-muted-foreground">End Date</Label>
+                            <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-[160px] justify-start text-left font-normal text-sm bg-background border-border"
+                                    >
+                                        <CalendarIcon className="mr-2 h-3 w-3" />
+                                        {selectedEndDate ? format(new Date(selectedEndDate + 'T00:00:00'), 'MMM d, yyyy') : 'End date'}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                    <Calendar
+                                        mode="single"
+                                        selected={selectedEndDate ? new Date(selectedEndDate + 'T00:00:00') : undefined}
+                                        onSelect={(date) => {
+                                            if (date) {
+                                                setSelectedEndDate(format(date, 'yyyy-MM-dd'));
+                                                setIsEndDatePickerOpen(false);
+                                            }
+                                        }}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm text-muted-foreground">Field Officer</Label>
+                            <SearchableSelect<EmployeeOption | null>
+                                options={employeeOptions}
+                                value={selectedFieldOfficer}
+                                onSelect={(option) => setSelectedFieldOfficer(option?.value ?? 'all')}
+                                placeholder="All field officers"
+                                triggerClassName="w-[240px] text-sm bg-background border-border"
+                                searchPlaceholder="Search field officers..."
+                            />
                         </div>
                     </div>
                     
                     {/* Gajkesari Rate Display */}
-                    {showGajkesariRate && gajkesariRate > 0 && (
-                        <div className="text-right">
-                            <h2 className="text-2xl">
-                                Gajkesari Rate: <span className="font-bold">₹{gajkesariRate}/ton</span>
-                            </h2>
-                        </div>
-                    )}
+                    <div className="flex flex-col items-end gap-2">
+                        {showGajkesariRate && gajkesariRate > 0 && (
+                            <div className="text-right">
+                                <h2 className="text-2xl">
+                                    Gajkesari Rate: <span className="font-bold">₹{gajkesariRate}/ton</span>
+                                </h2>
+                            </div>
+                        )}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleExport}
+                            disabled={isLoading || filteredBrands.length === 0}
+                        >
+                            Export CSV
+                        </Button>
+                    </div>
                 </div>
-                
+
                 {/* Team Info for Managers/Field Officers */}
                 {(isManager || isFieldOfficer) && (
                     <div className="mt-4 text-sm text-muted-foreground">
@@ -504,6 +743,9 @@ const PricingPage = () => {
                              'No team data available'}
                         </p>
                     </div>
+                )}
+                {dateError && (
+                    <p className="mt-3 text-sm text-destructive">{dateError}</p>
                 )}
             </div>
 
@@ -522,8 +764,10 @@ const PricingPage = () => {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead>Date</TableHead>
                                             <TableHead>Competitor</TableHead>
                                             <TableHead>Price (₹/ton)</TableHead>
+                                            <TableHead>City</TableHead>
                                             <TableHead>Field Officer</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -531,8 +775,10 @@ const PricingPage = () => {
                                         {filteredBrands.length > 0 ? (
                                             filteredBrands.map((brand) => (
                                                 <TableRow key={brand.id}>
+                                                    <TableCell>{format(new Date((brand.createdAt || brand.updatedAt || new Date().toISOString())), 'MMM d, yyyy')}</TableCell>
                                                     <TableCell className="font-medium">{brand.brandName}</TableCell>
                                                     <TableCell>₹{brand.price.toFixed(2)}</TableCell>
+                                                    <TableCell>{brand.city ?? brand.employeeDto?.city ?? '—'}</TableCell>
                                                     <TableCell>
                                                         {brand.employeeDto
                                                             ? formatEmployeeName(brand.employeeDto.firstName, brand.employeeDto.lastName)
@@ -563,44 +809,63 @@ const PricingPage = () => {
                             <div className="flex justify-center items-center h-80">
                                 <Loader className="w-8 h-8 animate-spin text-primary" />
                             </div>
+                        ) : lineChartData.length === 0 ? (
+                            <div className="flex h-80 flex-col items-center justify-center text-sm text-muted-foreground">
+                                <p>No pricing data found for the selected filters.</p>
+                                <p>Try expanding the date range or clearing the filters.</p>
+                            </div>
                         ) : (
                             <>
-                                <div className="h-80">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart
-                                            data={chartData}
-                                            margin={{
-                                                top: 20,
-                                                right: 30,
-                                                left: 20,
-                                                bottom: 60,
-                                            }}
-                                        >
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="brand" angle={-45} textAnchor="end" height={60} />
-                                            <YAxis />
-                                            <Tooltip 
-                                                formatter={(value) => [`₹${value}`, "Price"]}
-                                                labelFormatter={(value) => `Brand: ${value}`}
-                                            />
-                                            <Legend />
-                                            {ourBrand && ourBrand.price > 0 && (
-                                                <Bar dataKey="ourPrice" name={`Our Price (${ourBrand.brandName})`} fill="#1f2937" />
-                                            )}
-                                            <Bar dataKey="competitorPrice" name="Competitor Prices">
-                                                {chartData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                                                ))}
-                                            </Bar>
-                                        </BarChart>
-                                    </ResponsiveContainer>
+                                <div className="rounded-xl border bg-muted/40 p-4 dark:border-slate-600 dark:bg-slate-900/40">
+                                    <div className="h-80">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart
+                                                data={lineChartData}
+                                                margin={{ top: 12, right: 18, left: 10, bottom: 12 }}
+                                            >
+                                                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="4 4" />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tickFormatter={(value) => format(new Date(value + 'T00:00:00'), 'MMM d')}
+                                                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontWeight: 500 }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis
+                                                    tickFormatter={(value) => `₹${value}`}
+                                                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontWeight: 500 }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    width={70}
+                                                />
+                                                <Tooltip content={renderTooltip} />
+                                                <Legend
+                                                    iconType="plainline"
+                                                    wrapperStyle={{ paddingTop: 8, fontSize: 12, color: 'hsl(var(--foreground))' }}
+                                                />
+                                                {scopedBrandNames.map((brandName) => {
+                                                    const style = brandStyleMap[brandName];
+                                                    return (
+                                                        <Line
+                                                            key={brandName}
+                                                            type="monotone"
+                                                            dataKey={brandName}
+                                                            stroke={style.stroke}
+                                                            strokeWidth={style.strokeWidth}
+                                                            strokeDasharray={style.strokeDasharray}
+                                                            dot={style.dot ? { r: 3.5, strokeWidth: 0, fill: style.stroke } : false}
+                                                            activeDot={style.activeDot}
+                                                            connectNulls
+                                                        />
+                                                    );
+                                                })}
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
                                 </div>
                                 <div className="mt-4 text-sm text-muted-foreground">
                                     <p>
-                                        {ourBrand && ourBrand.price > 0 
-                                            ? `Comparison of ${ourBrand.brandName} vs competitor prices`
-                                            : 'Competitor pricing comparison by brand'
-                                        }
+                                        Multi-day pricing trends across selected brands. Hover over the chart to compare daily rates.
                                     </p>
                                 </div>
                             </>
