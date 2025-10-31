@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, Bar, BarChart, ComposedChart } from "recharts";
 import { Loader, CalendarIcon } from "lucide-react";
 import { API, type TeamDataDto } from "@/lib/api";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -117,23 +117,30 @@ const PricingPage = () => {
                 if (response.ok) {
                     const userData = await response.json();
                     console.log('Current user data:', userData);
-                    
-                    // Extract role from authorities
+
+                    // Consider all authorities, not only the first
                     const authorities = userData.authorities || [];
-                    const role = authorities.length > 0 ? authorities[0].authority : null;
-                    setUserRoleFromAPI(role);
-                    
-                    // Set role flags
-                    setIsManager(role === 'ROLE_MANAGER');
-                    setIsAdmin(role === 'ROLE_ADMIN');
-                    setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
-                    setIsCoordinator(role === 'ROLE_COORDINATOR');
-                    
-                    console.log('Role from API:', role);
-                    console.log('isManager:', role === 'ROLE_MANAGER');
-                    console.log('isAdmin:', role === 'ROLE_ADMIN');
-                    console.log('isFieldOfficer:', role === 'ROLE_FIELD OFFICER');
-                    console.log('isCoordinator:', role === 'ROLE_COORDINATOR');
+                    const roles: string[] = authorities.map((a: { authority: string }) => a.authority);
+                    const hasRole = (r: string) => roles.includes(r);
+                    const primaryRole = roles[0] ?? null;
+                    setUserRoleFromAPI(primaryRole);
+
+                    // Set role flags (treat AVP/Regional/Office Manager as managers)
+                    setIsManager(
+                        hasRole('ROLE_MANAGER') ||
+                        hasRole('ROLE_OFFICE MANAGER') ||
+                        hasRole('ROLE_AVP') ||
+                        hasRole('ROLE_REGIONAL_MANAGER')
+                    );
+                    setIsAdmin(hasRole('ROLE_ADMIN'));
+                    setIsFieldOfficer(hasRole('ROLE_FIELD OFFICER'));
+                    setIsCoordinator(hasRole('ROLE_COORDINATOR'));
+
+                    console.log('Roles:', roles);
+                    console.log('isManager:', hasRole('ROLE_MANAGER') || hasRole('ROLE_OFFICE MANAGER') || hasRole('ROLE_AVP') || hasRole('ROLE_REGIONAL_MANAGER'));
+                    console.log('isAdmin:', hasRole('ROLE_ADMIN'));
+                    console.log('isFieldOfficer:', hasRole('ROLE_FIELD OFFICER'));
+                    console.log('isCoordinator:', hasRole('ROLE_COORDINATOR'));
                 } else {
                     console.error('Failed to fetch current user data');
                 }
@@ -327,10 +334,13 @@ const PricingPage = () => {
     }, [fetchBrandData, selectedStartDate, selectedEndDate, token]);
 
     // Smart filter: When city is selected, only show employees from that city
-    const selectedCitySet = new Set(selectedCities);
-    const filteredEmployees = selectedCities.length === 0
-        ? allEmployees
-        : allEmployees.filter(emp => emp.city && selectedCitySet.has(emp.city));
+    const filteredEmployees = useMemo(() => {
+        if (selectedCities.length === 0) {
+            return allEmployees;
+        }
+        const citySet = new Set(selectedCities);
+        return allEmployees.filter((emp) => emp.city && citySet.has(emp.city));
+    }, [allEmployees, selectedCities]);
 
     const filteredCitiesList = useMemo(() => {
         if (!cityQuery) {
@@ -398,66 +408,136 @@ const PricingPage = () => {
         }
     }, [brandMenuOpen]);
 
-    const filteredBrands = brandData.filter(brand => {
-        const brandEmployeeCity = brand.employeeDto?.city;
-        const effectiveCity = brand.brandName.toLowerCase() === 'gajkesari'
-            ? (brand.city ?? brandEmployeeCity)
-            : brandEmployeeCity;
-        const cityMatch = selectedCities.length === 0 || (effectiveCity && selectedCitySet.has(effectiveCity));
-        const officerMatch = selectedFieldOfficer === 'all' || (brand.employeeDto?.id != null && String(brand.employeeDto.id) === selectedFieldOfficer);
-        const brandMatch = selectedBrands.length === 0 || selectedBrands.includes(brand.brandName);
-        return cityMatch && officerMatch && brandMatch;
-    });
-
-    const scopedBrandNames = Array.from(new Set(filteredBrands.map((brand) => brand.brandName))).sort((a, b) => a.localeCompare(b));
-    const neutralPalette = ['hsl(var(--foreground))', 'hsl(var(--muted-foreground))', 'rgba(148,163,184,0.85)'];
-    let paletteCursor = 0;
-    const brandStyleMap = scopedBrandNames.reduce<Record<string, { stroke: string; strokeWidth: number; strokeDasharray?: string; dot: boolean; activeDot: { r: number; fill: string; strokeWidth: number }; }>>((acc, brandName) => {
-        const isPrimary = brandName.toLowerCase().includes('icon');
-        const stroke = isPrimary ? 'hsl(var(--primary))' : neutralPalette[(paletteCursor++) % neutralPalette.length];
-        const strokeWidth = isPrimary ? 3 : 2;
-        const strokeDasharray = isPrimary ? undefined : paletteCursor % 2 === 0 ? '6 4' : '4 3';
-        acc[brandName] = {
-            stroke,
-            strokeWidth,
-            strokeDasharray,
-            dot: isPrimary,
-            activeDot: { r: isPrimary ? 5 : 3, fill: stroke, strokeWidth: 0 },
-        };
-        return acc;
-    }, {});
-
-    const brandDateAccumulator = new Map<string, { total: number; count: number }>();
-
-    filteredBrands.forEach((brand) => {
-        const timestamp = brand.createdAt || brand.updatedAt || new Date().toISOString();
-        const dateKey = format(new Date(timestamp), 'yyyy-MM-dd');
-        const accumulatorKey = `${dateKey}::${brand.brandName}`;
-        const current = brandDateAccumulator.get(accumulatorKey) ?? { total: 0, count: 0 };
-        current.total += brand.price;
-        current.count += 1;
-        brandDateAccumulator.set(accumulatorKey, current);
-    });
-
-    const lineChartMap = new Map<string, Record<string, number | string>>();
-    brandDateAccumulator.forEach((value, key) => {
-        const [dateKey, brandName] = key.split('::');
-        if (!lineChartMap.has(dateKey)) {
-            lineChartMap.set(dateKey, { date: dateKey });
+    const filteredBrands = useMemo(() => {
+        if (brandData.length === 0) {
+            return [];
         }
-        const entry = lineChartMap.get(dateKey)!;
-        entry[brandName] = Number((value.total / value.count).toFixed(2));
-    });
+        const citySet = new Set(selectedCities);
+        return brandData.filter((brand) => {
+            const brandEmployeeCity = brand.employeeDto?.city;
+            const effectiveCity = brand.brandName.toLowerCase() === 'gajkesari'
+                ? (brand.city ?? brandEmployeeCity)
+                : brandEmployeeCity;
+            const cityMatch = selectedCities.length === 0 || (effectiveCity && citySet.has(effectiveCity));
+            const officerMatch = selectedFieldOfficer === 'all'
+                || (brand.employeeDto?.id != null && String(brand.employeeDto.id) === selectedFieldOfficer);
+            const brandMatch = selectedBrands.length === 0 || selectedBrands.includes(brand.brandName);
+            return cityMatch && officerMatch && brandMatch;
+        });
+    }, [brandData, selectedCities, selectedFieldOfficer, selectedBrands]);
 
-    const lineChartData = Array.from(lineChartMap.values()).sort((a, b) => {
-        const aDate = new Date(String(a.date)).getTime();
-        const bDate = new Date(String(b.date)).getTime();
-        return aDate - bDate;
-    });
+    const scopedBrandNames = useMemo(() => {
+        return Array.from(
+            new Set(
+                filteredBrands
+                    .map((brand) => brand.brandName)
+                    .filter((name): name is string => Boolean(name && name.trim() !== ''))
+            )
+        ).sort((a, b) => a.localeCompare(b));
+    }, [filteredBrands]);
+
+    const brandStyleMap = useMemo(() => {
+        // Distinct colors for each brand (like the temperature chart example)
+        const colorPalette = [
+            '#8884d8', // Blue
+            '#82ca9d', // Green
+            '#ffc658', // Orange/Yellow
+            '#ff7300', // Orange
+            '#0088fe', // Bright Blue
+            '#00c49f', // Teal
+            '#ffbb28', // Yellow
+            '#ff8042', // Red-Orange
+            '#a4de6c', // Light Green
+            '#d0ed57', // Lime
+            '#ffc658', // Orange
+            '#8884d8', // Repeating colors
+            '#82ca9d',
+            '#ff7300',
+        ];
+
+        return scopedBrandNames.reduce<Record<string, {
+            stroke: string;
+            fill: string;
+            strokeWidth: number;
+            strokeDasharray?: string;
+            dot: { r: number; fill: string } | boolean;
+            activeDot: { r: number; fill: string; strokeWidth: number; stroke?: string };
+        }>>((acc, brandName, index) => {
+            const stroke = colorPalette[index % colorPalette.length];
+            const fill = 'rgba(0, 0, 0, 0)'; // No fill for lines
+            
+            acc[brandName] = {
+                stroke,
+                fill,
+                strokeWidth: 2.5,
+                strokeDasharray: undefined, // Solid lines
+                dot: false, // No dots, just smooth continuous line
+                activeDot: { r: 6, fill: stroke, strokeWidth: 2, stroke: '#fff' },
+            };
+            return acc;
+        }, {});
+    }, [scopedBrandNames]);
+
+    const lineChartData = useMemo(() => {
+        if (!selectedStartDate || !selectedEndDate || filteredBrands.length === 0) {
+            return [];
+        }
+
+        const start = new Date(selectedStartDate + 'T00:00:00');
+        const end = new Date(selectedEndDate + 'T00:00:00');
+
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+            return [];
+        }
+
+        const dateKeys: string[] = [];
+        for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+            dateKeys.push(format(cursor, 'yyyy-MM-dd'));
+        }
+
+        const perBrandPerDay = new Map<string, Map<string, { value: number; timestamp: number }>>();
+        const startTime = start.getTime();
+        const endTime = end.getTime();
+
+        filteredBrands.forEach((brand) => {
+            const rawTimestamp = brand.updatedAt ?? brand.createdAt;
+            if (!rawTimestamp) {
+                return;
+            }
+            const timestamp = new Date(rawTimestamp);
+            const timeValue = timestamp.getTime();
+            if (Number.isNaN(timeValue) || timeValue < startTime || timeValue > endTime) {
+                return;
+            }
+            const dateKey = format(timestamp, 'yyyy-MM-dd');
+            const brandName = brand.brandName;
+            if (!brandName) {
+                return;
+            }
+
+            if (!perBrandPerDay.has(brandName)) {
+                perBrandPerDay.set(brandName, new Map());
+            }
+            const dailyMap = perBrandPerDay.get(brandName)!;
+            const existing = dailyMap.get(dateKey);
+            if (!existing || timeValue >= existing.timestamp) {
+                dailyMap.set(dateKey, { value: brand.price, timestamp: timeValue });
+            }
+        });
+
+        return dateKeys.map((dateKey) => {
+            const row: Record<string, string | number | null> = { date: dateKey };
+            scopedBrandNames.forEach((brandName) => {
+                const dailyValue = perBrandPerDay.get(brandName)?.get(dateKey);
+                row[brandName] = dailyValue ? Number(dailyValue.value.toFixed(2)) : null;
+            });
+            return row;
+        });
+    }, [filteredBrands, selectedEndDate, selectedStartDate, scopedBrandNames]);
 
     const renderTooltip = useCallback(({ active, payload, label }: {
         active?: boolean;
-        payload?: Array<{ color?: string; dataKey?: string | number; value?: number | string }>;
+        payload?: Array<{ color?: string; dataKey?: string | number; value?: number | string; name?: string | number }>;
         label?: string | number;
     }) => {
         if (!active || !payload || payload.length === 0 || label == null) {
@@ -475,7 +555,7 @@ const PricingPage = () => {
                         <div key={String(item.dataKey)} className="flex items-center justify-between gap-3 text-xs">
                             <div className="flex items-center gap-2 text-foreground">
                                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color ?? '#1f2937' }} />
-                                <span>{item.dataKey}</span>
+                                <span>{item.name ?? item.dataKey}</span>
                             </div>
                             <span className="font-semibold text-foreground">₹{Number(item.value ?? 0).toFixed(2)}</span>
                         </div>
@@ -539,7 +619,8 @@ const PricingPage = () => {
         );
     }
 
-    if (!isAdmin) {
+    // Allow Admin and Manager (includes AVP) to access pricing
+    if (!(isAdmin || isManager)) {
         return (
             <div className="flex h-80 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                 <p>Pricing analytics are restricted to administrators.</p>
@@ -819,10 +900,7 @@ const PricingPage = () => {
                                 <div className="rounded-xl border bg-muted/40 p-4 dark:border-slate-600 dark:bg-slate-900/40">
                                     <div className="h-80">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart
-                                                data={lineChartData}
-                                                margin={{ top: 12, right: 18, left: 10, bottom: 12 }}
-                                            >
+                                            <LineChart data={lineChartData} margin={{ top: 12, right: 18, left: 10, bottom: 12 }}>
                                                 <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="4 4" />
                                                 <XAxis
                                                     dataKey="date"
@@ -844,16 +922,24 @@ const PricingPage = () => {
                                                     wrapperStyle={{ paddingTop: 8, fontSize: 12, color: 'hsl(var(--foreground))' }}
                                                 />
                                                 {scopedBrandNames.map((brandName) => {
-                                                    const style = brandStyleMap[brandName];
+                                                    const style = brandStyleMap[brandName] ?? {
+                                                        stroke: 'hsl(var(--primary))',
+                                                        fill: 'rgba(0, 0, 0, 0)',
+                                                        strokeWidth: 2.5,
+                                                        strokeDasharray: undefined,
+                                                        dot: false,
+                                                        activeDot: { r: 6, fill: 'hsl(var(--primary))', strokeWidth: 2, stroke: '#fff' },
+                                                    };
+                                                    
                                                     return (
                                                         <Line
                                                             key={brandName}
                                                             type="monotone"
                                                             dataKey={brandName}
+                                                            name={brandName}
                                                             stroke={style.stroke}
                                                             strokeWidth={style.strokeWidth}
-                                                            strokeDasharray={style.strokeDasharray}
-                                                            dot={style.dot ? { r: 3.5, strokeWidth: 0, fill: style.stroke } : false}
+                                                            dot={style.dot}
                                                             activeDot={style.activeDot}
                                                             connectNulls
                                                         />
@@ -865,7 +951,7 @@ const PricingPage = () => {
                                 </div>
                                 <div className="mt-4 text-sm text-muted-foreground">
                                     <p>
-                                        Multi-day pricing trends across selected brands. Hover over the chart to compare daily rates.
+                                        Multi-brand pricing trends across the selected date range. Hover to compare daily rates.
                                     </p>
                                 </div>
                             </>

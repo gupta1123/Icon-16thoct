@@ -423,7 +423,7 @@ function DashboardPageContent() {
           const isAdminRole = hasRole('ROLE_ADMIN');
           const isDataManagerRole = hasRole('ROLE_DATA_MANAGER');
           const isCoordinatorRole = hasRole('ROLE_COORDINATOR');
-          const isManagerRole = hasRole('ROLE_MANAGER') || hasRole('ROLE_OFFICE MANAGER');
+          const isManagerRole = hasRole('ROLE_MANAGER') || hasRole('ROLE_OFFICE MANAGER') || hasRole('ROLE_AVP');
           const isHRRole = hasRole('ROLE_HR');
           setIsAdmin(isAdminRole);
           setIsDataManager(isDataManagerRole);
@@ -473,12 +473,28 @@ function DashboardPageContent() {
       try {
         const start = format(dateRange.start, "yyyy-MM-dd");
         const end = format(dateRange.end, "yyyy-MM-dd");
-        const data = await API.getDashboardOverview(start, end);
-        
+
+        // Explicitly use the in-memory auth token to avoid localStorage race/stale token issues
+        const response = await fetch(`/api/proxy/dashboard/overview?startDate=${start}&endDate=${end}`, {
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json",
+              }
+            : { Accept: "application/json" },
+        });
+
+        if (!response.ok) {
+          const message = await response.text().catch(() => response.statusText);
+          throw new Error(message || `Failed to load overview (${response.status})`);
+        }
+
+        const data = (await response.json()) as DashboardOverviewResponse;
+
         // Update overview state
         setOverview(data);
         setError(null);
-        
+
         // Update map markers for dashboard view
         if (view === "dashboard") {
           setMapMarkers(buildLiveMarkers(data.liveLocations));
@@ -506,9 +522,8 @@ function DashboardPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
-  // Check pricing for Icon Steel on login (Admin only)
   const checkPricingForToday = useCallback(async () => {
-    if (!token || !isAdmin) return;
+    if (!token || !(isAdmin || isDataManager)) return;
     
     // Check if pricing modal has been shown and closed in this session
     const pricingModalShown = sessionStorage.getItem('pricingModalShown');
@@ -548,13 +563,13 @@ function DashboardPageContent() {
       console.error('Error checking pricing:', error);
       setHasCheckedPricing(true); // Don't retry on error
     }
-  }, [token, isAdmin]);
+  }, [token, isAdmin, isDataManager]);
 
   useEffect(() => {
-    if (isRoleDetermined && token && isAdmin) {
+    if (isRoleDetermined && token && (isAdmin || isDataManager)) {
       checkPricingForToday();
     }
-  }, [isRoleDetermined, token, isAdmin, checkPricingForToday]);
+  }, [isRoleDetermined, token, isAdmin, isDataManager, checkPricingForToday]);
 
   useEffect(() => {
     if (view !== "employeeDetail" || pendingEmployeeId == null) {
@@ -1019,10 +1034,10 @@ function DashboardPageContent() {
   const handleResetMap = useCallback(() => {
     setSelectedEmployeeForMap(null);
     setHighlightedEmployee(null);
+    setMapCenter(DEFAULT_MAP_CENTER);
+    setMapZoom(DEFAULT_MAP_ZOOM);
     if (overview) {
       setMapMarkers(buildLiveMarkers(overview.liveLocations));
-      setMapCenter(DEFAULT_MAP_CENTER);
-      setMapZoom(DEFAULT_MAP_ZOOM);
     }
   }, [overview, buildLiveMarkers]);
 

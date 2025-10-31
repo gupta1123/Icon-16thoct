@@ -558,8 +558,14 @@ export default function VisitDetailPage({
   useEffect(() => {
     const checkUserRole = () => {
       // Check both userRole and currentUser authorities
-      const isManagerRole = userRole === 'MANAGER' || 
-        currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
+      const isManagerRole =
+        userRole === 'MANAGER' ||
+        userRole === 'AVP' ||
+        currentUser?.authorities?.some(
+          (auth) =>
+            auth.authority === 'ROLE_MANAGER' ||
+            auth.authority === 'ROLE_AVP'
+        );
       
       setIsManager(!!isManagerRole);
     };

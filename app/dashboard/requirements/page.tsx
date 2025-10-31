@@ -113,8 +113,14 @@ const Requirements = () => {
     useEffect(() => {
         const checkUserRole = () => {
             // Check both userRole and currentUser authorities
-            const isManagerRole = userRole === 'MANAGER' || 
-                currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
+            const isManagerRole =
+                userRole === 'MANAGER' ||
+                userRole === 'AVP' ||
+                currentUser?.authorities?.some(
+                    (auth) =>
+                        auth.authority === 'ROLE_MANAGER' ||
+                        auth.authority === 'ROLE_AVP'
+                );
             
             setIsManager(!!isManagerRole);
         };
@@ -233,9 +239,11 @@ const Requirements = () => {
             
             // Use different API endpoints based on user role
             if (isManager && teamId) {
-                // For managers, use team-based API with teamId
-                url = `/api/proxy/task/getByTeam?id=${teamId}`;
-                console.log('Using MANAGER API:', url, 'Team ID:', teamId);
+                // For managers (Regional Manager/AVP), use team + date range API
+                const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
+                const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
+                url = `/api/proxy/task/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                console.log('Using MANAGER API (team+date):', url, 'Team ID:', teamId);
             } else {
                 // For admins, use date-based API
                 const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
@@ -488,11 +496,11 @@ const Requirements = () => {
                         filters.district === 'all' ||
                         (task.storeDistrict ? task.storeDistrict.toLowerCase() : '') === filters.district.toLowerCase()
                     ) &&
-                    // Only apply date filters for admin users (managers use team-based API)
-                    (!isManager ? (
+                    // Apply date filters for all roles
+                    (
                         (filters.startDate === '' || new Date(task.dueDate) >= new Date(filters.startDate)) &&
                         (filters.endDate === '' || new Date(task.dueDate) <= new Date(filters.endDate))
-                    ) : true)
+                    )
             );
 
         setFilteredTasks(filtered);
@@ -775,8 +783,7 @@ const Requirements = () => {
                 </div>
                 {/* Date Filters */}
                 <div className="flex items-center gap-3">
-                    {/* Only show date filters for admin users */}
-                    {!isManager && (
+                    {/* Show date filters for all roles (including managers/AVP) */}
                         <>
                             <div className="flex items-center gap-2">
                                 <Label htmlFor="startDate" className="text-sm text-muted-foreground">From:</Label>
@@ -845,7 +852,6 @@ const Requirements = () => {
                                 </Popover>
                             </div>
                         </>
-                    )}
                 </div>
             </div>
 
@@ -1141,6 +1147,12 @@ const Requirements = () => {
                                             <Building className="w-3 h-3 mr-1" />
                                             {task.storeName}
                                         </CardDescription>
+                                        {task.storeDistrict && (
+                                            <CardDescription className="flex items-center mt-1 text-sm text-muted-foreground">
+                                                <MapPin className="w-3 h-3 mr-1" />
+                                                {task.storeDistrict}
+                                            </CardDescription>
+                                        )}
                                         {task.taskDescription && (
                                             <div className="mt-2">
                                                 <div 

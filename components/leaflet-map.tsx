@@ -98,6 +98,7 @@ const formatHumanTime = (value?: string | null) => {
 
 const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee: _highlightedEmployee, markers = [], onMarkerClick }) => {
   const [isClient, setIsClient] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   void _highlightedEmployee;
   const svgIcons = useMemo(() => {
     return Object.entries(markerColors).reduce<Record<Exclude<MarkerVariant, undefined>, L.Icon>>((acc, [variant, color]) => {
@@ -361,6 +362,9 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
 
   useEffect(() => {
     setIsClient(true);
+    return () => {
+      setIsMapReady(false);
+    };
   }, []);
 
   if (!isClient) {
@@ -372,20 +376,22 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
   }
 
   return (
-    <MapContainer 
-      center={center} 
-      zoom={zoom} 
+    <MapContainer
+      center={center}
+      zoom={zoom}
       style={{ height: '100%', width: '100%' }}
       className="rounded-xl"
+      whenReady={() => setIsMapReady(true)}
     >
-      {/* Keep map view in sync with incoming props */}
-      <MapController center={center} zoom={zoom} />
-      <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        // attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> & OpenStreetMap contributors'
-      />
-      {/* Use marker clustering for better UX with overlapping markers */}
-      <MarkerClusterGroup markers={markers} onMarkerClick={onMarkerClick} />
+      {isMapReady && (
+        <>
+          <MapController center={center} zoom={zoom} />
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          />
+          <MarkerClusterGroup markers={markers} onMarkerClick={onMarkerClick} />
+        </>
+      )}
     </MapContainer>
   );
 };

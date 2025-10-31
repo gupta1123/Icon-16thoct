@@ -116,8 +116,13 @@ export default function AssignVisitsPage() {
       }
       
       // Check role with more flexible matching
-      const isRegionalManager = userRole === 'REGIONAL_MANAGER' || 
-                               currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_REGIONAL_MANAGER');
+      const isRegionalManager =
+        userRole === 'REGIONAL_MANAGER' ||
+        userRole === 'AVP' ||
+        currentUser?.authorities?.some(
+          (a: { authority: string }) =>
+            a.authority === 'ROLE_REGIONAL_MANAGER' || a.authority === 'ROLE_AVP'
+        );
       const isAdmin = userRole === 'ADMIN' || 
                      currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_ADMIN');
       const isCoordinator = userRole === 'COORDINATOR' || 
@@ -357,10 +362,17 @@ export default function AssignVisitsPage() {
   // Check permissions after all hooks
   const isAdmin = userRole === 'ADMIN' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_ADMIN');
   const isCoordinator = userRole === 'COORDINATOR' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_COORDINATOR');
-  const isRegionalManager = userRole === 'REGIONAL_MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_REGIONAL_MANAGER');
+  const isRegionalManager =
+    userRole === 'REGIONAL_MANAGER' ||
+    userRole === 'AVP' ||
+    currentUser?.authorities?.some(
+      (a: { authority: string }) =>
+        a.authority === 'ROLE_REGIONAL_MANAGER' || a.authority === 'ROLE_AVP'
+    );
   const isDataManager = userRole === 'DATA_MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_DATA_MANAGER');
   const isManager = userRole === 'MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_MANAGER') ||
-                    userRole === 'OFFICE MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_OFFICE MANAGER');
+                    userRole === 'OFFICE MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_OFFICE MANAGER') ||
+                    userRole === 'AVP' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_AVP');
 
   const saveChanges = async () => {
     setSaving(true);

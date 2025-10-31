@@ -32,21 +32,48 @@ import {
     User, 
     Building2,
     Loader2,
-    Plus
+    Plus,
+    Crown,
+    Phone,
+    Mail,
+    Calendar,
+    Briefcase
 } from 'lucide-react';
 import { normalizeRoleValue } from '@/lib/role-utils';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface Team {
     id: number;
+    avp?: {
+        id: number;
+        firstName: string | null;
+        lastName: string | null;
+        role?: string;
+        email?: string;
+        primaryContact?: number;
+        secondaryContact?: number | null;
+        departmentName?: string;
+        city?: string;
+        state?: string;
+        dateOfJoining?: string;
+    } | null;
     officeManager: {
         id: number;
         firstName: string | null;
         lastName: string | null;
         assignedCity: string[];
         role?: string;
+        email?: string;
+        primaryContact?: number;
+        secondaryContact?: number | null;
+        departmentName?: string;
+        city?: string;
+        state?: string;
+        dateOfJoining?: string;
+        status?: string;
     };
     fieldOfficers: FieldOfficer[];
-    teamType?: string; // "COORDINATOR_TEAM" or "REGIONAL_MANAGER_TEAM"
+    teamType?: string; // "COORDINATOR_TEAM", "REGIONAL_MANAGER_TEAM", or "AVP_TEAM"
 }
 
 const getTeamLeadComparableName = (team: Team) => (`${team.officeManager?.firstName ?? ''} ${team.officeManager?.lastName ?? ''}`)
@@ -66,6 +93,7 @@ const TEAM_FILTER_OPTIONS = [
     { value: 'all' as const, label: 'All' },
     { value: 'coordinator' as const, label: 'Coordinator' },
     { value: 'regional' as const, label: 'Regional Manager' },
+    { value: 'avp' as const, label: 'AVP' },
 ];
 
 interface FieldOfficer {
@@ -74,15 +102,22 @@ interface FieldOfficer {
     lastName: string;
     role: string;
     status: string;
+    city?: string;
+    state?: string;
+    email?: string;
+    primaryContact?: number;
 }
 
-const resolveTeamCategory = (team: Team): 'coordinator' | 'regional' | null => {
+const resolveTeamCategory = (team: Team): 'coordinator' | 'regional' | 'avp' | null => {
     const normalizedTeamType = typeof team.teamType === 'string' ? team.teamType.toUpperCase() : '';
     if (normalizedTeamType === 'COORDINATOR_TEAM') {
         return 'coordinator';
     }
     if (normalizedTeamType === 'REGIONAL_MANAGER_TEAM') {
         return 'regional';
+    }
+    if (normalizedTeamType === 'AVP_TEAM' || team.avp) {
+        return 'avp';
     }
 
     const officeRole = normalizeRoleValue(team.officeManager?.role ?? null);
@@ -118,7 +153,7 @@ const Teams: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [isCoordinatorTeam, setIsCoordinatorTeam] = useState(false);
-    const [teamFilter, setTeamFilter] = useState<'all' | 'coordinator' | 'regional'>('all');
+    const [teamFilter, setTeamFilter] = useState<'all' | 'coordinator' | 'regional' | 'avp'>('all');
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -471,6 +506,28 @@ const Teams: React.FC = () => {
         return `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
     };
 
+    const formatPhoneNumber = (phone: number | undefined): string => {
+        if (!phone) return 'N/A';
+        const phoneStr = phone.toString();
+        if (phoneStr.length === 10) {
+            return `${phoneStr.slice(0, 5)} ${phoneStr.slice(5)}`;
+        }
+        return phoneStr;
+    };
+
+    const formatDate = (dateString: string | undefined | null): string => {
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = date.toLocaleDateString('en-US', { month: 'short' });
+            const year = date.getFullYear().toString().slice(-2);
+            return `${day} ${month} '${year}`;
+        } catch {
+            return dateString;
+        }
+    };
+
     const getTeamTypeInfo = (team: Team) => {
         const teamType = team.teamType || (team.officeManager?.role === 'Coordinator' ? 'COORDINATOR_TEAM' : 'REGIONAL_MANAGER_TEAM');
         
@@ -479,6 +536,12 @@ const Teams: React.FC = () => {
                 label: 'Coordinator Team',
                 badgeClass: 'bg-purple-100 text-purple-800 border-purple-200',
                 icon: Users
+            };
+        } else if (teamType === 'AVP_TEAM' || team.avp) {
+            return {
+                label: 'AVP Team',
+                badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+                icon: Crown
             };
         } else {
             return {
@@ -558,17 +621,20 @@ const Teams: React.FC = () => {
                                             const teamTypeInfo = getTeamTypeInfo(team);
                                             const TeamIcon = teamTypeInfo.icon;
                                             
+                                            const isAvpTeam = team.teamType === 'AVP_TEAM' || team.avp;
+                                            const displayPerson = isAvpTeam && team.avp ? team.avp : team.officeManager;
+                                            
                                             return (
                                                 <Card key={team.id} className="overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
                                                 <CardContent className="p-6">
                                                     <div className="flex justify-between items-start mb-4">
                                                         <div className="flex items-center">
                                                             <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mr-3 text-lg font-semibold">
-                                                                {getInitials(team.officeManager?.firstName, team.officeManager?.lastName)}
+                                                                {getInitials(displayPerson?.firstName, displayPerson?.lastName)}
                                                             </div>
                                                             <div>
                                                                 <h3 className="text-lg font-semibold text-foreground">
-                                                                    {team.officeManager?.firstName ?? 'N/A'} {team.officeManager?.lastName ?? 'N/A'}
+                                                                    {displayPerson?.firstName ?? 'N/A'} {displayPerson?.lastName ?? 'N/A'}
                                                                 </h3>
                                                                 <div className="flex items-center gap-2 mt-1">
                                                                     <Badge className={`text-xs px-2 py-0.5 border ${teamTypeInfo.badgeClass}`}>
@@ -588,102 +654,251 @@ const Teams: React.FC = () => {
                                                         </Button>
                                                     </div>
                                                     
-                                                    <div className="flex flex-wrap gap-2 mb-4">
-                                                        {team.officeManager.assignedCity.map((city, index) => (
-                                                            <Badge key={index} variant="secondary" className="flex items-center">
-                                                                <Building2 size={12} className="mr-1" />
-                                                                {city}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                    
-                                                    <div className="space-y-3">
-                                                        {visibleOfficers.map((officer) => (
-                                                            <div key={officer.id} className="bg-muted/30 p-3 rounded-lg flex items-center justify-between group hover:bg-muted/50 transition-all duration-300">
-                                                                <div className="flex items-center min-w-0">
-                                                                    <User size={20} className="text-muted-foreground mr-2 flex-shrink-0" />
-                                                                    <div className="min-w-0 flex-grow">
-                                                                        <p className="font-medium text-sm text-foreground truncate">
-                                                                            {`${officer.firstName} ${officer.lastName}`}
-                                                                        </p>
-                                                                        <p className="text-xs text-muted-foreground truncate">
-                                                                            {officer.role}
-                                                                        </p>
+                                                    {isAvpTeam ? (
+                                                        <Tabs defaultValue="rm" className="w-full">
+                                                            <TabsList className="grid w-full grid-cols-2 mb-4">
+                                                                <TabsTrigger value="rm" className="flex items-center gap-2">
+                                                                    <Users className="h-4 w-4" />
+                                                                    Regional Manager
+                                                                </TabsTrigger>
+                                                                <TabsTrigger value="field-officers" className="flex items-center gap-2">
+                                                                    <User className="h-4 w-4" />
+                                                                    Field Officers ({team.fieldOfficers.length})
+                                                                </TabsTrigger>
+                                                            </TabsList>
+                                                            
+                                                            <TabsContent value="rm" className="space-y-4 mt-0">
+                                                                <div className="bg-muted/30 p-4 rounded-lg border border-border/50">
+                                                                    <div className="flex items-start gap-4">
+                                                                        <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-bold flex-shrink-0">
+                                                                            {getInitials(team.officeManager?.firstName, team.officeManager?.lastName)}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <h4 className="text-lg font-semibold text-foreground mb-1">
+                                                                                {team.officeManager?.firstName ?? 'N/A'} {team.officeManager?.lastName ?? 'N/A'}
+                                                                            </h4>
+                                                                            <Badge variant="outline" className="mb-3">
+                                                                                {team.officeManager?.role ?? 'Regional Manager'}
+                                                                            </Badge>
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                                                                                {team.officeManager?.primaryContact && (
+                                                                                    <div className="flex items-center gap-2 text-sm">
+                                                                                        <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                                                                        <span className="text-muted-foreground">{formatPhoneNumber(team.officeManager.primaryContact)}</span>
+                                                                                    </div>
+                                                                                )}
+                                                                                {team.officeManager?.departmentName && (
+                                                                                    <div className="flex items-center gap-2 text-sm">
+                                                                                        <Briefcase className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                                                                        <span className="text-muted-foreground">{team.officeManager.departmentName}</span>
+                                                                                    </div>
+                                                                                )}
+                                                                                {team.officeManager?.dateOfJoining && (
+                                                                                    <div className="flex items-center gap-2 text-sm">
+                                                                                        <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                                                                        <span className="text-muted-foreground">Joined {formatDate(team.officeManager.dateOfJoining)}</span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className="flex items-center">
-                                                                    {officer.status === 'inactive' && (
-                                                                        <Badge variant="destructive" className="mr-2 text-xs">
-                                                                            Inactive
-                                                                        </Badge>
-                                                                    )}
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        onClick={() => handleRemoveFieldOfficerClick(team.id, officer.id, `${officer.firstName} ${officer.lastName}`.trim())}
-                                                                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                                        disabled={isSaving}
-                                                                    >
-                                                                        <X size={16} />
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    
-                                                    {pageCount > 1 && (
-                                                        <div className="flex items-center justify-between mt-4">
-                                                            <div className="flex items-center space-x-2">
-                                                                <Label htmlFor="pageSize">Rows per page:</Label>
-                                                                <Select value="4" onValueChange={() => {}}>
-                                                                    <SelectTrigger className="w-20">
-                                                                        <SelectValue />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent>
-                                                                        <SelectItem value="4">4</SelectItem>
-                                                                        <SelectItem value="8">8</SelectItem>
-                                                                        <SelectItem value="12">12</SelectItem>
-                                                                    </SelectContent>
-                                                                </Select>
+                                                                
+                                                                {team.officeManager.assignedCity.length > 0 && (
+                                                                    <div>
+                                                                        <h5 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                                                                            <MapPin className="h-4 w-4 text-muted-foreground" />
+                                                                            Assigned Cities
+                                                                        </h5>
+                                                                        <div className="flex flex-wrap gap-2">
+                                                                            {team.officeManager.assignedCity.map((city, index) => (
+                                                                                <Badge key={index} variant="secondary" className="flex items-center">
+                                                                                    <Building2 size={12} className="mr-1" />
+                                                                                    {city}
+                                                                                </Badge>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </TabsContent>
+                                                            
+                                                            <TabsContent value="field-officers" className="space-y-3 mt-0">
+                                                                {team.fieldOfficers.length > 0 ? (
+                                                                    <>
+                                                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                                                            {team.fieldOfficers.map((officer) => (
+                                                                                <div key={officer.id} className="bg-muted/30 p-3 rounded-lg border border-border/50 hover:bg-muted/50 transition-all duration-200 group">
+                                                                                    <div className="flex items-start justify-between gap-3">
+                                                                                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                                            <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                                                                                                {getInitials(officer.firstName, officer.lastName)}
+                                                                                            </div>
+                                                                                            <div className="flex-1 min-w-0">
+                                                                                                <p className="font-medium text-sm text-foreground">
+                                                                                                    {`${officer.firstName} ${officer.lastName}`}
+                                                                                                </p>
+                                                                                                <p className="text-xs text-muted-foreground mb-1">
+                                                                                                    {officer.role}
+                                                                                                </p>
+                                                                                                <div className="flex items-center gap-2 mt-2">
+                                                                                                    <Badge variant="outline" className="text-xs">
+                                                                                                        <Users className="h-3 w-3 mr-1" />
+                                                                                                        RM: {team.officeManager?.firstName ?? 'N/A'} {team.officeManager?.lastName ?? 'N/A'}
+                                                                                                    </Badge>
+                                                                                                    {officer.status === 'inactive' && (
+                                                                                                        <Badge variant="destructive" className="text-xs">
+                                                                                                            Inactive
+                                                                                                        </Badge>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                {officer.city && (
+                                                                                                    <div className="flex items-center gap-1 mt-1.5">
+                                                                                                        <MapPin className="h-3 w-3 text-muted-foreground" />
+                                                                                                        <span className="text-xs text-muted-foreground">
+                                                                                                            {officer.city}{officer.state ? `, ${officer.state}` : ''}
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <Button
+                                                                                            variant="ghost"
+                                                                                            size="sm"
+                                                                                            onClick={() => handleRemoveFieldOfficerClick(team.id, officer.id, `${officer.firstName} ${officer.lastName}`.trim())}
+                                                                                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
+                                                                                            disabled={isSaving}
+                                                                                        >
+                                                                                            <X size={16} />
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="pt-4 border-t">
+                                                                            <Button
+                                                                                className="w-full"
+                                                                                onClick={() => showEditModal(team)}
+                                                                            >
+                                                                                <UserPlus size={16} className="mr-2" />
+                                                                                Add Field Officer
+                                                                            </Button>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (
+                                                                    <div className="text-center py-8">
+                                                                        <User className="h-12 w-12 mx-auto text-muted-foreground mb-3 opacity-50" />
+                                                                        <p className="text-sm text-muted-foreground mb-4">No field officers assigned yet</p>
+                                                                        <Button
+                                                                            onClick={() => showEditModal(team)}
+                                                                            variant="outline"
+                                                                        >
+                                                                            <UserPlus size={16} className="mr-2" />
+                                                                            Add Field Officer
+                                                                        </Button>
+                                                                    </div>
+                                                                )}
+                                                            </TabsContent>
+                                                        </Tabs>
+                                                    ) : (
+                                                        <>
+                                                            <div className="flex flex-wrap gap-2 mb-4">
+                                                                {team.officeManager.assignedCity.map((city, index) => (
+                                                                    <Badge key={index} variant="secondary" className="flex items-center">
+                                                                        <Building2 size={12} className="mr-1" />
+                                                                        {city}
+                                                                    </Badge>
+                                                                ))}
                                                             </div>
                                                             
-                                                            <div className="flex items-center space-x-2">
+                                                            <div className="space-y-3">
+                                                                {visibleOfficers.map((officer) => (
+                                                                    <div key={officer.id} className="bg-muted/30 p-3 rounded-lg flex items-center justify-between group hover:bg-muted/50 transition-all duration-300">
+                                                                        <div className="flex items-center min-w-0">
+                                                                            <User size={20} className="text-muted-foreground mr-2 flex-shrink-0" />
+                                                                            <div className="min-w-0 flex-grow">
+                                                                                <p className="font-medium text-sm text-foreground truncate">
+                                                                                    {`${officer.firstName} ${officer.lastName}`}
+                                                                                </p>
+                                                                                <p className="text-xs text-muted-foreground truncate">
+                                                                                    {officer.role}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center">
+                                                                            {officer.status === 'inactive' && (
+                                                                                <Badge variant="destructive" className="mr-2 text-xs">
+                                                                                    Inactive
+                                                                                </Badge>
+                                                                            )}
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                onClick={() => handleRemoveFieldOfficerClick(team.id, officer.id, `${officer.firstName} ${officer.lastName}`.trim())}
+                                                                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                disabled={isSaving}
+                                                                            >
+                                                                                <X size={16} />
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            
+                                                            {pageCount > 1 && (
+                                                                <div className="flex items-center justify-between mt-4">
+                                                                    <div className="flex items-center space-x-2">
+                                                                        <Label htmlFor="pageSize">Rows per page:</Label>
+                                                                        <Select value="4" onValueChange={() => {}}>
+                                                                            <SelectTrigger className="w-20">
+                                                                                <SelectValue />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                <SelectItem value="4">4</SelectItem>
+                                                                                <SelectItem value="8">8</SelectItem>
+                                                                                <SelectItem value="12">12</SelectItem>
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex items-center space-x-2">
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => handlePageChange(team.id, currentPageForTeam - 1)}
+                                                                            disabled={currentPageForTeam === 1}
+                                                                        >
+                                                                            <ChevronLeft className="h-4 w-4" />
+                                                                            Previous
+                                                                        </Button>
+                                                                        
+                                                                        <span className="text-sm text-muted-foreground">
+                                                                            Page {currentPageForTeam} of {pageCount}
+                                                                        </span>
+                                                                        
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => handlePageChange(team.id, currentPageForTeam + 1)}
+                                                                            disabled={currentPageForTeam >= pageCount}
+                                                                        >
+                                                                            Next
+                                                                            <ChevronRight className="h-4 w-4" />
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            <div className="mt-4 pt-4 border-t">
                                                                 <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => handlePageChange(team.id, currentPageForTeam - 1)}
-                                                                    disabled={currentPageForTeam === 1}
+                                                                    className="w-full"
+                                                                    onClick={() => showEditModal(team)}
                                                                 >
-                                                                    <ChevronLeft className="h-4 w-4" />
-                                                                    Previous
-                                                                </Button>
-                                                                
-                                                                <span className="text-sm text-muted-foreground">
-                                                                    Page {currentPageForTeam} of {pageCount}
-                                                                </span>
-                                                                
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => handlePageChange(team.id, currentPageForTeam + 1)}
-                                                                    disabled={currentPageForTeam >= pageCount}
-                                                                >
-                                                                    Next
-                                                                    <ChevronRight className="h-4 w-4" />
+                                                                    <UserPlus size={16} className="mr-2" />
+                                                                    Add Field Officer
                                                                 </Button>
                                                             </div>
-                                                        </div>
+                                                        </>
                                                     )}
-                                                    
-                                                    <div className="mt-4 pt-4 border-t">
-                                                        <Button
-                                                            className="w-full"
-                                                            onClick={() => showEditModal(team)}
-                                                        >
-                                                            <UserPlus size={16} className="mr-2" />
-                                                            Add Field Officer
-                                                        </Button>
-                                                    </div>
                                                 </CardContent>
                                             </Card>
                                             );

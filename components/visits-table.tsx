@@ -628,6 +628,7 @@ export default function VisitsTable() {
     isDataManager,
     isCoordinator,
     isRegionalManager,
+    isAvp,
     isFieldOfficer,
     isHR,
     combinedRoles,
@@ -642,13 +643,17 @@ export default function VisitsTable() {
     }
     const combinedArray = Array.from(combinedSet);
 
+    const isAvp = hasAnyRole(normalizedContextRole, combinedArray, ['AVP']);
     return {
       normalizedContextRole,
       combinedRoles: combinedArray,
       isAdmin: hasAnyRole(normalizedContextRole, combinedArray, ['ADMIN']),
       isDataManager: hasAnyRole(normalizedContextRole, combinedArray, ['DATA_MANAGER']),
       isCoordinator: hasAnyRole(normalizedContextRole, combinedArray, ['COORDINATOR']),
-      isRegionalManager: hasAnyRole(normalizedContextRole, combinedArray, ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER']),
+      isRegionalManager:
+        isAvp ||
+        hasAnyRole(normalizedContextRole, combinedArray, ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER']),
+      isAvp,
       isFieldOfficer: hasAnyRole(normalizedContextRole, combinedArray, ['FIELD_OFFICER']),
       isHR: hasAnyRole(normalizedContextRole, combinedArray, ['HR']),
     };
@@ -663,6 +668,7 @@ export default function VisitsTable() {
       isAdmin,
       isDataManager,
       isRegionalManager,
+      isAvp,
       isCoordinator,
       isFieldOfficer,
       isHR,
@@ -674,6 +680,7 @@ export default function VisitsTable() {
     isAdmin,
     isDataManager,
     isRegionalManager,
+    isAvp,
     isCoordinator,
     isFieldOfficer,
     isHR,
@@ -683,11 +690,11 @@ export default function VisitsTable() {
     if (isAdmin) return 'Admin View';
     if (isDataManager) return 'Data Manager View';
     if (isCoordinator) return 'Coordinator View';
-    if (isRegionalManager) return 'Regional Manager View';
+    if (isRegionalManager) return isAvp ? 'AVP View' : 'Regional Manager View';
     if (isFieldOfficer) return 'Field Officer View';
     if (isHR) return 'HR View';
     return 'User View';
-  }, [isAdmin, isDataManager, isCoordinator, isRegionalManager, isFieldOfficer, isHR]);
+  }, [isAdmin, isDataManager, isCoordinator, isRegionalManager, isFieldOfficer, isHR, isAvp]);
 
   const mapVisitToRow = (visit: VisitDto): Row => ({
     id: visit.id,

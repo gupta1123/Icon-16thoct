@@ -300,8 +300,8 @@ export default function EmployeeList() {
     setIsLoading(true);
     setError(null);
     try {
-      if (role === 'MANAGER') {
-        const response = await fetch(`/api/proxy/employee/team/getbyEmployee?id=${employeeId}`, {
+      if (role === 'MANAGER' || role === 'AVP') {
+        const response = await fetch(`/api/proxy/employee/team/getByEmployee?id=${employeeId}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -800,7 +800,8 @@ export default function EmployeeList() {
       'data manager': 'Data Manager',
       'data_manager': 'Data Manager',
       'field officer': 'Field Officer',
-      'field_officer': 'Field Officer'
+      'field_officer': 'Field Officer',
+      'avp': 'AVP'
     };
     
     return roleMap[roleLower] || role;
@@ -821,7 +822,8 @@ export default function EmployeeList() {
       'data manager': 'bg-blue-100 text-blue-800 border-blue-200',
       'data_manager': 'bg-blue-100 text-blue-800 border-blue-200',
       'field officer': 'bg-green-100 text-green-800 border-green-200',
-      'field_officer': 'bg-green-100 text-green-800 border-green-200'
+      'field_officer': 'bg-green-100 text-green-800 border-green-200',
+      'avp': 'bg-amber-100 text-amber-800 border-amber-200'
     };
     
     return roleColorMap[roleLower] || 'bg-gray-100 text-gray-800 border-gray-200';
@@ -881,7 +883,8 @@ export default function EmployeeList() {
       'data manager': 'data_manager',
       'data_manager': 'data_manager',
       'field officer': 'field officer',
-      'field_officer': 'field officer'
+      'field_officer': 'field officer',
+      'avp': 'avp'
     };
     
     return roleMap[roleLower] || roleLower;
@@ -1793,6 +1796,7 @@ export default function EmployeeList() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="HR">HR</SelectItem>
+                        <SelectItem value="AVP">AVP</SelectItem>
                         <SelectItem value="Regional_Manager">Regional Manager</SelectItem>
                         <SelectItem value="Coordinator">Coordinator</SelectItem>
                         <SelectItem value="Data Manager">Data Manager</SelectItem>

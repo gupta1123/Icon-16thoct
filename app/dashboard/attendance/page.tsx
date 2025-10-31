@@ -92,6 +92,7 @@ export default function AttendancePage() {
       'MANAGER',
       'OFFICE_MANAGER',
       'REGIONAL_MANAGER',
+      'AVP',
     ]);
 
     if (isCoordinator || isRegionalManager) {

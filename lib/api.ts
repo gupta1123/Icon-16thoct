@@ -505,11 +505,19 @@ export interface TeamDataDto {
   fieldOfficers: EmployeeUserDto[];
 }
 
+export type TeamAvpValue =
+  | number
+  | EmployeeDto
+  | null
+  | Array<number | EmployeeDto | null | undefined>
+  | undefined;
+
 export interface TeamResponseDto {
   id: number;
   officeManager: EmployeeDto | null;
   fieldOfficers: EmployeeDto[];
   teamType: string;
+  avp?: TeamAvpValue;
 }
 
 export interface TeamCreateRequest {
@@ -784,6 +792,10 @@ export class API {
 
   static async updateTeamLead(teamId: number, officeManagerId: number): Promise<string> {
     return apiService.updateTeamLead(teamId, officeManagerId);
+  }
+
+  static async updateTeamAvp(teamId: number, avpId: number | null): Promise<string> {
+    return apiService.updateTeamAvp(teamId, avpId);
   }
 
   static async deleteTeam(teamId: number): Promise<string> {
@@ -1434,7 +1446,7 @@ export class API {
   }
 
   async getTeamByEmployee(employeeId: number): Promise<TeamDataDto[]> {
-    return this.makeRequest<TeamDataDto[]>(`/employee/team/getbyEmployee?id=${employeeId}`);
+    return this.makeRequest<TeamDataDto[]>(`/employee/team/getByEmployee?id=${employeeId}`);
   }
 
   async getTeams(): Promise<TeamResponseDto[]> {
@@ -1466,6 +1478,13 @@ export class API {
     return this.makeRequest<string>(`/employee/team/editOfficeManager?id=${teamId}`, {
       method: 'PUT',
       body: JSON.stringify({ officeManager: officeManagerId }),
+    });
+  }
+
+  async updateTeamAvp(teamId: number, avpId: number | null): Promise<string> {
+    return this.makeRequest<string>(`/employee/team/editAvp?id=${teamId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ avp: avpId }),
     });
   }
 

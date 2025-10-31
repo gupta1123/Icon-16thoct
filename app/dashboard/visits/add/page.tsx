@@ -66,8 +66,12 @@ export default function AddVisitPage() {
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   // Determine if user is a regional manager
-  const isRegionalManager = userRole === 'MANAGER' || 
-    currentUser?.authorities?.some(auth => auth.authority === 'ROLE_MANAGER');
+  const isRegionalManager =
+    userRole === 'MANAGER' ||
+    userRole === 'AVP' ||
+    currentUser?.authorities?.some(
+      (auth) => auth.authority === 'ROLE_MANAGER' || auth.authority === 'ROLE_AVP'
+    );
 
   // Load initial data
   useEffect(() => {

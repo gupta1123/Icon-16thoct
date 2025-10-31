@@ -34,7 +34,6 @@ import { ReactNode, useState } from "react";
 import Topbar from "@/components/topbar";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
-import DailyPricingChecker from "@/components/DailyPricingChecker";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
 import {
   extractAuthorityRoles,
@@ -158,6 +157,7 @@ const getFilteredSidebarCategories = (
     "MANAGER",
     "OFFICE_MANAGER",
     "REGIONAL_MANAGER",
+    "AVP",
   ]);
   const isHR = hasAnyRole(normalizedRole, authorityRoles, ["HR"]);
   const isCoordinator = hasAnyRole(normalizedRole, authorityRoles, [
@@ -267,7 +267,7 @@ export default function DashboardLayout({
     );
   }
 
-  // Role hierarchy: Admin > Data Manager > Coordinator > Regional Manager > Field Officer > HR
+  // Role hierarchy: Admin > Data Manager > Coordinator > AVP > Regional Manager > Field Officer > HR
   // HR is separate from the main hierarchy as it's a specialized role
   const getDisplayRole = () => {
     if (hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN'])) {
@@ -278,6 +278,9 @@ export default function DashboardLayout({
     }
     if (hasAnyRole(normalizedUserRole, authorityRoles, ['COORDINATOR'])) {
       return 'Coordinator';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['AVP'])) {
+      return 'AVP';
     }
     if (
       hasAnyRole(normalizedUserRole, authorityRoles, [
@@ -301,11 +304,14 @@ export default function DashboardLayout({
   const isAdmin = hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN']);
   const isDataManager = hasAnyRole(normalizedUserRole, authorityRoles, ['DATA_MANAGER']);
   const isCoordinator = hasAnyRole(normalizedUserRole, authorityRoles, ['COORDINATOR']);
-  const isManager = hasAnyRole(normalizedUserRole, authorityRoles, [
-    'MANAGER',
-    'OFFICE_MANAGER',
-    'REGIONAL_MANAGER',
-  ]);
+  const isAvp = hasAnyRole(normalizedUserRole, authorityRoles, ['AVP']);
+  const isManager =
+    isAvp ||
+    hasAnyRole(normalizedUserRole, authorityRoles, [
+      'MANAGER',
+      'OFFICE_MANAGER',
+      'REGIONAL_MANAGER',
+    ]);
   const isFieldOfficer = hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER']);
   const isHR = hasAnyRole(normalizedUserRole, authorityRoles, ['HR']);
 
@@ -333,8 +339,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen w-full grid md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]">
-      {/* Daily Pricing Checker - Global Modal */}
-      <DailyPricingChecker />
+      {/* Daily Pricing Checker removed; pricing modal handled in Dashboard only for Admin/Data Manager */}
       
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav sidebarCategories={sidebarCategories} isAdmin={isAdmin || false} isManager={isManager || false} isHR={isHR || false} isCoordinator={isCoordinator || false} isDataManager={isDataManager || false} />

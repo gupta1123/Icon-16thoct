@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,17 +11,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from '@/lib/api';
 
-const CUSTOM_CLIENT_TYPE_VALUE = 'Custom';
-const CUSTOM_CLIENT_TYPE_LABEL = 'Custom Mix';
-const CUSTOM_CLIENT_DEFAULT_OPTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'] as const;
+const ADDITIONAL_INFO_DEFAULT_OPTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'] as const;
 
 // Customer type options
 const CUSTOMER_TYPES = [
   { value: 'Dealer', label: 'Dealer/Shop' },
   { value: 'Professional', label: 'Engineer/Architect/Contractor' },
   { value: 'Site Visit', label: 'Site Visit/Project' },
-  { value: CUSTOM_CLIENT_TYPE_VALUE, label: CUSTOM_CLIENT_TYPE_LABEL },
-];
+  ];
 
 // Project type options for Site Visit
 const PROJECT_TYPES = [
@@ -90,9 +87,14 @@ interface CustomerData {
   // GPS coordinates
   latitude?: number;
   longitude?: number;
+
+  // Additional information (materials / notes)
+  additionalInfo?: string;
+  productCategory?: string | string[] | null;
+  productCategories?: string[] | null;
 }
 
-const formatCustomCategory = (value: string): string => {
+const formatAdditionalCategory = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return '';
   return trimmed
@@ -102,20 +104,16 @@ const formatCustomCategory = (value: string): string => {
     .join(' ');
 };
 
-const decodeCustomClientType = (raw?: string | null): string[] => {
+const decodeAdditionalInfo = (raw?: string | null): string[] => {
   if (!raw) return [];
-  const normalized = raw.trim();
-  if (!normalized.toLowerCase().startsWith('custom')) return [];
-
-  const separatorIndex =
-    normalized.indexOf('-') !== -1 ? normalized.indexOf('-') : normalized.indexOf(':');
-  if (separatorIndex === -1) return [];
-
-  const listPortion = normalized.slice(separatorIndex + 1);
-  return listPortion
+  return raw
     .split(',')
-    .map(formatCustomCategory)
+    .map(formatAdditionalCategory)
     .filter(Boolean);
+};
+
+const toApiCategory = (value: string): string => {
+  return value.trim().toLowerCase().replace(/\s+/g, '_');
 };
 
 interface AddCustomerModalProps {
@@ -135,68 +133,118 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   existingData,
   onCustomerAdded,
 }) => {
-  const initialCustomSelections = useMemo(
-    () => decodeCustomClientType(existingData?.clientType),
-    [existingData?.clientType]
+  const extractInitialCategories = useCallback((data?: CustomerData): string[] => {
+    if (!data) return [];
+    const categories = new Set<string>();
+    const addFromValue = (value: unknown) => {
+      if (!value) return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          if (typeof item === 'string') {
+            const formatted = formatAdditionalCategory(item);
+            if (formatted) categories.add(formatted);
+          }
+        });
+      } else if (typeof value === 'string') {
+        decodeAdditionalInfo(value).forEach((item) => {
+          const formatted = formatAdditionalCategory(item);
+          if (formatted) categories.add(formatted);
+        });
+      }
+    };
+
+    addFromValue(data.productCategories);
+    addFromValue((data as Record<string, unknown>)?.productCategory);
+    addFromValue(data.additionalInfo);
+    return Array.from(categories);
+  }, []);
+
+  const initialAdditionalSelections = useMemo(
+    () => extractInitialCategories(existingData),
+    [existingData, extractInitialCategories]
   );
   const existingDataRef = useRef<CustomerData | undefined>(existingData);
   existingDataRef.current = existingData;
+  const originalCategoriesRef = useRef<string[]>(initialAdditionalSelections);
 
   const [customerData, setCustomerData] = useState<CustomerData>(
     existingData
       ? {
           ...existingData,
-          clientType:
-            initialCustomSelections.length > 0 ? CUSTOM_CLIENT_TYPE_VALUE : existingData.clientType,
+          additionalInfo: existingData.additionalInfo ?? '',
+          productCategories: initialAdditionalSelections,
         }
       : {
           clientFirstName: '',
           clientLastName: '',
           email: '',
           clientType: 'Dealer', // Default to Dealer
+          additionalInfo: '',
+          productCategories: [],
         }
   );
-  const [customClientOptions, setCustomClientOptions] = useState<string[]>(() => {
-    const base = Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS);
-    if (initialCustomSelections.length === 0) return base;
-    return Array.from(new Set([...base, ...initialCustomSelections]));
+
+  const [additionalInfoOptions, setAdditionalInfoOptions] = useState<string[]>(() => {
+    const base = Array.from(ADDITIONAL_INFO_DEFAULT_OPTIONS);
+    if (initialAdditionalSelections.length === 0) return base;
+    return Array.from(new Set([...base, ...initialAdditionalSelections]));
   });
-  const [customClientSelections, setCustomClientSelections] = useState<string[]>(initialCustomSelections);
-  const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
-  const [customCategoryInput, setCustomCategoryInput] = useState('');
-  const [customClientValidationError, setCustomClientValidationError] = useState<string | null>(null);
+  const [additionalInfoSelections, setAdditionalInfoSelections] = useState<string[]>(initialAdditionalSelections);
+  const [isAddingAdditionalInfo, setIsAddingAdditionalInfo] = useState(false);
+  const [additionalInfoInput, setAdditionalInfoInput] = useState('');
+  const [additionalInfoValidationError, setAdditionalInfoValidationError] = useState<string | null>(null);
+
+  const applyAdditionalSelections = useCallback((nextSelections: string[]) => {
+    const normalized = nextSelections
+      .map(formatAdditionalCategory)
+      .filter(Boolean);
+    const unique = Array.from(new Set(normalized));
+    setAdditionalInfoSelections(unique);
+    setCustomerData((prev) => ({
+      ...prev,
+      additionalInfo: unique.join(', '),
+      productCategories: unique,
+    }));
+    setAdditionalInfoValidationError(null);
+  }, []);
+
 
   useEffect(() => {
     if (!isOpen) return;
 
     const currentExisting = existingDataRef.current;
-    const selections = decodeCustomClientType(currentExisting?.clientType);
+    const selections = extractInitialCategories(currentExisting);
 
     if (currentExisting) {
       setCustomerData({
         ...currentExisting,
-        clientType: selections.length > 0 ? CUSTOM_CLIENT_TYPE_VALUE : currentExisting.clientType,
+        additionalInfo: currentExisting.additionalInfo ?? '',
+        productCategories: selections,
       });
-      setCustomClientOptions(() => {
-        const base = Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS);
+      setAdditionalInfoOptions(() => {
+        const base = Array.from(ADDITIONAL_INFO_DEFAULT_OPTIONS);
         return Array.from(new Set([...base, ...selections]));
       });
-      setCustomClientSelections(selections);
+      applyAdditionalSelections(selections);
+      originalCategoriesRef.current = selections;
     } else {
       setCustomerData({
         clientFirstName: '',
         clientLastName: '',
         email: '',
         clientType: 'Dealer',
+        additionalInfo: '',
+        productCategories: [],
       });
-      setCustomClientOptions(Array.from(CUSTOM_CLIENT_DEFAULT_OPTIONS));
-      setCustomClientSelections([]);
+      setAdditionalInfoOptions(Array.from(ADDITIONAL_INFO_DEFAULT_OPTIONS));
+      applyAdditionalSelections([]);
+      originalCategoriesRef.current = [];
     }
 
-    setIsAddingCustomCategory(false);
-    setCustomCategoryInput('');
-    setCustomClientValidationError(null);
-  }, [isOpen, existingData?.id]);
+    setIsAddingAdditionalInfo(false);
+    setAdditionalInfoInput('');
+    setAdditionalInfoValidationError(null);
+  }, [isOpen, existingData?.id, applyAdditionalSelections, extractInitialCategories]);
   const [activeTab, setActiveTab] = useState<string>('basic');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState<boolean>(false);
@@ -360,6 +408,21 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   };
 
   const handleInputChange = (field: keyof CustomerData, value: string | number) => {
+    if (field === 'clientType') {
+      setCustomerData((prevData) => ({
+        ...prevData,
+        clientType: typeof value === 'string' ? value : String(value),
+      }));
+      return;
+    }
+
+    if (field === 'additionalInfo') {
+      const stringValue = typeof value === 'string' ? value : value.toString();
+      const selections = decodeAdditionalInfo(stringValue);
+      applyAdditionalSelections(selections);
+      return;
+    }
+
     let parsedValue: string | number = value;
     const numberFields: (keyof CustomerData)[] = ['pincode', 'monthlySale', 'shopAgeYears', 'projectSizeSquareFeet'];
     if (numberFields.includes(field)) {
@@ -370,11 +433,6 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       ...prevData,
       [field]: parsedValue,
     }));
-    if (field === 'clientType' && value !== CUSTOM_CLIENT_TYPE_VALUE) {
-      setCustomClientValidationError(null);
-      setIsAddingCustomCategory(false);
-      setCustomCategoryInput('');
-    }
   };
 
   // Get GPS location from browser
@@ -414,14 +472,12 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       case 'Dealer': return 'Shop Name';
       case 'Professional': return 'Firm Name';
       case 'Site Visit': return 'Project Name';
-      case CUSTOM_CLIENT_TYPE_VALUE: return 'Business Name';
-      default: return 'Store Name';
+      default: return 'Business Name';
     }
   };
 
   const getLabelForOwner = (clientType: string): string => {
     if (clientType === 'Site Visit') return 'Site Owner Name';
-    if (clientType === CUSTOM_CLIENT_TYPE_VALUE) return 'Primary Contact Name';
     return 'Owner Name';
   };
 
@@ -482,46 +538,46 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
 
       const cleanDigits = (val: string | number | undefined) => {
         if (val === undefined || val === null || val === '') return undefined;
-        const s = val.toString().replace(/\D/g, '');
+        const s = val.toString().replace(/\\D/g, '');
         return s ? parseInt(s, 10) : undefined;
       };
 
-      let finalClientType =
-        typeof customerData.clientType === 'string' ? customerData.clientType : '';
-      if (customerData.clientType === CUSTOM_CLIENT_TYPE_VALUE) {
-        const uniqueSelections = Array.from(
-          new Set(customClientSelections.map(formatCustomCategory).filter(Boolean))
-        );
-        if (uniqueSelections.length === 0) {
-          const message = 'Select at least one material category or add your own.';
-          setCustomClientValidationError(message);
-          setSubmitError(message);
-          return;
+      const additionalInfoValue = (() => {
+        if (additionalInfoSelections.length > 0) {
+          return additionalInfoSelections.join(', ');
         }
-        setCustomClientValidationError(null);
-        finalClientType = `Custom - ${uniqueSelections.join(', ')}`;
-      }
+        const fallback = customerData.additionalInfo?.toString().trim() ?? '';
+        return fallback;
+      })();
+
+      const apiCategories = additionalInfoSelections.map(toApiCategory);
+
+      const isEditing = Boolean(existingData && existingData.id);
+      const method = isEditing ? 'PUT' : 'POST';
+      const url = isEditing
+        ? `/api/proxy/store/edit?id=${existingData?.id}`
+        : '/api/proxy/store/create';
 
       const requestBody = {
         ...customerData,
-        clientType: finalClientType,
+        clientType: customerData.clientType,
+        additionalInfo: additionalInfoValue || undefined,
         primaryContact: cleanDigits(customerData.primaryContact),
         secondaryContact: cleanDigits(customerData.secondaryContact),
         pincode: cleanDigits(customerData.pincode),
         monthlySale: cleanDigits(customerData.monthlySale),
         shopAgeYears: customerData.shopAgeYears ? parseInt(customerData.shopAgeYears.toString(), 10) : undefined,
         projectSizeSquareFeet: customerData.projectSizeSquareFeet ? parseFloat(customerData.projectSizeSquareFeet.toString()) : undefined,
-        // Use actual GPS coordinates or default to null if not available
         latitude: customerData.latitude || null,
         longitude: customerData.longitude || null,
-        employeeId: employeeId || null, // Use logged-in user's employee ID (auto-assigned)
+        employeeId: employeeId || null,
       };
 
+      (requestBody as Record<string, unknown>).productCategories =
+        !isEditing && apiCategories.length > 0 ? apiCategories : undefined;
+      (requestBody as Record<string, unknown>).productCategory = undefined;
+
       console.log('requestBody', requestBody)
-      const url = existingData && existingData.id
-        ? `/api/proxy/store/edit?id=${existingData.id}`
-        : '/api/proxy/store/create';
-      const method = existingData && existingData.id ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
         method: method,
@@ -534,8 +590,73 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
 
       console.log('Add/Update customer response status:', response.status)
       if (response.ok) {
-        const data = await response.json();
-        console.log(data)
+        let data: unknown = null;
+        try {
+          data = await response.json();
+          console.log(data);
+        } catch (jsonError) {
+          console.log('No JSON response body for customer create/edit.', jsonError);
+        }
+
+        if (existingData && existingData.id) {
+          const previousCategories = originalCategoriesRef.current.map(toApiCategory);
+          const currentCategories = apiCategories;
+          const categoriesToAdd = currentCategories.filter(
+            (category) => !previousCategories.includes(category)
+          );
+          const categoriesToRemove = previousCategories.filter(
+            (category) => !currentCategories.includes(category)
+          );
+
+          try {
+            if (categoriesToAdd.length > 0) {
+              const addResponse = await fetch('/api/proxy/store/addCategories', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  storeId: existingData.id,
+                  categories: categoriesToAdd,
+                }),
+              });
+              if (!addResponse.ok) {
+                const errorMessage = await addResponse.text();
+                throw new Error(errorMessage || 'Failed to add categories');
+              }
+            }
+
+            if (categoriesToRemove.length > 0) {
+              const removeResponse = await fetch('/api/proxy/store/removeCategories', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  storeId: existingData.id,
+                  categories: categoriesToRemove,
+                }),
+              });
+              if (!removeResponse.ok) {
+                const errorMessage = await removeResponse.text();
+                throw new Error(errorMessage || 'Failed to remove categories');
+              }
+            }
+
+            originalCategoriesRef.current = additionalInfoSelections;
+          } catch (categoryError) {
+            console.error('Error updating product categories:', categoryError);
+            const message =
+              categoryError instanceof Error
+                ? categoryError.message
+                : 'Failed to update product categories';
+            setSubmitError(message);
+            return;
+          }
+        }
+
         onClose(); // Close the modal after successful submission
         if (onCustomerAdded) {
           onCustomerAdded(); // Refresh the customers list
@@ -601,16 +722,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 </Label>
                 <Select
                   value={customerData.clientType || 'Dealer'}
-                  onValueChange={(value) => {
-                    handleInputChange('clientType', value);
-                    if (value === CUSTOM_CLIENT_TYPE_VALUE) {
-                      setCustomClientValidationError(null);
-                    } else {
-                      setCustomClientValidationError(null);
-                      setIsAddingCustomCategory(false);
-                      setCustomCategoryInput('');
-                    }
-                  }}
+                  onValueChange={(value) => handleInputChange('clientType', value)}
                 >
                   <SelectTrigger className="col-span-3">
                     <SelectValue placeholder="Select customer type" />
@@ -625,134 +737,125 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 </Select>
               </div>
 
-              {/* Materials of Interest - Custom Mix Section */}
-              {customerData.clientType === CUSTOM_CLIENT_TYPE_VALUE && (
-                <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">Materials of Interest</p>
-                    <p className="text-xs text-muted-foreground">
-                      Select all relevant categories. This helps tailor future follow-ups.
-                    </p>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {customClientOptions.map((option) => {
-                      const normalized = formatCustomCategory(option);
-                      const isChecked = customClientSelections.includes(normalized);
-                      const inputId = `custom-client-option-${normalized.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
-                      return (
-                        <label
-                          key={option}
-                          htmlFor={inputId}
-                          className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                            isChecked
-                              ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                              : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5'
-                          }`}
-                        >
-                          <Checkbox
-                            id={inputId}
-                            checked={isChecked}
-                            onCheckedChange={(checked) => {
-                              setCustomClientSelections((prev) => {
-                                if (checked) {
-                                  return prev.includes(normalized) ? prev : [...prev, normalized];
-                                }
-                                return prev.filter((item) => item !== normalized);
-                              });
-                              setCustomClientValidationError(null);
-                            }}
-                          />
-                          <span className="select-none">{option}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {customClientSelections.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      <span className="text-xs text-muted-foreground mr-1">Selected:</span>
-                      {customClientSelections.map((selection) => (
-                        <Badge key={selection} variant="secondary" className="text-xs font-medium">
-                          {selection}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  <div className="space-y-2 pt-1">
-                    {isAddingCustomCategory ? (
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          value={customCategoryInput}
-                          onChange={(e) => setCustomCategoryInput(e.target.value)}
-                          placeholder="Add another material type"
-                          className="sm:flex-1 h-9"
-                          autoFocus
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => {
-                              const formatted = formatCustomCategory(customCategoryInput);
-                              if (!formatted) {
-                                setCustomClientValidationError('Enter a material name before adding.');
-                                return;
-                              }
-                              const exists = customClientOptions.some(
-                                (option) => option.toLowerCase() === formatted.toLowerCase()
-                              );
-                              if (exists) {
-                                setCustomClientValidationError(`${formatted} is already in the list.`);
-                                return;
-                              }
-                              setCustomClientOptions((prev) => [...prev, formatted]);
-                              setCustomClientSelections((prev) => [...prev, formatted]);
-                              setCustomCategoryInput('');
-                              setIsAddingCustomCategory(false);
-                              setCustomClientValidationError(null);
-                            }}
-                            className="h-9"
-                          >
-                            Add
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setIsAddingCustomCategory(false);
-                              setCustomCategoryInput('');
-                              setCustomClientValidationError(null);
-                            }}
-                            className="h-9"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto px-0 py-1 text-xs font-medium"
-                        onClick={() => {
-                          setIsAddingCustomCategory(true);
-                          setCustomCategoryInput('');
-                        }}
-                      >
-                        + Add another material
-                      </Button>
-                    )}
-                    {customClientValidationError && (
-                      <p className="text-xs font-medium text-destructive flex items-center gap-1">
-                        <span className="inline-block w-1 h-1 rounded-full bg-destructive"></span>
-                        {customClientValidationError}
-                      </p>
-                    )}
-                  </div>
+              {/* Additional Information Section */}
+              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Additional Information</p>
+                  <p className="text-xs text-muted-foreground">Tag the product mix or notes that will help follow-ups.</p>
                 </div>
-              )}
-
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {additionalInfoOptions.map((option) => {
+                    const normalized = formatAdditionalCategory(option);
+                    const isChecked = additionalInfoSelections.includes(normalized);
+                    const inputId = `additional-info-option-${normalized.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
+                    return (
+                      <label
+                        key={option}
+                        htmlFor={inputId}
+                        className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-all cursor-pointer ${
+                          isChecked
+                            ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                            : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5'
+                        }`}
+                      >
+                        <Checkbox
+                          id={inputId}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            const next = checked
+                              ? [...additionalInfoSelections, normalized]
+                              : additionalInfoSelections.filter((item) => item !== normalized);
+                            applyAdditionalSelections(next);
+                          }}
+                        />
+                        <span className="select-none">{option}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {additionalInfoSelections.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-xs text-muted-foreground mr-1">Selected:</span>
+                    {additionalInfoSelections.map((selection) => (
+                      <Badge key={selection} variant="secondary" className="text-xs font-medium">
+                        {selection}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-2 pt-1">
+                  {isAddingAdditionalInfo ? (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        value={additionalInfoInput}
+                        onChange={(e) => setAdditionalInfoInput(e.target.value)}
+                        placeholder="Add another category"
+                        className="sm:flex-1 h-9"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            const formatted = formatAdditionalCategory(additionalInfoInput);
+                            if (!formatted) {
+                              setAdditionalInfoValidationError('Enter a category before adding.');
+                              return;
+                            }
+                            const exists = additionalInfoOptions.some(
+                              (option) => formatAdditionalCategory(option).toLowerCase() === formatted.toLowerCase()
+                            );
+                            if (exists) {
+                              setAdditionalInfoValidationError(`${formatted} is already in the list.`);
+                              return;
+                            }
+                            setAdditionalInfoOptions((prev) => [...prev, formatted]);
+                            applyAdditionalSelections([...additionalInfoSelections, formatted]);
+                            setAdditionalInfoInput('');
+                            setIsAddingAdditionalInfo(false);
+                          }}
+                          className="h-9"
+                        >
+                          Add
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setIsAddingAdditionalInfo(false);
+                            setAdditionalInfoInput('');
+                            setAdditionalInfoValidationError(null);
+                          }}
+                          className="h-9"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0 py-1 text-xs font-medium"
+                      onClick={() => {
+                        setIsAddingAdditionalInfo(true);
+                        setAdditionalInfoInput('');
+                      }}
+                    >
+                      + Add another category
+                    </Button>
+                  )}
+                  {additionalInfoValidationError && (
+                    <p className="text-xs font-medium text-destructive flex items-center gap-1">
+                      <span className="inline-block w-1 h-1 rounded-full bg-destructive"></span>
+                      {additionalInfoValidationError}
+                    </p>
+                  )}
+                </div>
+              </div>
               {/* Dynamic Store Name Label */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="storeName" className="text-right">
@@ -901,7 +1004,21 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 </div>
               </div>
 
-              {/* State Dropdown */}
+              {/* Sub-District Input */}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="subDistrict" className="text-right">
+                  Sub-District
+                </Label>
+                <Input 
+                  id="subDistrict" 
+                  value={customerData.subDistrict || ''} 
+                  className="col-span-3" 
+                  placeholder="Enter sub-district"
+                  onChange={(e) => handleInputChange('subDistrict', e.target.value)} 
+                />
+              </div>
+
+              {/* State Dropdown (moved below Sub-District as requested) */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="state" className="text-right">
                   State <span className="text-red-500">*</span>
@@ -951,101 +1068,18 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 </div>
               </div>
 
-              {/* Sub-District Dropdown */}
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="subDistrict" className="text-right">
-                  Sub-District
-                </Label>
-                <div className="col-span-3">
-                  <Select
-                    value={selectedSubDistrictId?.toString() || ''}
-                    onValueChange={(value) => {
-                      const subDistrictId = parseInt(value);
-                      setSelectedSubDistrictId(subDistrictId);
-                      const selectedSubDistrict = subDistricts.find(sd => sd.id === subDistrictId);
-                      if (selectedSubDistrict) {
-                        handleInputChange('subDistrict', selectedSubDistrict.subDistrictName);
-                      }
-                      setSubDistrictSearch(''); // Reset search on selection
-                    }}
-                    disabled={!selectedDistrictId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedDistrictId ? "Select district first" : "Select sub-district"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search sub-district..."
-                          value={subDistrictSearch}
-                          onChange={(e) => setSubDistrictSearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredSubDistricts.length > 0 ? (
-                          filteredSubDistricts.map((subDistrict) => (
-                            <SelectItem key={subDistrict.id} value={subDistrict.id.toString()}>
-                              {subDistrict.subDistrictName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No sub-district found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* City Dropdown */}
+              {/* City Input */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="city" className="text-right">
                   City <span className="text-red-500">*</span>
                 </Label>
-                <div className="col-span-3">
-                  <Select
-                    value={customerData.city || ''}
-                    onValueChange={(value) => {
-                      handleInputChange('city', value);
-                      setCitySearch(''); // Reset search on selection
-                    }}
-                    disabled={!selectedSubDistrictId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={!selectedSubDistrictId ? "Select sub-district first" : "Select city"} />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <div className="sticky top-0 bg-background p-2 border-b">
-                        <Input
-                          placeholder="Search city..."
-                          value={citySearch}
-                          onChange={(e) => setCitySearch(e.target.value)}
-                          className="h-8"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto">
-                        {filteredCities.length > 0 ? (
-                          filteredCities.map((city) => (
-                            <SelectItem key={city.id} value={city.cityName}>
-                              {city.cityName}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No city found
-                          </div>
-                        )}
-                      </div>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Input 
+                  id="city" 
+                  value={customerData.city || ''} 
+                  className="col-span-3" 
+                  placeholder="Enter city"
+                  onChange={(e) => handleInputChange('city', e.target.value)} 
+                />
               </div>
               
               <div className="grid grid-cols-4 items-center gap-4">

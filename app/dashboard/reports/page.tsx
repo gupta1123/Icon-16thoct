@@ -298,7 +298,11 @@ const ReportsPage: React.FC = () => {
                     const role = authorities.length > 0 ? authorities[0].authority : null;
                     
                     setIsCoordinator(role === 'ROLE_COORDINATOR');
-                    setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_REGIONAL_MANAGER');
+                    setIsManager(
+                        role === 'ROLE_MANAGER' ||
+                        role === 'ROLE_REGIONAL_MANAGER' ||
+                        role === 'ROLE_AVP'
+                    );
                 }
             } catch (error) {
                 console.error('Error fetching current user:', error);
@@ -316,7 +320,7 @@ const ReportsPage: React.FC = () => {
             }
             
             try {
-                const response = await fetch(`/api/proxy/employee/team/getbyEmployee?id=${userData.employeeId}`, {
+                const response = await fetch(`/api/proxy/employee/team/getByEmployee?id=${userData.employeeId}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -349,7 +353,7 @@ const ReportsPage: React.FC = () => {
                 if (isCoordinator || isManager) {
                     // For coordinators/managers, fetch team members only
                     if (teamId) {
-                        const teamResponse = await fetch(`/api/proxy/employee/team/getbyEmployee?id=${userData?.employeeId}`, {
+                        const teamResponse = await fetch(`/api/proxy/employee/team/getByEmployee?id=${userData?.employeeId}`, {
                             headers: { Authorization: `Bearer ${token}` },
                         });
                         if (teamResponse.ok) {

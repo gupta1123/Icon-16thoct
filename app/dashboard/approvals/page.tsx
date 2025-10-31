@@ -87,12 +87,12 @@ const ApprovalsPage = () => {
                     setUserRoleFromAPI(role);
                     
                     // Set role flags
-                    setIsManager(role === 'ROLE_MANAGER');
+                    setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
                     setIsAdmin(role === 'ROLE_ADMIN');
                     setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
                     
                     console.log('Role from API:', role);
-                    console.log('isManager:', role === 'ROLE_MANAGER');
+                    console.log('isManager:', role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
                     console.log('isAdmin:', role === 'ROLE_ADMIN');
                     console.log('isFieldOfficer:', role === 'ROLE_FIELD OFFICER');
                 } else {

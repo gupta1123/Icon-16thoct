@@ -92,6 +92,7 @@ function CustomerListContent() {
     const [isManager, setIsManager] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
     const [isDataManager, setIsDataManager] = useState(false);
+    const [isAvp, setIsAvp] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [isCoordinator, setIsCoordinator] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
@@ -273,20 +274,21 @@ function CustomerListContent() {
                     const userData = await response.json();
                     console.log('Current user data:', userData);
                     
-                    // Extract role from authorities
-                    const authorities = userData.authorities || [];
-                    const role = authorities.length > 0 ? authorities[0].authority : null;
+                // Extract role from authorities (consider all authorities)
+                const authorities = userData.authorities || [];
+                const role = authorities.length > 0 ? authorities[0].authority : null;
                     setUserRoleFromAPI(role);
                     
                     // Set role flags
-                    setIsManager(role === 'ROLE_MANAGER');
+                setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
                     setIsAdmin(role === 'ROLE_ADMIN');
                     setIsDataManager(role === 'ROLE_DATA_MANAGER');
                     setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
                     setIsCoordinator(role === 'ROLE_COORDINATOR');
+                setIsAvp(authorities.some((auth: { authority: string }) => auth.authority === 'ROLE_AVP'));
                     
                     console.log('Role from API:', role);
-                    console.log('isManager:', role === 'ROLE_MANAGER');
+                    console.log('isManager:', role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
                     console.log('isAdmin:', role === 'ROLE_ADMIN');
                     console.log('isFieldOfficer:', role === 'ROLE_FIELD OFFICER');
                     console.log('isCoordinator:', role === 'ROLE_COORDINATOR');
@@ -408,29 +410,42 @@ function CustomerListContent() {
                 });
                 console.log('Coordinator API response:', data);
             } else if (isAdmin) {
-                // For admins, use the original API logic
-                console.log('Admin API call');
+                // For admins, call the localhost proxy and pass filters via headers
+                console.log('Admin API call (localhost proxy with headers)');
                 if (employeeId) {
-                    // Use employee-specific endpoint
+                    // Keep employee-specific endpoint behavior
                     data = await API.getStoresByEmployee(Number(employeeId), {
                         sortBy: sortColumn,
                         sortOrder: sortDirection,
                     });
                 } else {
-                    // Use general filtered endpoint
-                    data = await API.getStoresFilteredPaginated({
-                        storeName: desktopFilters.storeName || undefined,
-                        ownerName: desktopFilters.ownerName || undefined,
-                        city: desktopFilters.city || undefined,
-                        state: desktopFilters.state || undefined,
-                        clientType: desktopFilters.clientType || undefined,
-                        dealerSubType: desktopFilters.dealerSubType || undefined,
-                        primaryContact: desktopFilters.primaryContact || undefined,
-                        page: currentPage - 1,
-                        size: 10,
-                        sortBy: sortColumn,
-                        sortOrder: sortDirection,
-                    });
+                    // Map sort to single 'sort' param as required by provided URL pattern
+                    let mappedSortColumn = sortColumn;
+                    if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
+                    if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
+
+                    const baseUrl = '/api/proxy/store/filteredValues';
+                    const url = `${baseUrl}?page=${currentPage - 1}&size=10&sort=${encodeURIComponent(`${mappedSortColumn},${sortDirection}`)}${desktopFilters.storeName ? `&storeName=${encodeURIComponent(desktopFilters.storeName)}` : ''}`;
+
+                    const headers: Record<string, string> = {
+                        Authorization: token ? `Bearer ${token}` : '',
+                        'Content-Type': 'application/json',
+                    };
+                    // Pass chosen filters via headers
+                    if (desktopFilters.storeName) headers['x-store-name'] = desktopFilters.storeName;
+                    if (desktopFilters.ownerName) headers['x-owner-name'] = desktopFilters.ownerName;
+                    if (desktopFilters.city) headers['x-city'] = desktopFilters.city;
+                    if (desktopFilters.state) headers['x-state'] = desktopFilters.state;
+                    if (desktopFilters.clientType) headers['x-client-type'] = desktopFilters.clientType;
+                    if (desktopFilters.dealerSubType) headers['x-dealer-sub-type'] = desktopFilters.dealerSubType;
+                    if (desktopFilters.primaryContact) headers['x-primary-contact'] = desktopFilters.primaryContact;
+
+                    const resp = await fetch(url, { headers });
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        throw new Error(`Admin customers fetch failed: ${resp.status} ${text}`);
+                    }
+                    data = await resp.json();
                 }
             } else {
                 // Default to admin API call for unknown roles
@@ -734,9 +749,11 @@ function CustomerListContent() {
             <div>
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                     <div className="flex flex-wrap items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={openModal}>
-                            Add Customer
-                        </Button>
+                        {!(isAvp || isCoordinator) && (
+                          <Button variant="outline" size="sm" onClick={openModal}>
+                              Add Customer
+                          </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="sm"

@@ -4,8 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Loader2, Users, Building2, ArrowRight, ArrowLeft } from "lucide-react";
+import { Loader2, Users, Building2, ArrowRight, ArrowLeft, Crown } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { normalizeRoleValue } from '@/lib/role-utils';
 import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
@@ -84,10 +83,48 @@ interface CityOption {
     label: string;
 }
 
+
+interface TeamSummary {
+    id: number;
+    name?: string | null;
+    teamType?: string | null;
+    officeManager?: OfficeManager | OfficeManager[] | null;
+    fieldOfficers?: Array<{ id?: number | null }> | null;
+    avp?: number | { id?: number | null } | Array<number | { id?: number | null } | null> | null;
+}
+
+const extractAvpIds = (value: TeamSummary["avp"]): number[] => {
+    if (!value) return [];
+    const entries = Array.isArray(value) ? value : [value];
+    const ids: number[] = [];
+    for (const entry of entries) {
+        if (!entry) continue;
+        if (typeof entry === "number") {
+            ids.push(entry);
+        } else if (typeof entry.id === "number") {
+            ids.push(entry.id);
+        }
+    }
+    return ids;
+};
+
+const formatTeamSummaryLabel = (team: TeamSummary): string => {
+    const manager = Array.isArray(team.officeManager)
+        ? team.officeManager.find((mgr) => Boolean(mgr))
+        : team.officeManager;
+    const first = manager?.firstName?.trim() ?? "";
+    const last = manager?.lastName?.trim() ?? "";
+    const name = `${first} ${last}`.trim();
+    if (team.name && team.name.trim().length > 0) {
+        return `${team.name} – ${name || `Team #${team.id}`}`;
+    }
+    return name || `Team #${team.id}`;
+};
+
 const AddTeam = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [step, setStep] = useState<'selectType' | 'createTeam'>('selectType');
-    const [teamType, setTeamType] = useState<'coordinator' | 'regional' | null>(null);
+    const [teamType, setTeamType] = useState<'coordinator' | 'regional' | 'avp' | null>(null);
     const [officeManager, setOfficeManager] = useState<{ value: number, label: string, role: string } | null>(null);
     const [selectedCities, setSelectedCities] = useState<CityOption[]>([]);
     const [selectedEmployees, setSelectedEmployees] = useState<number[]>([]);
@@ -100,6 +137,10 @@ const AddTeam = () => {
         regional: [],
     });
     const [isCoordinator, setIsCoordinator] = useState(false);
+    const [availableAvps, setAvailableAvps] = useState<Employee[]>([]);
+    const [teamsWithoutAvp, setTeamsWithoutAvp] = useState<TeamSummary[]>([]);
+    const [selectedAvpId, setSelectedAvpId] = useState<number | null>(null);
+    const [selectedAvpTeamId, setSelectedAvpTeamId] = useState<number | null>(null);
 
     const managerOptions = useMemo<SearchableOption<OfficeManager>[]>(() => {
         return officeManagers
@@ -110,9 +151,9 @@ const AddTeam = () => {
                     return normalizedRole === 'COORDINATOR';
                 }
                 if (teamType === 'regional') {
-                    return normalizedRole !== 'COORDINATOR';
+                    return ["MANAGER", "OFFICE_MANAGER", "REGIONAL_MANAGER"].includes(normalizedRole);
                 }
-                return true;
+                return teamType == null;
             })
             .map((manager) => ({
                 value: manager.id.toString(),
@@ -130,6 +171,22 @@ const AddTeam = () => {
         }));
     }, [cities]);
 
+    const avpOptions = useMemo<SearchableOption<Employee>[]>(() => {
+        return availableAvps.map((avp) => ({
+            value: avp.id.toString(),
+            label: `${avp.firstName} ${avp.lastName}${avp.city ? ` (${avp.city})` : ""}`,
+            data: avp,
+        }));
+    }, [availableAvps]);
+
+    const avpTeamOptions = useMemo<SearchableOption<TeamSummary>[]>(() => {
+        return teamsWithoutAvp.map((team) => ({
+            value: team.id.toString(),
+            label: formatTeamSummaryLabel(team),
+            data: team,
+        }));
+    }, [teamsWithoutAvp]);
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
 
     useEffect(() => {
@@ -146,6 +203,8 @@ const AddTeam = () => {
         setSelectedEmployees([]);
         setEmployees([]);
         setIsCoordinator(false);
+        setSelectedAvpId(null);
+        setSelectedAvpTeamId(null);
     };
 
     const fetchOfficeManagers = useCallback(async () => {
@@ -171,7 +230,62 @@ const AddTeam = () => {
             const allEmployeesData = await allEmployeesResponse.json();
             const teamsData = await teamsResponse.json();
 
-            const assignedManagerIds = teamsData.map((team: { officeManager: { id: number } }) => team.officeManager.id);
+            const assignedManagerIds = new Set<number>();
+            const coordinatorAssigned = new Set<number>();
+            const regionalAssigned = new Set<number>();
+            const avpAssignedIds = new Set<number>();
+            const teamsNeedingAvp: TeamSummary[] = [];
+
+            const getOfficeManagersForTeam = (team: TeamSummary): OfficeManager[] => {
+                if (Array.isArray(team.officeManager)) {
+                    return team.officeManager.filter((mgr): mgr is OfficeManager => Boolean(mgr?.id));
+                }
+                return team.officeManager && typeof team.officeManager.id === "number"
+                    ? [team.officeManager as OfficeManager]
+                    : [];
+            };
+
+            const determineTeamCategory = (team: TeamSummary): 'coordinator' | 'regional' | null => {
+                const normalizedTeamType = typeof team.teamType === "string" ? team.teamType.toUpperCase() : "";
+                if (normalizedTeamType === "COORDINATOR_TEAM") return 'coordinator';
+                if (normalizedTeamType === "REGIONAL_MANAGER_TEAM") return 'regional';
+
+                const primaryManager = getOfficeManagersForTeam(team)[0];
+                const managerRole = normalizeRoleValue(primaryManager?.role ?? null);
+                if (managerRole === "COORDINATOR") return 'coordinator';
+                if (managerRole && ["MANAGER", "OFFICE_MANAGER", "REGIONAL_MANAGER"].includes(managerRole)) {
+                    return 'regional';
+                }
+                return null;
+            };
+
+            for (const team of teamsData) {
+                const officeManagersForTeam = getOfficeManagersForTeam(team);
+                officeManagersForTeam.forEach((manager) => {
+                    if (typeof manager.id === "number") {
+                        assignedManagerIds.add(manager.id);
+                    }
+                });
+
+                const category = determineTeamCategory(team);
+                const members = Array.isArray(team.fieldOfficers) ? team.fieldOfficers : [];
+                members.forEach((member: { id?: number | null }) => {
+                    if (member && typeof member.id === "number") {
+                        if (category === "coordinator") {
+                            coordinatorAssigned.add(member.id);
+                        } else if (category === "regional") {
+                            regionalAssigned.add(member.id);
+                        }
+                    }
+                });
+
+                const teamAvpIds = extractAvpIds(team.avp);
+                teamAvpIds.forEach((id) => avpAssignedIds.add(id));
+                if (category === "regional" && teamAvpIds.length === 0) {
+                    teamsNeedingAvp.push(team);
+                }
+            }
+
             const deletedManagerIds = allEmployeesData
                 .filter((employee: OfficeManager) => 
                     isEligibleManagerRole(employee.role) && employee.deleted)
@@ -179,52 +293,26 @@ const AddTeam = () => {
             const availableManagers = allEmployeesData
                 .filter((employee: OfficeManager) =>
                     isEligibleManagerRole(employee.role) &&
-                    !assignedManagerIds.includes(employee.id) &&
+                    !assignedManagerIds.has(employee.id) &&
                     !deletedManagerIds.includes(employee.id)
                 );
 
+            const avpCandidates = allEmployeesData.filter(
+                (employee: Employee) => normalizeRoleValue(employee.role) === "AVP"
+            );
+            const availableAvpList = avpCandidates.filter(
+                (avp: Employee) => typeof avp.id === "number" && !avpAssignedIds.has(avp.id)
+            );
+
             setOfficeManagers(availableManagers);
-
-            const coordinatorAssigned = new Set<number>();
-            const regionalAssigned = new Set<number>();
-
-            for (const team of teamsData) {
-                const members = Array.isArray(team.fieldOfficers) ? team.fieldOfficers : [];
-                const normalizedTeamType = typeof team.teamType === "string" ? team.teamType.toUpperCase() : "";
-                let bucket: 'coordinator' | 'regional' | null = null;
-
-                if (normalizedTeamType === "COORDINATOR_TEAM") {
-                    bucket = 'coordinator';
-                } else if (normalizedTeamType === "REGIONAL_MANAGER_TEAM") {
-                    bucket = 'regional';
-                } else {
-                    const managerRole = normalizeRoleValue(team.officeManager?.role ?? null);
-                    if (managerRole === "COORDINATOR") {
-                        bucket = 'coordinator';
-                    } else if (managerRole && ["MANAGER", "OFFICE_MANAGER", "REGIONAL_MANAGER"].includes(managerRole)) {
-                        bucket = 'regional';
-                    }
-                }
-
-                if (!bucket) continue;
-
-                for (const member of members) {
-                    if (member && typeof member.id === 'number') {
-                        if (bucket === 'coordinator') {
-                            coordinatorAssigned.add(member.id);
-                        } else {
-                            regionalAssigned.add(member.id);
-                        }
-                    }
-                }
-            }
-
+            setAvailableAvps(availableAvpList);
+            setTeamsWithoutAvp(teamsNeedingAvp);
             setAssignedFoIds({
                 coordinator: Array.from(coordinatorAssigned),
                 regional: Array.from(regionalAssigned),
             });
         } catch (error) {
-            console.error("Error fetching Regional managers:", error);
+            console.error("Error fetching team data:", error);
         }
     }, [token]);
    
@@ -241,7 +329,7 @@ const AddTeam = () => {
         const manager = option.data ?? officeManagers.find(m => m.id.toString() === option.value);
         if (!manager) return;
 
-        const isCoord = isCoordinatorRole(manager.role);
+        const isCoord = teamType === 'coordinator' ? true : isCoordinatorRole(manager.role);
         setOfficeManager({
             value: manager.id,
             label: `${manager.firstName} ${manager.lastName}`,
@@ -254,11 +342,13 @@ const AddTeam = () => {
             setSelectedCities([]);
             setEmployees([]);
             fetchAllFieldOfficers();
-        } else if (selectedCities.length > 0) {
-            const cities = selectedCities.map(option => option.value);
-            fetchEmployeesByCities(cities);
-        } else {
-            setEmployees([]);
+        } else if (teamType === 'regional') {
+            if (selectedCities.length > 0) {
+                const cities = selectedCities.map(option => option.value);
+                fetchEmployeesByCities(cities);
+            } else {
+                setEmployees([]);
+            }
         }
     };
 
@@ -284,11 +374,37 @@ const AddTeam = () => {
     }, [token]);
 
     useEffect(() => {
-        if (isModalOpen && token) {
-            fetchOfficeManagers();
-            fetchCities();
+        if (!token || !isModalOpen) {
+            return;
         }
-    }, [isModalOpen, token, fetchOfficeManagers, fetchCities]);
+
+        fetchOfficeManagers();
+    }, [isModalOpen, token, fetchOfficeManagers]);
+
+    useEffect(() => {
+        if (!token || !isModalOpen) {
+            return;
+        }
+
+        if (teamType === 'regional') {
+            fetchCities();
+        } else {
+            setSelectedCities([]);
+        }
+
+        if (teamType !== 'regional') {
+            setEmployees([]);
+        }
+    }, [isModalOpen, token, teamType, fetchCities]);
+
+    useEffect(() => {
+        if (teamType === 'avp') {
+            setOfficeManager(null);
+            setSelectedEmployees([]);
+            setSelectedCities([]);
+            setEmployees([]);
+        }
+    }, [teamType]);
 
     // Re-filter employees when assigned team membership changes
     useEffect(() => {
@@ -419,20 +535,51 @@ const AddTeam = () => {
     };
 
     const handleCreateTeam = async () => {
+        if (teamType === 'avp') {
+            if (!selectedAvpId || !selectedAvpTeamId) {
+                return;
+            }
+            try {
+                setIsCreatingTeam(true);
+                const response = await fetch(
+                    `/api/proxy/employee/team/editAvp?id=${selectedAvpTeamId}`,
+                    {
+                        method: 'PUT',
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ avp: selectedAvpId }),
+                    }
+                );
+
+                if (response.ok) {
+                    setIsModalOpen(false);
+                    resetForm();
+                    window.location.reload();
+                }
+            } catch (error) {
+                console.error("Error assigning AVP to team:", error);
+            } finally {
+                setIsCreatingTeam(false);
+            }
+            return;
+        }
+
         if (!officeManager) {
             return;
         }
 
         // For regional managers, field officers are required
         // For coordinators, field officers are optional (can create empty team)
-        if (!isCoordinator && selectedEmployees.length === 0) {
+        if (teamType === 'regional' && selectedEmployees.length === 0) {
             return;
         }
 
         try {
             setIsCreatingTeam(true);
 
-            if (!isCoordinator) {
+            if (teamType === 'regional' && !isCoordinator) {
                 const selectedOfficerDetails = employees.filter((employee) =>
                     selectedEmployees.includes(employee.id)
                 );
@@ -475,6 +622,11 @@ const AddTeam = () => {
                 }
             }
 
+            const payload = {
+                officeManager: officeManager.value,
+                fieldOfficers: selectedEmployees.length > 0 ? selectedEmployees : [],
+            };
+
             const response = await fetch(
                 "/api/proxy/employee/team/create",
                 {
@@ -483,10 +635,7 @@ const AddTeam = () => {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({
-                        officeManager: officeManager.value,
-                        fieldOfficers: selectedEmployees.length > 0 ? selectedEmployees : [],
-                    }),
+                    body: JSON.stringify(payload),
                 }
             );
 
@@ -549,15 +698,28 @@ const AddTeam = () => {
                                 ? "Choose the type of team you want to create"
                                 : teamType === 'coordinator'
                                     ? "Create a coordinator team - Add members later from the Teams page"
-                                    : "Create a regional manager team with field officers"
+                                : teamType === 'regional'
+                                        ? "Create a regional manager team with field officers"
+                                        : teamType === 'avp'
+                                            ? "Assign an AVP to a regional manager team."
+                                            : "Configure your new team"
                             }
                         </DialogDescription>
                     </DialogHeader>
                     {step === 'selectType' ? (
-                        <div className="grid grid-cols-2 gap-4 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
                             <Card 
                                 className={`cursor-pointer transition-all hover:shadow-lg ${teamType === 'coordinator' ? 'ring-2 ring-purple-500 border-purple-500' : ''}`}
-                                onClick={() => setTeamType('coordinator')}
+                                onClick={() => {
+                                    setTeamType('coordinator');
+                                    setOfficeManager(null);
+                                    setIsCoordinator(false);
+                                    setSelectedEmployees([]);
+                                    setSelectedCities([]);
+                                    setSelectedAvpId(null);
+                                    setSelectedAvpTeamId(null);
+                                    setEmployees([]);
+                                }}
                             >
                                 <CardHeader className="text-center">
                                     <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
@@ -574,7 +736,16 @@ const AddTeam = () => {
 
                             <Card 
                                 className={`cursor-pointer transition-all hover:shadow-lg ${teamType === 'regional' ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
-                                onClick={() => setTeamType('regional')}
+                                onClick={() => {
+                                    setTeamType('regional');
+                                    setOfficeManager(null);
+                                    setIsCoordinator(false);
+                                    setSelectedEmployees([]);
+                                    setSelectedCities([]);
+                                    setSelectedAvpId(null);
+                                    setSelectedAvpTeamId(null);
+                                    setEmployees([]);
+                                }}
                             >
                                 <CardHeader className="text-center">
                                     <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
@@ -588,24 +759,52 @@ const AddTeam = () => {
                                     </CardDescription>
                                 </CardContent>
                             </Card>
+
+                            <Card
+                                className={`cursor-pointer transition-all hover:shadow-lg ${teamType === 'avp' ? 'ring-2 ring-amber-500 border-amber-500' : ''}`}
+                                onClick={() => {
+                                    setTeamType('avp');
+                                    setOfficeManager(null);
+                                    setIsCoordinator(false);
+                                    setSelectedEmployees([]);
+                                    setSelectedCities([]);
+                                    setSelectedAvpId(null);
+                                    setSelectedAvpTeamId(null);
+                                    setEmployees([]);
+                                }}
+                            >
+                                <CardHeader className="text-center">
+                                    <div className="mx-auto mb-2 w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                                        <Crown className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                                    </div>
+                                    <CardTitle className="text-lg text-foreground">AVP Assignment</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <CardDescription className="text-center text-sm text-muted-foreground">
+                                        Assign an AVP to lead a regional manager team.
+                                    </CardDescription>
+                                </CardContent>
+                            </Card>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <div>
-                                <label htmlFor="officeManager" className="text-sm font-medium">
-                                    {teamType === 'coordinator' ? 'Select Coordinator' : 'Select Regional Manager'}
-                                </label>
-                                <SearchableSelect<OfficeManager>
-                                    options={managerOptions}
-                                    value={officeManager ? officeManager.value.toString() : undefined}
-                                    onSelect={handleOfficeManagerSelect}
-                                    placeholder={`Select a ${teamType === 'coordinator' ? 'Coordinator' : 'Regional Manager'}`}
-                                    emptyMessage={teamType === 'coordinator' ? 'No coordinators available' : 'No regional managers available'}
-                                    noResultsMessage="No matches found"
-                                    searchPlaceholder="Search by name..."
-                                    allowClear={Boolean(officeManager)}
-                                />
-                            </div>
+                            {teamType !== 'avp' && (
+                                <div>
+                                    <label htmlFor="officeManager" className="text-sm font-medium">
+                                        {teamType === 'coordinator' ? 'Select Coordinator' : 'Select Regional Manager'}
+                                    </label>
+                                    <SearchableSelect<OfficeManager>
+                                        options={managerOptions}
+                                        value={officeManager ? officeManager.value.toString() : undefined}
+                                        onSelect={handleOfficeManagerSelect}
+                                        placeholder={teamType === 'coordinator' ? 'Select a Coordinator' : 'Select a Regional Manager'}
+                                        emptyMessage={teamType === 'coordinator' ? 'No coordinators available' : 'No regional managers available'}
+                                        noResultsMessage="No matches found"
+                                        searchPlaceholder="Search by name..."
+                                        allowClear={Boolean(officeManager)}
+                                    />
+                                </div>
+                            )}
 
                             {teamType === 'regional' && !isCoordinator && (
                                 <>
@@ -671,6 +870,68 @@ const AddTeam = () => {
                                     )}
                                 </>
                             )}
+
+                            {teamType === 'avp' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium">Select AVP</label>
+                                        <SearchableSelect<Employee>
+                                            options={avpOptions}
+                                            value={selectedAvpId != null ? selectedAvpId.toString() : undefined}
+                                            onSelect={(option) => setSelectedAvpId(option ? Number(option.value) : null)}
+                                            placeholder="Select an AVP"
+                                            emptyMessage="No AVPs available"
+                                            noResultsMessage="No AVPs found"
+                                            searchPlaceholder="Search AVPs..."
+                                            allowClear={Boolean(selectedAvpId)}
+                                        />
+                                        {availableAvps.length === 0 && (
+                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                All AVPs already manage a team.
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="text-sm font-medium">Assign to Team</label>
+                                        <SearchableSelect<TeamSummary>
+                                            options={avpTeamOptions}
+                                            value={selectedAvpTeamId != null ? selectedAvpTeamId.toString() : undefined}
+                                            onSelect={(option) => setSelectedAvpTeamId(option ? Number(option.value) : null)}
+                                            placeholder="Select a regional manager team"
+                                            emptyMessage="No teams available"
+                                            noResultsMessage="No teams found"
+                                            searchPlaceholder="Search teams..."
+                                            allowClear={Boolean(selectedAvpTeamId)}
+                                        />
+                                        {teamsWithoutAvp.length === 0 && (
+                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                All regional teams already have an AVP assigned.
+                                            </p>
+                                        )}
+                                        {selectedAvpTeamId && (() => {
+                                            const selectedTeam = teamsWithoutAvp.find((team) => team.id === selectedAvpTeamId);
+                                            if (!selectedTeam) {
+                                                return null;
+                                            }
+                                            const manager = Array.isArray(selectedTeam.officeManager)
+                                                ? selectedTeam.officeManager.find((mgr) => Boolean(mgr))
+                                                : selectedTeam.officeManager;
+                                            const managerName = manager
+                                                ? `${manager.firstName ?? ""} ${manager.lastName ?? ""}`.trim() || manager.email || `Team #${selectedTeam.id}`
+                                                : `Team #${selectedTeam.id}`;
+                                            return (
+                                                <div className="mt-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-left">
+                                                    <p className="font-medium text-foreground">Team Lead: {managerName}</p>
+                                                    {selectedTeam.name && (
+                                                        <p className="text-muted-foreground">Team Name: {selectedTeam.name}</p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                     <div className="flex justify-between mt-4">
@@ -683,6 +944,9 @@ const AddTeam = () => {
                                         setOfficeManager(null);
                                         setSelectedCities([]);
                                         setSelectedEmployees([]);
+                                        setSelectedAvpId(null);
+                                        setSelectedAvpTeamId(null);
+                                        setEmployees([]);
                                     }}
                                 >
                                     <ArrowLeft className="h-4 w-4 mr-2" />
@@ -698,8 +962,16 @@ const AddTeam = () => {
                                 <Button
                                     onClick={() => {
                                         setStep('createTeam');
+                                        setOfficeManager(null);
+                                        setSelectedEmployees([]);
+                                        setSelectedCities([]);
+                                        setSelectedAvpId(null);
+                                        setSelectedAvpTeamId(null);
+                                        setEmployees([]);
                                         fetchOfficeManagers();
-                                        fetchCities();
+                                        if (teamType === 'regional') {
+                                            fetchCities();
+                                        }
                                     }}
                                     disabled={!teamType}
                                 >
@@ -710,18 +982,19 @@ const AddTeam = () => {
                                 <Button
                                     onClick={handleCreateTeam}
                                     disabled={
-                                        !officeManager || 
-                                        (teamType === 'regional' && selectedEmployees.length === 0) ||
-                                        isCreatingTeam
+                                        isCreatingTeam ||
+                                        (teamType === 'avp'
+                                            ? (!selectedAvpId || !selectedAvpTeamId)
+                                            : (!officeManager || (teamType === 'regional' && selectedEmployees.length === 0)))
                                     }
                                 >
                                     {isCreatingTeam ? (
                                         <span className="flex items-center gap-2">
                                             <Loader2 className="h-4 w-4 animate-spin" />
-                                            Creating...
+                                            {teamType === 'avp' ? 'Saving...' : 'Creating...'}
                                         </span>
                                     ) : (
-                                        'Create Team'
+                                        teamType === 'avp' ? 'Assign AVP' : 'Create Team'
                                     )}
                                 </Button>
                             )}

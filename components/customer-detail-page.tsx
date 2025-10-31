@@ -40,6 +40,58 @@ import { Skeleton } from "@/components/ui/skeleton";
 import './CustomerDetail.css';
 
 const ITEMS_PER_PAGE = 3;
+const CATEGORY_SUGGESTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'];
+
+const formatCategoryDisplay = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    return trimmed
+        .split(' ')
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+};
+
+const parseCategoryList = (value: unknown): string[] => {
+    const categories = new Set<string>();
+    const addCategory = (input: string) => {
+        const formatted = formatCategoryDisplay(input);
+        if (formatted) categories.add(formatted);
+    };
+
+    if (!value) {
+        return Array.from(categories);
+    }
+
+    if (Array.isArray(value)) {
+        value.forEach((item) => {
+            if (typeof item === 'string') {
+                addCategory(item);
+            }
+        });
+    } else if (typeof value === 'string') {
+        value
+            .split(',')
+            .map((part) => part.trim())
+            .forEach((part) => {
+                if (part) addCategory(part);
+            });
+    }
+
+    return Array.from(categories);
+};
+
+const toApiCategoryValue = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, '_');
+
+const extractCategoriesFromResponse = (data: unknown): string[] => {
+    if (!data || typeof data !== 'object') return [];
+    const record = data as Record<string, unknown>;
+    const categories = new Set<string>();
+    parseCategoryList(record.productCategory).forEach((category) => categories.add(category));
+    parseCategoryList(record.productCategories).forEach((category) => categories.add(category));
+    parseCategoryList(record.additionalInfo).forEach((category) => categories.add(category));
+    return Array.from(categories);
+};
 
 interface CustomerData {
     storeId: number;
@@ -122,6 +174,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const [stores, setStores] = useState<unknown[]>([]);
     const [editingTask, setEditingTask] = useState<Record<string, unknown> | null>(null);
     const [activeInfoTab, setActiveInfoTab] = useState('leads-info');
+    const [productCategories, setProductCategories] = useState<string[]>([]);
+    const [categoryInput, setCategoryInput] = useState('');
+    const [categoryError, setCategoryError] = useState<string | null>(null);
+    const [isUpdatingCategories, setIsUpdatingCategories] = useState(false);
     const [isEditCustomerModalVisible, setIsEditCustomerModalVisible] = useState(false);
     const [noteContent, setNoteContent] = useState('');
     const [isSavingNote, setIsSavingNote] = useState(false);
@@ -307,6 +363,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             const data = await response.json();
             setCustomerData(data);
 
+            const categories = extractCategoriesFromResponse(data);
+            setProductCategories(categories);
+            setCategoryError(null);
+
             // Set the visibility of the Sites tab based on clientType
             const validClientTypes = ['builder', 'site visit', 'architect', 'engineer'];
             setShowSitesTab(validClientTypes.includes(data.clientType?.toLowerCase() || ''));
@@ -373,6 +433,134 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             console.error('Error fetching complaints data:', error);
         }
     }, [token]);
+
+    const handleAddCategory = async (rawCategory?: string) => {
+        if (!token) {
+            setCategoryError('Authentication token missing. Please sign in again.');
+            return;
+        }
+        if (!storeId) {
+            setCategoryError('Store identifier not available.');
+            return;
+        }
+
+        const formatted = formatCategoryDisplay(rawCategory ?? categoryInput);
+        if (!formatted) {
+            setCategoryError('Enter a category before adding.');
+            return;
+        }
+
+        if (productCategories.some((category) => category.toLowerCase() === formatted.toLowerCase())) {
+            setCategoryError('Category already added.');
+            return;
+        }
+
+        const numericStoreId = Array.isArray(storeId) ? Number(storeId[0]) : Number(storeId);
+        if (Number.isNaN(numericStoreId)) {
+            setCategoryError('Invalid store identifier.');
+            return;
+        }
+
+        const apiValue = toApiCategoryValue(formatted);
+
+        try {
+            setIsUpdatingCategories(true);
+            setCategoryError(null);
+            const response = await fetch('/api/proxy/store/addCategories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    storeId: numericStoreId,
+                    categories: [apiValue],
+                }),
+            });
+
+            if (!response.ok) {
+                const message = await response.text();
+                throw new Error(message || 'Failed to add category');
+            }
+
+            setProductCategories((prev) => {
+                const updatedCategories = [...prev, formatted];
+                setCustomerData((prevData) => {
+                    if (!prevData) return prevData;
+                    return {
+                        ...prevData,
+                        productCategory: updatedCategories,
+                        productCategories: updatedCategories.map(toApiCategoryValue),
+                    };
+                });
+                return updatedCategories;
+            });
+            setCategoryInput('');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to add category';
+            setCategoryError(message);
+        } finally {
+            setIsUpdatingCategories(false);
+        }
+    };
+
+    const handleRemoveCategory = async (category: string) => {
+        if (!token) {
+            setCategoryError('Authentication token missing. Please sign in again.');
+            return;
+        }
+        if (!storeId) {
+            setCategoryError('Store identifier not available.');
+            return;
+        }
+
+        const numericStoreId = Array.isArray(storeId) ? Number(storeId[0]) : Number(storeId);
+        if (Number.isNaN(numericStoreId)) {
+            setCategoryError('Invalid store identifier.');
+            return;
+        }
+
+        const apiValue = toApiCategoryValue(category);
+
+        try {
+            setIsUpdatingCategories(true);
+            setCategoryError(null);
+            const response = await fetch('/api/proxy/store/removeCategories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    storeId: numericStoreId,
+                    categories: [apiValue],
+                }),
+            });
+
+            if (!response.ok) {
+                const message = await response.text();
+                throw new Error(message || 'Failed to remove category');
+            }
+
+            setProductCategories((prev) => {
+                const updatedCategories = prev.filter((item) => item.toLowerCase() !== category.toLowerCase());
+                setCustomerData((prevData) => {
+                    if (!prevData) return prevData;
+                    return {
+                        ...prevData,
+                        productCategory: updatedCategories,
+                        productCategories: updatedCategories.map(toApiCategoryValue),
+                    };
+                });
+                return updatedCategories;
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to remove category';
+            setCategoryError(message);
+        } finally {
+            setIsUpdatingCategories(false);
+        }
+    };
 
     const fetchEmployees = useCallback(async () => {
         setIsLoadingEmployees(true);
@@ -1562,6 +1750,32 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </div>
                                         </div>
                                     ) : null}
+                                        <div className="flex items-start gap-3">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                                                <i className="fas fa-tags text-sm text-muted-foreground"></i>
+                                            </div>
+                                            <div className="min-w-0 w-full">
+                                                <p className="text-sm font-medium text-foreground">Product Categories</p>
+                                                {productCategories.length > 0 ? (
+                                                    <div className="mt-1 flex flex-wrap gap-1.5">
+                                                        {productCategories.map((category) => (
+                                                            <Badge
+                                                                key={category}
+                                                                variant="secondary"
+                                                                className="text-xs font-medium"
+                                                            >
+                                                                {category}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <p className="mt-1 text-sm text-muted-foreground">
+                                                        No categories assigned yet.
+                                                    </p>
+                                                )}
+                                                {/* Add Category UI removed per requirements */}
+                                            </div>
+                                        </div>
               </div>
                                 )}
                                 
@@ -2919,7 +3133,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <Label htmlFor="complaintDueDate">Due Date</Label>
-                                            <Popover>
+                                            <Popover modal={false}>
                                                 <PopoverTrigger asChild>
                                                     <Button
                                                         variant="outline"
@@ -2933,7 +3147,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                     <Calendar
                                                         mode="single"
                                                         selected={complaintTask.dueDate ? new Date(complaintTask.dueDate) : undefined}
-                                                        onSelect={(date) => setComplaintTask({ ...complaintTask, dueDate: date ? date.toISOString().split('T')[0] : '' })}
+                                                        onSelect={(date) => setComplaintTask({ ...complaintTask, dueDate: date ? format(date, 'yyyy-MM-dd') : '' })}
                                                         initialFocus
                                                     />
                                                 </PopoverContent>
@@ -3070,7 +3284,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <Label htmlFor="requirementDueDate">Due Date</Label>
-                                            <Popover>
+                                            <Popover modal={false}>
                                                 <PopoverTrigger asChild>
                                                     <Button
                                                         variant="outline"
@@ -3084,7 +3298,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                     <Calendar
                                                         mode="single"
                                                         selected={requirementTask.dueDate ? new Date(requirementTask.dueDate) : undefined}
-                                                        onSelect={(date) => setRequirementTask({ ...requirementTask, dueDate: date ? date.toISOString().split('T')[0] : '' })}
+                                                        onSelect={(date) => setRequirementTask({ ...requirementTask, dueDate: date ? format(date, 'yyyy-MM-dd') : '' })}
                                                         initialFocus
                                                     />
                                                 </PopoverContent>
