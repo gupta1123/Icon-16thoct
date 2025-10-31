@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
 import { API, BrandProCon, IntentAuditLog, MonthlySaleChange, Task, Note as ApiNote, VisitDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { normalizeRoleValue, extractAuthorityRoles, hasAnyRole } from "@/lib/role-utils";
 import BrandTab from './BrandTab';
 
 type Priority = 'low' | 'medium' | 'high';
@@ -554,7 +555,35 @@ export default function VisitDetailPage({
     return initials.toUpperCase().slice(0, 2);
   };
 
-  // Determine user role
+  // Determine user role and display role
+  const normalizedUserRole = normalizeRoleValue(userRole);
+  const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
+  
+  const getDisplayRole = useMemo(() => {
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN'])) {
+      return 'Admin';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['DATA_MANAGER'])) {
+      return 'Data Manager';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['COORDINATOR'])) {
+      return 'Coordinator';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['AVP'])) {
+      return 'AVP';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER'])) {
+      return 'Regional Manager';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER'])) {
+      return 'Field Officer';
+    }
+    if (hasAnyRole(normalizedUserRole, authorityRoles, ['HR'])) {
+      return 'HR';
+    }
+    return 'User';
+  }, [normalizedUserRole, authorityRoles]);
+
   useEffect(() => {
     const checkUserRole = () => {
       // Check both userRole and currentUser authorities
@@ -755,7 +784,25 @@ export default function VisitDetailPage({
           }));
           setRequirements(normalizedReqs);
           setComplaints(normalizedCmps);
-          setNotes(notesData || []);
+          // Filter and validate notes - ensure they have valid IDs
+          const validNotes = (notesData || []).filter((note: ApiNote) => {
+            const hasValidId = note.id != null && (
+              (typeof note.id === 'number' && !isNaN(note.id)) ||
+              (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
+            );
+            // Also ensure note has required properties
+            return hasValidId && note.content;
+          }).map((note: ApiNote) => {
+            // Normalize ID to number if it's a string
+            if (typeof note.id !== 'number') {
+              const parsedId = Number(note.id);
+              if (!isNaN(parsedId)) {
+                return { ...note, id: parsedId };
+              }
+            }
+            return note;
+          });
+          setNotes(validNotes);
           setStoreVisits(storeVisitsData || []);
 
           // Derive metrics from fetched data (intent level removed)
@@ -1062,10 +1109,39 @@ export default function VisitDetailPage({
   };
 
   const editNote = (note: ApiNote) => {
+    // Handle both number and string IDs, or try to parse if needed
+    let noteId: number | null = null;
+    
+    if (typeof note.id === 'number' && !isNaN(note.id)) {
+      noteId = note.id;
+    } else if (note.id != null && String(note.id).trim() !== '') {
+      const parsed = Number(note.id);
+      if (!isNaN(parsed)) {
+        noteId = parsed;
+      }
+    }
+    
+    if (noteId === null || noteId === undefined) {
+      console.error('Cannot edit note: invalid note ID', {
+        noteId: note.id,
+        noteIdType: typeof note.id,
+        fullNote: note
+      });
+      return;
+    }
+    
+    if (!note.content) {
+      console.error('Cannot edit note: missing content', note);
+      return;
+    }
+    
     setNoteContent(note.content);
     setIsNoteEditMode(true);
-    setEditingNoteId(note.id);
-    setEditingNoteDetails({ employeeId: note.employeeId, storeId: note.storeId });
+    setEditingNoteId(noteId);
+    setEditingNoteDetails({ 
+      employeeId: note.employeeId || 0, 
+      storeId: note.storeId || 0 
+    });
     setIsNoteModalVisible(true);
   };
 
@@ -1073,33 +1149,36 @@ export default function VisitDetailPage({
     if (!noteContent.trim()) return;
 
     try {
-      if (isNoteEditMode && editingNoteId !== null) {
-        if (editingNoteDetails) {
-          const response = await fetch(
-            `/api/proxy/notes/edit?id=${editingNoteId}`,
-            {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-              },
-              body: JSON.stringify({
-            content: noteContent,
-            employeeId: editingNoteDetails.employeeId,
-            storeId: editingNoteDetails.storeId,
-              }),
-            }
-          );
-          
-          if (!response.ok) {
-            throw new Error('Failed to update note');
-          }
-          
-          const updatedNotes = notes.map((note) =>
-            note.id === editingNoteId ? { ...note, content: noteContent } : note
-          );
-          setNotes(updatedNotes);
+      if (isNoteEditMode && editingNoteId != null && typeof editingNoteId === 'number') {
+        if (!editingNoteDetails) {
+          console.error('Cannot update note: missing note details');
+          return;
         }
+        
+        const response = await fetch(
+          `/api/proxy/notes/edit?id=${editingNoteId}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            },
+            body: JSON.stringify({
+              content: noteContent,
+              employeeId: editingNoteDetails.employeeId,
+              storeId: editingNoteDetails.storeId,
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          throw new Error('Failed to update note');
+        }
+        
+        const updatedNotes = notes.map((note) =>
+          note.id === editingNoteId ? { ...note, content: noteContent } : note
+        );
+        setNotes(updatedNotes);
       } else if (visitDetail) {
         const response = await fetch(
           '/api/proxy/notes/create',
@@ -1439,7 +1518,7 @@ export default function VisitDetailPage({
               </div>
               {userRole && (
                 <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
-                  {isManager ? "Manager" : "Admin"}
+                  {getDisplayRole}
                 </Badge>
               )}
             </div>
@@ -1970,24 +2049,53 @@ export default function VisitDetailPage({
                 </CardHeader>
                 <CardContent>
               <div className="notes-list space-y-2">
-                {notes.map((note) => (
-                  <div key={note.id} className="rounded-lg border bg-card p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-muted-foreground">{format(new Date(note.createdDate), "MMM d, yyyy")}</span>
-                  <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => editNote(note)}>
-                          <Edit className="h-3 w-3 mr-1" />
-                          Edit
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => deleteNote(note.id)}>
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          Delete
-                        </Button>
-                  </div>
+                {notes.map((note, index) => {
+                  // Check if note has valid ID for editing/deleting
+                  const hasValidId = note.id != null && (
+                    (typeof note.id === 'number' && !isNaN(note.id)) ||
+                    (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
+                  );
+                  
+                  return (
+                    <div key={note.id ?? `note-${index}`} className="rounded-lg border bg-card p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-muted-foreground">
+                          {note.createdDate ? format(new Date(note.createdDate), "MMM d, yyyy") : 'Unknown date'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {hasValidId && (
+                            <>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-xs" 
+                                onClick={() => editNote(note)}
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-xs" 
+                                onClick={() => {
+                                  const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
+                                  if (!isNaN(idToDelete)) {
+                                    deleteNote(idToDelete);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Delete
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    <div className="text-xs text-foreground">{note.content}</div>
+                      <div className="text-xs text-foreground">{note.content || 'No content'}</div>
                     </div>
-                ))}
+                  );
+                })}
                     </div>
                 </CardContent>
               </Card>

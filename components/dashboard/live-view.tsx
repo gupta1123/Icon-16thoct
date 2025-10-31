@@ -121,6 +121,8 @@ interface DashboardLiveViewProps {
   isLoadingTrail: boolean;
   mapCenter: [number, number];
   mapZoom: number;
+  onMapCenterChange: (center: [number, number]) => void;
+  onMapZoomChange: (zoom: number) => void;
   highlightedEmployee: ExtendedEmployee | null;
   mapMarkers: MapMarker[];
   onResetMap: () => void;
@@ -140,6 +142,8 @@ export function DashboardLiveView({
   isLoadingTrail,
   mapCenter,
   mapZoom,
+  onMapCenterChange,
+  onMapZoomChange,
   highlightedEmployee,
   mapMarkers,
   onResetMap,
@@ -155,6 +159,9 @@ export function DashboardLiveView({
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [isStoresLoading, setIsStoresLoading] = useState(false);
   const [storeError, setStoreError] = useState<string | null>(null);
+  const [originalMapCenter, setOriginalMapCenter] = useState<[number, number] | null>(null);
+  const [originalMapZoom, setOriginalMapZoom] = useState<number | null>(null);
+  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
 
   const fetchStoreLocations = useCallback(async () => {
     const authToken =
@@ -230,7 +237,13 @@ export function DashboardLiveView({
   const handleLayerToggle = useCallback(
     (layer: "employees" | "stores") => {
       if (layer === "stores") {
+        // Save the current map state when switching to stores view (if not already saved)
+        if (!showStores && (originalMapCenter === null || originalMapZoom === null)) {
+          setOriginalMapCenter(mapCenter);
+          setOriginalMapZoom(mapZoom);
+        }
         setShowStores(true);
+        setSelectedStoreId(null);
         if (stores.length === 0 && !isStoresLoading) {
           void fetchStoreLocations();
         }
@@ -239,14 +252,74 @@ export function DashboardLiveView({
 
       setShowStores(false);
       setStoreError(null);
+      setSelectedStoreId(null);
+      setOriginalMapCenter(null);
+      setOriginalMapZoom(null);
       onResetMap();
     },
-    [fetchStoreLocations, isStoresLoading, onResetMap, stores.length]
+    [fetchStoreLocations, isStoresLoading, onResetMap, stores.length, showStores, originalMapCenter, originalMapZoom, mapCenter, mapZoom]
   );
 
   const handleRetryStores = useCallback(() => {
     void fetchStoreLocations();
   }, [fetchStoreLocations]);
+
+  const handleMarkerClick = useCallback(
+    (marker: { variant?: string; lat: number; lng: number; id?: number | string }) => {
+      if (marker.variant === "store") {
+        // Save the current map state before zooming (if not already saved)
+        if (originalMapCenter === null || originalMapZoom === null) {
+          setOriginalMapCenter(mapCenter);
+          setOriginalMapZoom(mapZoom);
+        }
+        // Zoom to this store marker
+        const markerId = typeof marker.id === "string" ? marker.id : String(marker.id);
+        const storeIdMatch = markerId?.match(/store-(\d+)/);
+        if (storeIdMatch) {
+          setSelectedStoreId(Number(storeIdMatch[1]));
+        }
+        onMapCenterChange([marker.lat, marker.lng]);
+        onMapZoomChange(15);
+      }
+    },
+    [onMapCenterChange, onMapZoomChange, originalMapCenter, originalMapZoom, mapCenter, mapZoom]
+  );
+
+  const handleStoreClick = useCallback(
+    (store: StoreLocation) => {
+      if (
+        typeof store.latitude === "number" &&
+        Number.isFinite(store.latitude) &&
+        typeof store.longitude === "number" &&
+        Number.isFinite(store.longitude)
+      ) {
+        // Save the current map state before zooming (if not already saved)
+        if (originalMapCenter === null || originalMapZoom === null) {
+          setOriginalMapCenter(mapCenter);
+          setOriginalMapZoom(mapZoom);
+        }
+        setSelectedStoreId(store.storeId);
+        onMapCenterChange([store.latitude, store.longitude]);
+        onMapZoomChange(15);
+      }
+    },
+    [onMapCenterChange, onMapZoomChange, originalMapCenter, originalMapZoom, mapCenter, mapZoom]
+  );
+
+  const handleResetStoreView = useCallback(() => {
+    setSelectedStoreId(null);
+    
+    // Restore to the original view before store selection, or default if no original saved
+    if (originalMapCenter !== null && originalMapZoom !== null) {
+      onMapCenterChange(originalMapCenter);
+      onMapZoomChange(originalMapZoom);
+      setOriginalMapCenter(null);
+      setOriginalMapZoom(null);
+    } else {
+      // Fallback to default reset behavior
+      onResetMap();
+    }
+  }, [onResetMap, onMapCenterChange, onMapZoomChange, originalMapCenter, originalMapZoom]);
 
   return (
     <>
@@ -395,7 +468,7 @@ export function DashboardLiveView({
               ? "Explore store hotspots pulled directly from the stores API to plan upcoming coverage."
               : "Select an employee to jump to their latest location."}
           </Text>
-          <Button variant="outline" size="sm" onClick={onResetMap}>
+          <Button variant="outline" size="sm" onClick={showStores ? handleResetStoreView : onResetMap}>
             Reset View
           </Button>
         </div>
@@ -449,6 +522,7 @@ export function DashboardLiveView({
                 zoom={mapZoom}
                 highlightedEmployee={showStores ? null : highlightedEmployee}
                 markers={displayMarkers}
+                onMarkerClick={handleMarkerClick}
               />
             </Card>
           </div>
@@ -500,7 +574,17 @@ export function DashboardLiveView({
                           Number.isFinite(store.longitude);
 
                         return (
-                          <div key={`store-${store.storeId}`} className="p-4">
+                          <div
+                            key={`store-${store.storeId}`}
+                            className={`cursor-pointer p-4 transition-colors ${
+                              selectedStoreId === store.storeId
+                                ? "border-l-4 border-primary bg-accent"
+                                : hasCoordinates
+                                ? "hover:bg-accent/50"
+                                : "opacity-60"
+                            }`}
+                            onClick={() => hasCoordinates && handleStoreClick(store)}
+                          >
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <Heading as="p" size="md" className="text-foreground">

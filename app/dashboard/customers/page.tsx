@@ -280,7 +280,7 @@ function CustomerListContent() {
                     setUserRoleFromAPI(role);
                     
                     // Set role flags
-                setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
+                setIsManager(role === 'ROLE_MANAGER');
                     setIsAdmin(role === 'ROLE_ADMIN');
                     setIsDataManager(role === 'ROLE_DATA_MANAGER');
                     setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
@@ -371,7 +371,38 @@ function CustomerListContent() {
             
             let data: StoreResponse;
             
-            if (isManager) {
+            if (isAvp) {
+                // For AVP, use filteredValues API call
+                console.log('AVP API call');
+                // Map sort to single 'sort' param as required by provided URL pattern
+                let mappedSortColumn = sortColumn;
+                if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
+                if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
+
+                const baseUrl = '/api/proxy/store/filteredValues';
+                const url = `${baseUrl}?page=${currentPage - 1}&size=10&sort=${encodeURIComponent(`${mappedSortColumn},${sortDirection}`)}${desktopFilters.storeName ? `&storeName=${encodeURIComponent(desktopFilters.storeName)}` : ''}`;
+
+                const headers: Record<string, string> = {
+                    Authorization: token ? `Bearer ${token}` : '',
+                    'Content-Type': 'application/json',
+                };
+                // Pass chosen filters via headers
+                if (desktopFilters.storeName) headers['x-store-name'] = desktopFilters.storeName;
+                if (desktopFilters.ownerName) headers['x-owner-name'] = desktopFilters.ownerName;
+                if (desktopFilters.city) headers['x-city'] = desktopFilters.city;
+                if (desktopFilters.state) headers['x-state'] = desktopFilters.state;
+                if (desktopFilters.clientType) headers['x-client-type'] = desktopFilters.clientType;
+                if (desktopFilters.dealerSubType) headers['x-dealer-sub-type'] = desktopFilters.dealerSubType;
+                if (desktopFilters.primaryContact) headers['x-primary-contact'] = desktopFilters.primaryContact;
+
+                const resp = await fetch(url, { headers });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    throw new Error(`AVP customers fetch failed: ${resp.status} ${text}`);
+                }
+                data = await resp.json();
+                console.log('AVP API response:', data);
+            } else if (isManager) {
                 // For managers, use team-based API call only
                 if (!teamId) {
                     console.log('Manager role detected but no teamId available, skipping API call');
@@ -749,7 +780,7 @@ function CustomerListContent() {
             <div>
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
                     <div className="flex flex-wrap items-center gap-2">
-                        {!(isAvp || isCoordinator) && (
+                        {!(isAvp || isCoordinator || isDataManager) && (
                           <Button variant="outline" size="sm" onClick={openModal}>
                               Add Customer
                           </Button>

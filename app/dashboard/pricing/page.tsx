@@ -96,6 +96,7 @@ const PricingPage = () => {
     // State for role checking
     const [isManager, setIsManager] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
+    const [isDataManager, setIsDataManager] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
     const [isCoordinator, setIsCoordinator] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
@@ -133,12 +134,14 @@ const PricingPage = () => {
                         hasRole('ROLE_REGIONAL_MANAGER')
                     );
                     setIsAdmin(hasRole('ROLE_ADMIN'));
+                    setIsDataManager(hasRole('ROLE_DATA_MANAGER'));
                     setIsFieldOfficer(hasRole('ROLE_FIELD OFFICER'));
                     setIsCoordinator(hasRole('ROLE_COORDINATOR'));
 
                     console.log('Roles:', roles);
                     console.log('isManager:', hasRole('ROLE_MANAGER') || hasRole('ROLE_OFFICE MANAGER') || hasRole('ROLE_AVP') || hasRole('ROLE_REGIONAL_MANAGER'));
                     console.log('isAdmin:', hasRole('ROLE_ADMIN'));
+                    console.log('isDataManager:', hasRole('ROLE_DATA_MANAGER'));
                     console.log('isFieldOfficer:', hasRole('ROLE_FIELD OFFICER'));
                     console.log('isCoordinator:', hasRole('ROLE_COORDINATOR'));
                 } else {
@@ -198,7 +201,7 @@ const PricingPage = () => {
             const formattedStartDate = format(startDate, 'yyyy-MM-dd');
             const formattedEndDate = format(endDate, 'yyyy-MM-dd');
 
-            console.log('fetchBrandData - isManager:', isManager, 'isCoordinator:', isCoordinator, 'teamId:', teamId);
+            console.log('fetchBrandData - isManager:', isManager, 'isAdmin:', isAdmin, 'isDataManager:', isDataManager, 'isCoordinator:', isCoordinator, 'teamId:', teamId);
 
             let url: string;
             
@@ -210,10 +213,10 @@ const PricingPage = () => {
                 // For coordinators, use team-based API call
                 url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Coordinator API call:', url);
-            } else if (isAdmin) {
-                // For admins, use the original API call
+            } else if (isAdmin || isDataManager) {
+                // For admins and data managers, use the original API call (full access)
                 url = `/api/proxy/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
-                console.log('Admin API call:', url);
+                console.log(isAdmin ? 'Admin API call:' : 'Data Manager API call:', url);
             } else if (isFieldOfficer) {
                 // For field officers, use team-based API call (same as manager for now)
                 url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
@@ -302,7 +305,7 @@ const PricingPage = () => {
             setGajkesariRate(0);
             setShowGajkesariRate(false);
         }
-    }, [token, isManager, isCoordinator, isFieldOfficer, teamId]);
+    }, [token, isManager, isCoordinator, isFieldOfficer, isAdmin, isDataManager, teamId]);
 
     useEffect(() => {
         if (!token || !selectedStartDate || !selectedEndDate) {
@@ -619,8 +622,8 @@ const PricingPage = () => {
         );
     }
 
-    // Allow Admin and Manager (includes AVP) to access pricing
-    if (!(isAdmin || isManager)) {
+    // Allow Admin, Data Manager, and Manager (includes AVP) to access pricing
+    if (!(isAdmin || isDataManager || isManager)) {
         return (
             <div className="flex h-80 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                 <p>Pricing analytics are restricted to administrators.</p>

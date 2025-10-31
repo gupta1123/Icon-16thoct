@@ -220,6 +220,8 @@ function DashboardPageContent() {
   const [highlightedEmployee, setHighlightedEmployee] =
     useState<ExtendedEmployee | null>(null);
   const [selectedEmployeeForMap, setSelectedEmployeeForMap] = useState<ExtendedEmployee | null>(null);
+  const [originalEmployeeMapCenter, setOriginalEmployeeMapCenter] = useState<[number, number] | null>(null);
+  const [originalEmployeeMapZoom, setOriginalEmployeeMapZoom] = useState<number | null>(null);
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
   const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
@@ -468,6 +470,12 @@ function DashboardPageContent() {
   useEffect(() => {
     const loadOverview = async () => {
       if (!isRoleDetermined) return;
+      
+      // Don't make this API call for HR users
+      if (isHR) {
+        setIsLoadingOverview(false);
+        return;
+      }
 
       setIsLoadingOverview(true);
       try {
@@ -512,7 +520,7 @@ function DashboardPageContent() {
     loadOverview();
     // Only depend on date range changes and role determination
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange.start, dateRange.end, isRoleDetermined]);
+  }, [dateRange.start, dateRange.end, isRoleDetermined, isHR]);
 
   // Separate effect to update map markers when view changes back to dashboard
   useEffect(() => {
@@ -797,6 +805,8 @@ function DashboardPageContent() {
         setHighlightedEmployee(null);
         setPendingEmployeeId(null);
         setSelectedEmployeeForMap(null);
+        setOriginalEmployeeMapCenter(null);
+        setOriginalEmployeeMapZoom(null);
         setMapCenter(DEFAULT_MAP_CENTER);
         setMapZoom(DEFAULT_MAP_ZOOM);
         if (overview) {
@@ -810,6 +820,8 @@ function DashboardPageContent() {
         setPendingEmployeeId(null);
         setSelectedState(null);
         setSelectedEmployeeForMap(null);
+        setOriginalEmployeeMapCenter(null);
+        setOriginalEmployeeMapZoom(null);
         setMapCenter(DEFAULT_MAP_CENTER);
         setMapZoom(DEFAULT_MAP_ZOOM);
         if (overview) {
@@ -828,6 +840,8 @@ function DashboardPageContent() {
       setSelectedState(null);
       setHighlightedEmployee(null);
       setSelectedEmployeeForMap(null);
+      setOriginalEmployeeMapCenter(null);
+      setOriginalEmployeeMapZoom(null);
       setMapCenter(DEFAULT_MAP_CENTER);
       setMapZoom(DEFAULT_MAP_ZOOM);
       if (overview) {
@@ -851,6 +865,12 @@ function DashboardPageContent() {
 
   const handleEmployeeSelect = useCallback(
     async (employee: ExtendedEmployee) => {
+      // Save the current map state before zooming (if not already saved)
+      if (originalEmployeeMapCenter === null || originalEmployeeMapZoom === null) {
+        setOriginalEmployeeMapCenter(mapCenter);
+        setOriginalEmployeeMapZoom(mapZoom);
+      }
+      
       setHighlightedEmployee(employee);
       setSelectedEmployeeForMap(employee);
 
@@ -1028,18 +1048,32 @@ function DashboardPageContent() {
       dateRange.start,
       dateRange.end,
       buildTrailMarkers,
+      originalEmployeeMapCenter,
+      originalEmployeeMapZoom,
+      mapCenter,
+      mapZoom,
     ]
   );
 
   const handleResetMap = useCallback(() => {
     setSelectedEmployeeForMap(null);
     setHighlightedEmployee(null);
-    setMapCenter(DEFAULT_MAP_CENTER);
-    setMapZoom(DEFAULT_MAP_ZOOM);
+    
+    // Restore to the original view before employee selection, or default if no original saved
+    if (originalEmployeeMapCenter !== null && originalEmployeeMapZoom !== null) {
+      setMapCenter(originalEmployeeMapCenter);
+      setMapZoom(originalEmployeeMapZoom);
+      setOriginalEmployeeMapCenter(null);
+      setOriginalEmployeeMapZoom(null);
+    } else {
+      setMapCenter(DEFAULT_MAP_CENTER);
+      setMapZoom(DEFAULT_MAP_ZOOM);
+    }
+    
     if (overview) {
       setMapMarkers(buildLiveMarkers(overview.liveLocations));
     }
-  }, [overview, buildLiveMarkers]);
+  }, [overview, buildLiveMarkers, originalEmployeeMapCenter, originalEmployeeMapZoom]);
 
   const handleEmployeeDetailSelect = useCallback((employee: Employee) => {
     setSelectedEmployee(employee);
@@ -1319,6 +1353,8 @@ function DashboardPageContent() {
               isLoadingTrail={isLoadingTrail}
               mapCenter={mapCenter}
               mapZoom={mapZoom}
+              onMapCenterChange={setMapCenter}
+              onMapZoomChange={setMapZoom}
               highlightedEmployee={highlightedEmployee}
               mapMarkers={mapMarkers}
               onResetMap={handleResetMap}

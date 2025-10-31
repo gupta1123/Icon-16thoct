@@ -696,25 +696,35 @@ export default function VisitsTable() {
     return 'User View';
   }, [isAdmin, isDataManager, isCoordinator, isRegionalManager, isFieldOfficer, isHR, isAvp]);
 
-  const mapVisitToRow = (visit: VisitDto): Row => ({
-    id: visit.id,
-    customerName: visit.storeName,
-    executive: visit.employeeName,
-    date: visit.visit_date,
-    status: visit.checkinTime ? 'Completed' : 'Scheduled',
-    purpose: visit.purpose ?? undefined,
-    visitStart: formatTime(visit.checkinTime),
-    visitEnd: formatTime(visit.checkoutTime),
-    intent: visit.intent ?? undefined,
-    lastUpdated: visit.updatedAt ? formatLastUpdated(visit.updatedAt, visit.updatedTime) : undefined,
-    priority: visit.priority ?? undefined,
-    outcome: visit.outcome ?? undefined,
-    feedback: visit.feedback ?? undefined,
-    city: visit.city ?? undefined,
-    state: visit.state ?? undefined,
-    checkinTime: visit.checkinTime ?? undefined,
-    checkoutTime: visit.checkoutTime ?? undefined,
-  });
+  const mapVisitToRow = (visit: VisitDto): Row => {
+    // Determine status based on checkin and checkout times
+    let status = 'Scheduled';
+    if (visit.checkinTime && visit.checkoutTime) {
+      status = 'Completed';
+    } else if (visit.checkinTime) {
+      status = 'In Progress';
+    }
+    
+    return {
+      id: visit.id,
+      customerName: visit.storeName,
+      executive: visit.employeeName,
+      date: visit.visit_date,
+      status,
+      purpose: visit.purpose ?? undefined,
+      visitStart: formatTime(visit.checkinTime),
+      visitEnd: formatTime(visit.checkoutTime),
+      intent: visit.intent ?? undefined,
+      lastUpdated: visit.updatedAt ? formatLastUpdated(visit.updatedAt, visit.updatedTime) : undefined,
+      priority: visit.priority ?? undefined,
+      outcome: visit.outcome ?? undefined,
+      feedback: visit.feedback ?? undefined,
+      city: visit.city ?? undefined,
+      state: visit.state ?? undefined,
+      checkinTime: visit.checkinTime ?? undefined,
+      checkoutTime: visit.checkoutTime ?? undefined,
+    };
+  };
 
   const mapActivityToRow = (activity: ActivityDto, fallbackIndex: number): ActivityRow => ({
     id: activity.id ?? fallbackIndex,
@@ -844,7 +854,13 @@ export default function VisitsTable() {
     const lines = [headers.map(csvEscape).join(',')];
 
     for (const r of rowsForCsv) {
-      const status = r.checkinTime ? 'Completed' : 'Scheduled';
+      // Determine status based on checkin and checkout times
+      let status = 'Scheduled';
+      if (r.checkinTime && r.checkoutTime) {
+        status = 'Completed';
+      } else if (r.checkinTime) {
+        status = 'In Progress';
+      }
       // For CSV, use original date format, not the formatted version
       const lastUpdated = r.lastUpdated ?? '';
       const line = [
@@ -1231,13 +1247,18 @@ export default function VisitsTable() {
                 const activity = row.data;
                 return (
               <Card key={`activity-${activity.id}`} className="overflow-hidden shadow-sm border-l-4 border-l-purple-500">
-                <CardHeader className="pb-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
+                  <CardHeader className="pb-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-base font-semibold line-clamp-2 flex-1" title={activity.title}>
                         {activity.title}
                       </CardTitle>
-                      <div className="shrink-0 p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors" title="Activity">
-                        <ClipboardList className="h-4 w-4" />
+                      <div className="flex items-center gap-2">
+                        <div className="shrink-0 p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors" title="Activity">
+                          <ClipboardList className="h-4 w-4" />
+                        </div>
+                        <Badge className="shrink-0 bg-purple-100 text-purple-800 hover:bg-black hover:text-white cursor-pointer transition-colors">
+                          Activity
+                        </Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1306,14 +1327,14 @@ export default function VisitsTable() {
                       <div className="p-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors" title="Visit">
                         <Building2 className="h-4 w-4" />
                       </div>
-                      <Badge className={`shrink-0 ${
+                      <Badge className={`shrink-0 cursor-pointer transition-colors ${
                         visit.status === 'Completed'
-                          ? 'bg-green-100 text-green-800 hover:bg-green-100'
+                          ? 'bg-green-100 text-green-800 hover:bg-black hover:text-white'
                           : visit.status === 'Scheduled'
-                          ? 'bg-blue-100 text-blue-800 hover:bg-blue-100'
+                          ? 'bg-blue-100 text-blue-800 hover:bg-black hover:text-white'
                           : visit.status === 'In Progress'
-                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-                          : 'bg-gray-100 text-gray-800 hover:bg-gray-100'
+                          ? 'bg-yellow-100 text-yellow-800 hover:bg-black hover:text-white'
+                          : 'bg-gray-100 text-gray-800 hover:bg-black hover:text-white'
                       }`}>
                         {visit.status ?? 'N/A'}
                       </Badge>
@@ -1425,7 +1446,7 @@ export default function VisitsTable() {
                           <TableCell className="w-24 truncate" title={activity.executive}>{activity.executive}</TableCell>
                           <TableCell className="w-24">{activity.date || '—'}</TableCell>
                           <TableCell className="w-20">
-                            <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800">
+                            <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-black hover:text-white cursor-pointer transition-colors">
                               Activity
                             </span>
                           </TableCell>
@@ -1458,14 +1479,14 @@ export default function VisitsTable() {
                         <TableCell className="w-24 truncate" title={visit.executive}>{visit.executive}</TableCell>
                         <TableCell className="w-24">{visit.date}</TableCell>
                         <TableCell className="w-20">
-                          <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
+                          <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap cursor-pointer transition-colors ${
                             visit.status === "Completed" 
-                              ? "bg-green-100 text-green-800" 
+                              ? "bg-green-100 text-green-800 hover:bg-black hover:text-white" 
                               : visit.status === "Scheduled" 
-                                ? "bg-blue-100 text-blue-800" 
+                                ? "bg-blue-100 text-blue-800 hover:bg-black hover:text-white" 
                                 : visit.status === "In Progress" 
-                                  ? "bg-yellow-100 text-yellow-800" 
-                                  : "bg-red-100 text-red-800"
+                                  ? "bg-yellow-100 text-yellow-800 hover:bg-black hover:text-white" 
+                                  : "bg-red-100 text-red-800 hover:bg-black hover:text-white"
                           }`}>
                             {visit.status ?? '—'}
                           </span>

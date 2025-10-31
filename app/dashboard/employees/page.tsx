@@ -36,6 +36,7 @@ import SearchableSelect, { type SearchableOption } from "@/components/searchable
 import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { normalizeRoleValue } from "@/lib/role-utils";
+import { useAuth } from "@/components/auth-provider";
 
 interface User {
   id: number;
@@ -173,6 +174,15 @@ export default function EmployeeList() {
     })),
   [employeeDistricts]);
 
+  // City options for assign city modal
+  const cityOptions = useMemo<SearchableOption<string>[]>(() =>
+    cities.map((city) => ({
+      value: city,
+      label: city,
+      data: city,
+    })),
+  [cities]);
+
   // Additional state for new employee form
   const initialNewEmployeeState = {
     firstName: "",
@@ -192,6 +202,7 @@ export default function EmployeeList() {
     userName: "",
     password: "",
     subDistrict: "",
+    assignedCity: "",
   };
   const [newEmployee, setNewEmployee] = useState(initialNewEmployeeState);
 
@@ -200,6 +211,50 @@ export default function EmployeeList() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
   const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
   const officeManagerId = typeof window !== 'undefined' ? localStorage.getItem('officeManagerId') : null;
+  
+  // Role checking for Data Manager
+  const { token: authToken } = useAuth();
+  const [isDataManager, setIsDataManager] = useState(false);
+  const [roleResolved, setRoleResolved] = useState(false);
+  
+  // Fetch current user data to determine role
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      if (!token) {
+        setRoleResolved(true);
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/proxy/user/manage/current-user', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const userData = await response.json();
+          
+          // Extract role from authorities
+          const authorities = userData.authorities || [];
+          const roles: string[] = authorities.map((a: { authority: string }) => a.authority);
+          const hasRole = (r: string) => roles.includes(r);
+          
+          // Set Data Manager flag
+          setIsDataManager(hasRole('ROLE_DATA_MANAGER'));
+        } else {
+          console.error('Failed to fetch current user data');
+        }
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+      } finally {
+        setRoleResolved(true);
+      }
+    };
+
+    fetchCurrentUser();
+  }, [token]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -634,6 +689,32 @@ export default function EmployeeList() {
               console.error("Error creating attendance log:", attendanceError);
               console.log('Employee added successfully but failed to create attendance log.');
             }
+
+            // If role is Field Officer and assignedCity is provided, assign the city
+            if (newEmployee.role === "Field Officer" && newEmployee.assignedCity) {
+              try {
+                const assignCityResponse = await fetch(
+                  `/api/proxy/employee/assignCity?id=${createdEmployee.id}&city=${encodeURIComponent(newEmployee.assignedCity)}`,
+                  {
+                    method: 'PUT',
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                    },
+                  }
+                );
+
+                if (assignCityResponse.ok) {
+                  console.log('City assigned successfully to Field Officer!');
+                } else {
+                  console.error('Failed to assign city to Field Officer');
+                  const errorText = await assignCityResponse.text();
+                  console.error('Error response:', errorText);
+                }
+              } catch (assignCityError) {
+                console.error("Error assigning city to Field Officer:", assignCityError);
+                console.log('Employee added successfully but failed to assign city.');
+              }
+            }
           }
         }
 
@@ -940,6 +1021,10 @@ export default function EmployeeList() {
   };
 
   const handleNextClick = () => {
+    // If role is Field Officer and city is filled but assignedCity is not, pre-fill it
+    if (newEmployee.role === "Field Officer" && newEmployee.city && !newEmployee.assignedCity) {
+      setNewEmployee({ ...newEmployee, assignedCity: newEmployee.city });
+    }
     setActiveTab('tab2');
   };
 
@@ -1074,15 +1159,17 @@ export default function EmployeeList() {
               </DropdownMenuContent>
             </DropdownMenu>
             
-            <AddTeam />
+            {!isDataManager && <AddTeam />}
             
-            <Button 
-              size="sm" 
-              onClick={() => setIsModalOpen(true)}
-              className="text-xs sm:text-sm"
-            >
-              Add Employee
-            </Button>
+            {!isDataManager && (
+              <Button 
+                size="sm" 
+                onClick={() => setIsModalOpen(true)}
+                className="text-xs sm:text-sm"
+              >
+                Add Employee
+              </Button>
+            )}
             
             <Button
               variant="outline"
@@ -1288,22 +1375,30 @@ export default function EmployeeList() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => handleEditUser(user)}>
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => handleEditUsername(user.id, user.userName)}>
-                          Edit Username
-                        </DropdownMenuItem>
+                        {!isDataManager && (
+                          <DropdownMenuItem onSelect={() => handleEditUser(user)}>
+                            Edit
+                          </DropdownMenuItem>
+                        )}
+                        {!isDataManager && (
+                          <DropdownMenuItem onSelect={() => handleEditUsername(user.id, user.userName)}>
+                            Edit Username
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onSelect={() => handleViewUser(user.id)}>
                           View
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => handleResetPassword(user.id)}>
                           Reset Password
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => showDeleteConfirmation(user)}>
-                          Delete
-                        </DropdownMenuItem>
+                        {!isDataManager && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => showDeleteConfirmation(user)}>
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1451,21 +1546,27 @@ export default function EmployeeList() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditUser(user)}>
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleEditUsername(user.id, user.userName)}>
-                              Edit Username
-                            </DropdownMenuItem>
+                            {!isDataManager && (
+                              <DropdownMenuItem onClick={() => handleEditUser(user)}>
+                                Edit
+                              </DropdownMenuItem>
+                            )}
+                            {!isDataManager && (
+                              <DropdownMenuItem onClick={() => handleEditUsername(user.id, user.userName)}>
+                                Edit Username
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleViewUser(user.id)}>
                               View
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
                               Reset Password
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => showDeleteConfirmation(user)}>
-                              Delete
-                            </DropdownMenuItem>
+                            {!isDataManager && (
+                              <DropdownMenuItem onClick={() => showDeleteConfirmation(user)}>
+                                Delete
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1736,7 +1837,17 @@ export default function EmployeeList() {
                       id="city"
                       placeholder="Enter city"
                       value={newEmployee.city}
-                      onChange={(e) => setNewEmployee({ ...newEmployee, city: e.target.value })}
+                      onChange={(e) => {
+                        const cityValue = e.target.value;
+                        const updatedEmployee = { ...newEmployee, city: cityValue };
+                        // If role is Field Officer and assignedCity is empty or same as old city, update it
+                        if (newEmployee.role === "Field Officer") {
+                          if (!newEmployee.assignedCity || newEmployee.assignedCity === newEmployee.city) {
+                            updatedEmployee.assignedCity = cityValue;
+                          }
+                        }
+                        setNewEmployee(updatedEmployee);
+                      }}
                     />
                   </div>
                 </div>
@@ -1786,9 +1897,18 @@ export default function EmployeeList() {
                     <Label htmlFor="role">Role <span className="text-red-500">*</span></Label>
                     <Select
                       value={newEmployee.role}
-                      onValueChange={(value) =>
-                        setNewEmployee({ ...newEmployee, role: value })
-                      }
+                      onValueChange={(value) => {
+                        const updatedEmployee = { ...newEmployee, role: value };
+                        // If role is Field Officer and city is filled, pre-fill assignedCity
+                        if (value === "Field Officer" && newEmployee.city && !newEmployee.assignedCity) {
+                          updatedEmployee.assignedCity = newEmployee.city;
+                        }
+                        // If role changes away from Field Officer, clear assignedCity
+                        if (value !== "Field Officer") {
+                          updatedEmployee.assignedCity = "";
+                        }
+                        setNewEmployee(updatedEmployee);
+                      }}
                       required
                     >
                       <SelectTrigger>
@@ -1880,6 +2000,30 @@ export default function EmployeeList() {
                     </div>
                   </div>
                 </div>
+                {/* Assign City field - shown only for Field Officer role */}
+                {newEmployee.role === "Field Officer" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="assignedCity">
+                      Assign City <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="assignedCity"
+                      name="assignedCity"
+                      placeholder="Enter city to assign"
+                      value={newEmployee.assignedCity}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setNewEmployee({ ...newEmployee, assignedCity: value });
+                      }}
+                      required={newEmployee.role === "Field Officer"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {newEmployee.city && !newEmployee.assignedCity 
+                        ? `City from address: ${newEmployee.city} (you can edit if different)`
+                        : "This city will be assigned to the Field Officer"}
+                    </p>
+                  </div>
+                )}
               </div>
               
               {/* Submit Button - Below all fields */}
@@ -1895,7 +2039,12 @@ export default function EmployeeList() {
                   </Button>
                   <Button
                     onClick={handleSubmit}
-                    disabled={!newEmployee.userName || !newEmployee.password || isAddingEmployee}
+                    disabled={
+                      !newEmployee.userName || 
+                      !newEmployee.password || 
+                      isAddingEmployee ||
+                      (newEmployee.role === "Field Officer" && !newEmployee.assignedCity)
+                    }
                     className="flex-1"
                     size="lg"
                   >
@@ -2075,15 +2224,20 @@ export default function EmployeeList() {
                       <TableCell>{employee.departmentName}</TableCell>
                       <TableCell>{employee.city}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUnarchive(employee.id)}
-                          className="flex items-center gap-2"
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                          Unarchive
-                        </Button>
+                        {!isDataManager && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUnarchive(employee.id)}
+                            className="flex items-center gap-2"
+                          >
+                            <ArrowLeft className="h-4 w-4" />
+                            Unarchive
+                          </Button>
+                        )}
+                        {isDataManager && (
+                          <span className="text-sm text-muted-foreground">View only</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2206,18 +2360,16 @@ export default function EmployeeList() {
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="city-select">Select City</Label>
-              <Select value={selectedCityToAssign} onValueChange={setSelectedCityToAssign}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a city" />
-                </SelectTrigger>
-                <SelectContent>
-                  {cities.map((city) => (
-                    <SelectItem key={city} value={city}>
-                      {city}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect<string>
+                options={cityOptions}
+                value={selectedCityToAssign || undefined}
+                onSelect={(option) => {
+                  setSelectedCityToAssign(option?.value || "");
+                }}
+                placeholder="Choose a city"
+                searchPlaceholder="Search cities..."
+                triggerClassName="w-full"
+              />
             </div>
           </div>
           <DialogFooter className="gap-2">

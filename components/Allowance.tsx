@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import {
     Table,
@@ -18,7 +18,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,6 +28,7 @@ interface Employee {
     id: number;
     firstName: string;
     lastName: string;
+    role?: string;
     travelAllowance?: number;
     dearnessAllowance?: number;
     fullMonthSalary?: number;
@@ -41,7 +42,7 @@ interface TravelRate {
 }
 
 const Allowance: React.FC = () => {
-    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [editMode, setEditMode] = useState<{ [key: number]: boolean }>({});
     const [editedData, setEditedData] = useState<{ [key: number]: Record<string, unknown> }>({});
     const [currentPage, setCurrentPage] = useState<number>(1);
@@ -52,9 +53,46 @@ const Allowance: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    
+    // Filter employees based on role and search term
+    const filteredEmployees = useMemo(() => {
+        return allEmployees.filter(employee => {
+            // Normalize role for comparison
+            const normalized = employee.role ? employee.role.toLowerCase().trim() : '';
+            
+            // Exclude AVP, Coordinator, HR, and Data Manager
+            if (normalized === 'avp' || 
+                normalized === 'coordinator' || 
+                normalized === 'hr' ||
+                normalized === 'data manager' || 
+                normalized === 'data_manager') {
+                return false;
+            }
+            
+            // Include only specified roles: Field Officer, Regional Manager, Manager
+            const shouldInclude = normalized === 'field officer' ||
+                                  normalized === 'field_officer' ||
+                                  normalized === 'regional manager' ||
+                                  normalized === 'regional_manager' ||
+                                  normalized === 'manager';
+            
+            if (!shouldInclude) {
+                return false;
+            }
+            
+            // Apply search filter
+            if (searchTerm) {
+                const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
+                return fullName.includes(searchTerm.toLowerCase());
+            }
+            
+            return true;
+        });
+    }, [allEmployees, searchTerm]);
 
     const formatNumberField = (value?: number | null) =>
         value === null || value === undefined ? "" : String(value);
@@ -107,7 +145,7 @@ const Allowance: React.FC = () => {
 
             const data = await response.json();
             const sortedData = data.sort((a: Employee, b: Employee) => a.firstName.localeCompare(b.firstName));
-            setEmployees(sortedData);
+            setAllEmployees(sortedData);
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
         } finally {
@@ -142,9 +180,9 @@ const Allowance: React.FC = () => {
     }, [fetchEmployees, fetchTravelRates]);
 
     useEffect(() => {
-        const total = Math.max(1, Math.ceil((employees.length || 0) / rowsPerPage) || 1);
+        const total = Math.max(1, Math.ceil((filteredEmployees.length || 0) / rowsPerPage) || 1);
         setCurrentPage(prev => (prev > total ? total : prev));
-    }, [employees.length, rowsPerPage]);
+    }, [filteredEmployees.length, rowsPerPage]);
 
     const handleInputChange = (employeeId: number, field: string, value: string) => {
         setEditedData(prevData => ({
@@ -229,7 +267,7 @@ const Allowance: React.FC = () => {
     };
 
     const startEdit = (employeeId: number) => {
-        const employee = employees.find(e => e.id === employeeId);
+        const employee = filteredEmployees.find(e => e.id === employeeId);
         const travelRate = travelRates.find(rate => rate.employeeId === employeeId);
         setEditMode(prevMode => ({
             ...prevMode,
@@ -260,8 +298,8 @@ const Allowance: React.FC = () => {
     };
 
     const indexOfFirstRow = (currentPage - 1) * rowsPerPage;
-    const currentRows = employees.slice(indexOfFirstRow, indexOfFirstRow + rowsPerPage);
-    const totalPages = Math.max(1, Math.ceil((employees.length || 0) / rowsPerPage) || 1);
+    const currentRows = filteredEmployees.slice(indexOfFirstRow, indexOfFirstRow + rowsPerPage);
+    const totalPages = Math.max(1, Math.ceil((filteredEmployees.length || 0) / rowsPerPage) || 1);
 
     const getInitials = (firstName: string, lastName: string) => {
         return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -319,7 +357,33 @@ const Allowance: React.FC = () => {
 
                     {!isLoading && !error && (
                         <>
-                            {isMobile ? (
+                            {/* Search Bar */}
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1 max-w-md">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                                    <Input
+                                        type="text"
+                                        placeholder="Search employees by name..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="pl-9"
+                                    />
+                                </div>
+                            </div>
+                            
+                            {filteredEmployees.length === 0 && !searchTerm && (
+                                <div className="text-center py-12 text-muted-foreground">
+                                    <p>No employees found matching the filter criteria.</p>
+                                </div>
+                            )}
+                            
+                            {filteredEmployees.length === 0 && searchTerm && (
+                                <div className="text-center py-12 text-muted-foreground">
+                                    <p>No employees found matching &quot;{searchTerm}&quot;</p>
+                                </div>
+                            )}
+                            
+                            {filteredEmployees.length > 0 && isMobile ? (
                                 <div className="space-y-4">
                                     {currentRows.map((employee) => (
                                         <Card key={employee.id} className="overflow-hidden">
@@ -445,7 +509,7 @@ const Allowance: React.FC = () => {
                                         </Card>
                                     ))}
                                 </div>
-                            ) : (
+                            ) : filteredEmployees.length > 0 ? (
                                 <div className="rounded-lg border bg-card">
                                     <div className="p-4 border-b">
                                         <h3 className="text-lg font-semibold text-foreground">Employee Allowances</h3>
@@ -551,9 +615,9 @@ const Allowance: React.FC = () => {
                                         </Table>
                                     </div>
                                 </div>
-                            )}
+                            ) : null}
 
-                            {employees.length > 0 && (
+                            {filteredEmployees.length > 0 && (
                                 <div className="flex flex-col gap-3 mt-4 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex items-center space-x-2">
                                         <Label htmlFor="pageSize">Rows per page:</Label>

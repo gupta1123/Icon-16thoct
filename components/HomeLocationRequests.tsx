@@ -551,7 +551,7 @@ const HomeLocationRequests = () => {
                           <div className="flex flex-col gap-1">
                             <Badge
                               variant="outline"
-                              className="inline-flex w-fit items-center gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+                              className="inline-flex w-fit items-center gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 hover:bg-black hover:text-white cursor-pointer transition-colors"
                             >
                               <Clock className="h-3.5 w-3.5" />
                               Pending approval

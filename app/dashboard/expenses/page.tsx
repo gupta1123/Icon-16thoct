@@ -182,10 +182,15 @@ export default function ExpensesPage() {
         ? status as "approved" | "pending" | "rejected"
         : "pending" as "approved" | "pending" | "rejected";
 
+      // Format category: show subType only for travel type, otherwise just show type
+      const category = expense.type.toLowerCase() === 'travel' && expense.subType
+        ? `${expense.type} - ${expense.subType}`
+        : expense.type;
+
       const transformedExpense: Expense = {
         id: expense.id,
         date: expense.expenseDate,
-        category: `${expense.type} - ${expense.subType}`,
+        category: category,
         amount: expense.amount,
         description: expense.description,
         status: validStatus

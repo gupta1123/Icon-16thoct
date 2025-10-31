@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { API, type StoreDto, type VisitDto, type Note as ApiNote, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/components/auth-provider";
 import './CustomerDetail.css';
 
 const ITEMS_PER_PAGE = 3;
@@ -185,7 +186,14 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
     const [deletingNoteContent, setDeletingNoteContent] = useState<string>('');
     const [isDeletingNote, setIsDeletingNote] = useState(false);
-    const [activeActivityTab, setActiveActivityTab] = useState('visits');
+  const [activeActivityTab, setActiveActivityTab] = useState('visits');
+
+  const getActivityTabClasses = (tab: string) =>
+    `px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
+      activeActivityTab === tab
+        ? 'border-black bg-black text-white hover:bg-black hover:text-white'
+        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
+    }`;
     const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
     const [brandsData, setBrandsData] = useState<unknown[]>([]);
     const [isLoadingBrands, setIsLoadingBrands] = useState(false);
@@ -321,8 +329,47 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const [intentData, setIntentData] = useState<unknown[]>([]);
     const [salesData, setSalesData] = useState<unknown[]>([]);
 
+    const { token: authToken, userData, currentUser } = useAuth();
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
     const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
+    
+    // State for role checking
+    const [isDataManager, setIsDataManager] = useState(false);
+    const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
+    
+    // Fetch current user data to determine role
+    useEffect(() => {
+        const fetchCurrentUser = async () => {
+            if (!token) return;
+            
+            try {
+                const response = await fetch('/api/proxy/user/manage/current-user', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+                
+                if (response.ok) {
+                    const userData = await response.json();
+                    
+                    // Extract role from authorities (consider all authorities)
+                    const authorities = userData.authorities || [];
+                    const role = authorities.length > 0 ? authorities[0].authority : null;
+                    setUserRoleFromAPI(role);
+                    
+                    // Set role flags
+                    setIsDataManager(role === 'ROLE_DATA_MANAGER');
+                } else {
+                    console.error('Failed to fetch current user data');
+                }
+            } catch (error) {
+                console.error('Error fetching current user:', error);
+            }
+        };
+
+        fetchCurrentUser();
+    }, [token]);
 
     const fetchIntentData = useCallback(async (id: string) => {
         try {
@@ -970,17 +1017,52 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const handleCustomerEditSubmit = async (data: Partial<CustomerData>) => {
         try {
-            // Include fields backend may require on edit (latitude/longitude, employeeId)
+            // Clean numeric fields similar to AddCustomerModal
+            const cleanDigits = (val: string | number | undefined | null) => {
+                if (val === undefined || val === null || val === '') return undefined;
+                const s = val.toString().replace(/\D/g, '');
+                return s ? parseInt(s, 10) : undefined;
+            };
+
+            // Include all fields from formData
             const requestData = {
+                storeName: data.storeName,
+                clientFirstName: data.clientFirstName,
                 clientLastName: data.clientLastName,
-                email: data.email,
+                email: data.email || null,
+                primaryContact: cleanDigits(data.primaryContact),
                 clientType: data.clientType,
+                gstNumber: data.gstNumber || undefined,
+                addressLine1: data.addressLine1 || undefined,
+                addressLine2: data.addressLine2 || undefined,
+                district: data.village || undefined, // Map village to district
+                subDistrict: data.taluka || undefined, // Map taluka to subDistrict
+                city: data.city || undefined,
+                state: data.state || undefined,
+                country: data.country || 'India',
+                pincode: cleanDigits(data.pincode),
+                monthlySale: cleanDigits(data.monthlySale),
+                // Dealer/Shop specific fields
+                shopAgeYears: data.shopAgeYears ? parseInt(data.shopAgeYears.toString(), 10) : undefined,
+                ownershipType: data.ownershipType || undefined,
+                dealerType: data.dealerType || undefined,
+                dealerSubType: data.dealerSubType || undefined,
+                // Engineer/Architect/Contractor specific fields
+                dateOfBirth: data.dateOfBirth || undefined,
+                yearsOfExperience: data.yearsOfExperience || undefined,
+                // Site Visit specific fields
+                contractorName: data.contractorName || undefined,
+                engineerName: data.engineerName || undefined,
+                projectType: data.projectType || undefined,
+                projectSizeSquareFeet: data.projectSizeSquareFeet ? parseFloat(data.projectSizeSquareFeet.toString()) : undefined,
+                // GPS coordinates and employee
+                latitude: (customerData && (customerData.latitude ?? customerData.storeLatitude)) ?? null,
+                longitude: (customerData && (customerData.longitude ?? customerData.storeLongitude)) ?? null,
+                employeeId: customerData?.employeeId ?? undefined,
+                // Additional fields (empty for now)
                 brandsInUse: [], // Empty array for now
                 brandProsCons: [], // Empty array for now
                 likes: {}, // Empty object for now
-                latitude: (customerData && (customerData.latitude ?? customerData.storeLatitude)) ?? 0,
-                longitude: (customerData && (customerData.longitude ?? customerData.storeLongitude)) ?? 0,
-                employeeId: customerData?.employeeId ?? undefined,
             };
 
             console.log('Sending data:', requestData);
@@ -1628,20 +1710,22 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
                             <TooltipProvider>
                                 <div className="flex gap-2">
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button 
-                                                className="flex-1" 
-                                                variant="outline" 
-                                                onClick={() => setIsEditCustomerModalVisible(true)}
-                                            >
-                                                <Edit className="h-4 w-4" />
+                                    {!isDataManager && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button 
+                                                    className="flex-1" 
+                                                    variant="outline" 
+                                                    onClick={() => setIsEditCustomerModalVisible(true)}
+                                                >
+                                                    <Edit className="h-4 w-4" />
                                 </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>Edit Customer</p>
-                                        </TooltipContent>
-                                    </Tooltip>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>Edit Customer</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    )}
                                     
                                     <Tooltip>
                                         <TooltipTrigger asChild>
@@ -1846,62 +1930,38 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                             <div className="space-y-6">
                                 <div className="flex flex-wrap border-b overflow-x-auto">
                                     <button 
-                                        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                            activeActivityTab === 'visits' 
-                                                ? 'border-primary text-primary' 
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                        className={getActivityTabClasses('visits')}
                                         onClick={() => setActiveActivityTab('visits')}
                                     >
                                         <i className="fas fa-calendar-check text-xs sm:text-sm"></i> <span className="hidden xs:inline">Visits</span><span className="xs:hidden">Visits</span>
                                     </button>
                                     <button 
-                                        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                            activeActivityTab === 'notes' 
-                                                ? 'border-primary text-primary' 
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                        className={getActivityTabClasses('notes')}
                                         onClick={() => setActiveActivityTab('notes')}
                                     >
                                         <i className="fas fa-sticky-note text-xs sm:text-sm"></i> <span className="hidden xs:inline">Notes</span><span className="xs:hidden">Notes</span>
                                     </button>
                                     <button 
-                                        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                            activeActivityTab === 'complaints' 
-                                                ? 'border-primary text-primary' 
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                        className={getActivityTabClasses('complaints')}
                                         onClick={() => setActiveActivityTab('complaints')}
                                     >
                                         <i className="fas fa-exclamation-circle text-xs sm:text-sm"></i> <span className="hidden xs:inline">Complaints</span><span className="xs:hidden">Complaints</span>
                                     </button>
                                     <button 
-                                        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                            activeActivityTab === 'requirements' 
-                                                ? 'border-primary text-primary' 
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                        className={getActivityTabClasses('requirements')}
                                         onClick={() => setActiveActivityTab('requirements')}
                                     >
                                         <i className="fas fa-tasks text-xs sm:text-sm"></i> <span className="hidden xs:inline">Requirements</span><span className="xs:hidden">Requirements</span>
                                     </button>
                                     <button 
-                                        className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                            activeActivityTab === 'brands' 
-                                                ? 'border-primary text-primary' 
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                        className={getActivityTabClasses('brands')}
                                         onClick={() => setActiveActivityTab('brands')}
                                     >
                                         <i className="fas fa-tags text-xs sm:text-sm"></i> <span className="hidden xs:inline">Brands</span><span className="xs:hidden">Brands</span>
                                     </button>
                                     {showSitesTab && (
                                         <button 
-                                            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                                                activeActivityTab === 'sites' 
-                                                    ? 'border-primary text-primary' 
-                                                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
+                                            className={getActivityTabClasses('sites')}
                                             onClick={() => setActiveActivityTab('sites')}
                                         >
                                             <i className="fas fa-map-marker-alt text-xs sm:text-sm"></i> <span className="hidden xs:inline">Sites</span><span className="xs:hidden">Sites</span>
@@ -2766,95 +2826,28 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </div>
                                         </div>
 
-                                        {/* Sub-District Dropdown (Taluka) */}
+                                        {/* Sub-District Input (Taluka) */}
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <Label htmlFor="taluka">Sub-District</Label>
-                                            <Select
-                                                value={selectedEditSubDistrictId?.toString() || ''}
-                                                onValueChange={(value) => {
-                                                    const subDistrictId = parseInt(value);
-                                                    setSelectedEditSubDistrictId(subDistrictId);
-                                                    const selectedSubDistrict = editSubDistricts.find(sd => sd.id === subDistrictId);
-                                                    if (selectedSubDistrict) {
-                                                        setFormData({ ...formData, taluka: selectedSubDistrict.subDistrictName });
-                                                    }
-                                                    setEditSubDistrictSearch('');
-                                                }}
-                                                disabled={!selectedEditDistrictId}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={!selectedEditDistrictId ? "Select district first" : (formData.taluka || "Select sub-district")} />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[300px]">
-                                                    <div className="sticky top-0 bg-background p-2 border-b">
-                                                        <Input
-                                                            placeholder="Search sub-district..."
-                                                            value={editSubDistrictSearch}
-                                                            onChange={(e) => setEditSubDistrictSearch(e.target.value)}
-                                                            className="h-8"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                        {filteredEditSubDistricts.length > 0 ? (
-                                                            filteredEditSubDistricts.map((subDistrict) => (
-                                                                <SelectItem key={subDistrict.id} value={subDistrict.id.toString()}>
-                                                                    {subDistrict.subDistrictName}
-                                                                </SelectItem>
-                                                            ))
-                                                        ) : (
-                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                No sub-district found
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
+                                            <Input
+                                                id="taluka"
+                                                value={formData.taluka || ''}
+                                                placeholder="Enter sub-district"
+                                                onChange={(e) => setFormData({ ...formData, taluka: e.target.value })}
+                                            />
                                         </div>
 
-                                        {/* City Dropdown */}
+                                        {/* City Input */}
                                         <div className="space-y-2">
                                             <Label htmlFor="city">City</Label>
-                                            <Select
+                                            <Input
+                                                id="city"
                                                 value={formData.city || ''}
-                                                onValueChange={(value) => {
-                                                    setFormData({ ...formData, city: value });
-                                                    setEditCitySearch('');
-                                                }}
-                                                disabled={!selectedEditSubDistrictId}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={!selectedEditSubDistrictId ? "Select sub-district first" : (formData.city || "Select city")} />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[300px]">
-                                                    <div className="sticky top-0 bg-background p-2 border-b">
-                                                        <Input
-                                                            placeholder="Search city..."
-                                                            value={editCitySearch}
-                                                            onChange={(e) => setEditCitySearch(e.target.value)}
-                                                            className="h-8"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                        {filteredEditCities.length > 0 ? (
-                                                            filteredEditCities.map((city) => (
-                                                                <SelectItem key={city.id} value={city.cityName}>
-                                                                    {city.cityName}
-                                                                </SelectItem>
-                                                            ))
-                                                        ) : (
-                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                No city found
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
-                                            </div>
+                                                placeholder="Enter city"
+                                                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                                            />
+                                        </div>
                                         </div>
 
                                         {/* Pincode */}

@@ -46,6 +46,32 @@ interface Employee {
   position: string;
 }
 
+interface CustomerVisitDetail {
+  completedVisitCount: number;
+  customerType: string;
+  avgIntentLevel: number;
+  avgMonthlySales: number;
+  visitCount: number;
+  lastVisited: string;
+  city: string;
+  taluka: string | null;
+  state: string;
+  storeId: number;
+  customerName: string;
+}
+
+interface Activity {
+  id?: number;
+  title?: string;
+  name?: string;
+  description?: string;
+  notes?: string;
+  date?: string;
+  createdDate?: string;
+  time?: string;
+  createdTime?: string;
+}
+
 const years = Array.from({ length: 27 }, (_, index) => 2024 + index);
 const months = [
   "January",
@@ -73,6 +99,8 @@ export default function AttendancePage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [visitData, setVisitData] = useState<VisitDetail[]>([]);
+  const [customerVisitDetails, setCustomerVisitDetails] = useState<CustomerVisitDetail[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
 
@@ -187,48 +215,82 @@ export default function AttendancePage() {
         if (!employee) {
           console.error('Employee not found:', employeeName);
           setVisitData([]);
+          setCustomerVisitDetails([]);
+          setActivities([]);
           return;
         }
 
-        // Use timeline API to get both visits AND activities for the date
-        const url = `/api/proxy/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
+        // Fetch customer visit details for all customer types
+        const customerTypes = ['dealer', 'shop', 'others'];
+        const allCustomerVisits: CustomerVisitDetail[] = [];
+
+        for (const customerType of customerTypes) {
+          try {
+            const customerVisitUrl = `/api/proxy/visit/customer-visit-details?employeeId=${employee.id}&startDate=${date}&endDate=${date}&customerType=${encodeURIComponent(customerType)}`;
+            
+            const customerResponse = await fetch(customerVisitUrl, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (customerResponse.ok) {
+              const customerData: CustomerVisitDetail[] = await customerResponse.json();
+              allCustomerVisits.push(...customerData);
+            }
+          } catch (err) {
+            console.error(`Error fetching customer visit details for ${customerType}:`, err);
+          }
+        }
+
+        // Also fetch timeline data for activities and individual visits
+        const timelineUrl = `/api/proxy/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
         
-        console.log('Making timeline API request to:', url);
-        console.log('Request params:', { date, employeeId: employee.id, employeeName, token: token ? 'Present' : 'Missing' });
-        
-        const response = await fetch(url, {
+        const timelineResponse = await fetch(timelineUrl, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch timeline data");
+        let timelineData = null;
+        if (timelineResponse.ok) {
+          timelineData = await timelineResponse.json();
         }
 
-        const data = await response.json();
-        
+        console.log('Customer Visit Details Response:', {
+          date,
+          employeeName,
+          customerVisitsCount: allCustomerVisits.length,
+          customerVisits: allCustomerVisits
+        });
+
         console.log('Timeline API Response:', {
           date,
           employeeName,
-          activityCount: data.activityCount,
-          visitCount: data.visitCount,
-          completedVisitCount: data.completedVisitCount,
-          attendanceStatus: data.attendanceStatus,
-          activities: data.activities,
-          visits: data.visits
+          activityCount: timelineData?.activityCount,
+          visitCount: timelineData?.visitCount,
+          completedVisitCount: timelineData?.completedVisitCount,
+          attendanceStatus: timelineData?.attendanceStatus,
+          activities: timelineData?.activities,
+          visits: timelineData?.visits
         });
 
-        // Store only the visit list for the modal
-        const visits = Array.isArray(data?.visits) ? (data.visits as VisitDetail[]) : [];
+        // Store data for the modal
+        const visits = Array.isArray(timelineData?.visits) ? (timelineData.visits as VisitDetail[]) : [];
+        const activitiesData = Array.isArray(timelineData?.activities) ? timelineData.activities : [];
+        
         setVisitData(visits);
+        setCustomerVisitDetails(allCustomerVisits);
+        setActivities(activitiesData);
         setSelectedDate(date);
         setSelectedEmployeeName(employeeName);
         setIsModalOpen(true);
 
       } catch (error) {
-        console.error("Error fetching timeline data:", error);
+        console.error("Error fetching visit data:", error);
         setVisitData([]);
+        setCustomerVisitDetails([]);
+        setActivities([]);
       }
     },
     [token, employees]
@@ -378,6 +440,8 @@ export default function AttendancePage() {
         visitData={visitData}
         selectedDate={selectedDate}
         employeeName={selectedEmployeeName}
+        customerVisitDetails={customerVisitDetails}
+        activities={activities}
       />
     </div>
   );
