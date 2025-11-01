@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { CheckCircle, XCircle, Search, Filter, Calendar, User, Clock, Loader } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { CheckCircle, XCircle, Search, Filter, Calendar, User, Clock } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { apiService, type TeamDataDto, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Label } from "@/components/ui/label";
 
 // Using ApprovalRequest from API types
@@ -63,6 +62,15 @@ const ApprovalsPage = () => {
     const [teamId, setTeamId] = useState<number | null>(null);
     const [teamLoading, setTeamLoading] = useState(false);
     const [teamError, setTeamError] = useState<string | null>(null);
+    
+    // Cache for status counts to show correct counts in tabs
+    const [statusCountsCache, setStatusCountsCache] = useState({
+        all: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0
+    });
+    const [loadingCounts, setLoadingCounts] = useState(false);
 
     // Fetch current user data to determine role
     useEffect(() => {
@@ -138,25 +146,84 @@ const ApprovalsPage = () => {
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
 
-    // Debounced search effect
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            if (token) {
-                setCurrentPage(0); // Reset to first page when searching
-                fetchRequests();
+    // Function to fetch counts for all statuses
+    const fetchStatusCounts = useCallback(async () => {
+        if (!token) return;
+        
+        // For managers and field officers, wait until teamId is available
+        if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+        
+        try {
+            setLoadingCounts(true);
+            
+            if (isAdmin || (!isManager && !isFieldOfficer)) {
+                // For admins, fetch counts using paginated APIs
+                // Use Promise.allSettled to handle individual failures gracefully
+                const [allResult, pendingResult, approvedResult, rejectedResult] = await Promise.allSettled([
+                    apiService.getAttendanceRequestsPaginated(0, 1, sortByField, sortDirection),
+                    apiService.getAttendanceRequestsByStatusPaginated('pending', 0, 1, sortByField, sortDirection),
+                    apiService.getAttendanceRequestsByStatusPaginated('approved', 0, 1, sortByField, sortDirection),
+                    apiService.getAttendanceRequestsByStatusPaginated('rejected', 0, 1, sortByField, sortDirection)
+                ]);
+                
+                // Extract results, defaulting to 0 if a request failed
+                const allCount = allResult.status === 'fulfilled' ? allResult.value.totalElements : 0;
+                const pendingCount = pendingResult.status === 'fulfilled' ? pendingResult.value.totalElements : 0;
+                const approvedCount = approvedResult.status === 'fulfilled' ? approvedResult.value.totalElements : 0;
+                const rejectedCount = rejectedResult.status === 'fulfilled' ? rejectedResult.value.totalElements : 0;
+                
+                // Log any failures for debugging
+                if (allResult.status === 'rejected') {
+                    console.error('Failed to fetch all count:', allResult.reason);
+                }
+                if (pendingResult.status === 'rejected') {
+                    console.error('Failed to fetch pending count:', pendingResult.reason);
+                }
+                if (approvedResult.status === 'rejected') {
+                    console.error('Failed to fetch approved count:', approvedResult.reason);
+                }
+                if (rejectedResult.status === 'rejected') {
+                    console.error('Failed to fetch rejected count:', rejectedResult.reason);
+                }
+                
+                setStatusCountsCache({
+                    all: allCount,
+                    pending: pendingCount,
+                    approved: approvedCount,
+                    rejected: rejectedCount
+                });
+            } else {
+                // For managers and field officers using team-based API
+                // The team API doesn't return pagination info, so we need to fetch all and count
+                // This is less efficient but necessary for accurate counts
+                const url = `/api/proxy/expense/getForTeam?id=${teamId}`;
+                const response = await fetch(url, {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data: ApprovalRequest[] = await response.json();
+                    const counts = {
+                        all: data.length,
+                        pending: data.filter(r => r.status?.toLowerCase() === 'pending').length,
+                        approved: data.filter(r => r.status?.toLowerCase() === 'approved').length,
+                        rejected: data.filter(r => r.status?.toLowerCase() === 'rejected').length
+                    };
+                    setStatusCountsCache(counts);
+                }
             }
-        }, 300); // 300ms debounce
-
-        return () => clearTimeout(timeoutId);
-    }, [searchTerm]);
-
-    useEffect(() => {
-        if (token) {
-            fetchRequests();
+        } catch (err) {
+            console.error('Failed to fetch status counts:', err);
+            // Don't update counts on error, keep previous values
+        } finally {
+            setLoadingCounts(false);
         }
-    }, [token, teamId, currentPage, pageSize, statusFilter, sortByField, sortDirection]);
+    }, [token, isAdmin, isManager, isFieldOfficer, teamId, sortByField, sortDirection]);
 
-    const fetchRequests = async () => {
+    // Function to fetch requests
+    const fetchRequests = useCallback(async () => {
         if (!token) return;
         
         // For managers and field officers, wait until teamId is available
@@ -264,7 +331,34 @@ const ApprovalsPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token, isManager, isFieldOfficer, teamId, isAdmin, currentPage, pageSize, statusFilter, searchTerm, sortByField, sortDirection]);
+
+    // Debounced search effect
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            if (token) {
+                setCurrentPage(0); // Reset to first page when searching
+                fetchRequests();
+            }
+        }, 300); // 300ms debounce
+
+        return () => clearTimeout(timeoutId);
+    }, [searchTerm, token, fetchRequests]);
+
+    // Fetch counts when roles and teamId are determined
+    useEffect(() => {
+        if (token && userRoleFromAPI !== null) {
+            // For managers and field officers, wait until teamId is available
+            if ((isManager || isFieldOfficer) && teamId === null) return;
+            fetchStatusCounts();
+        }
+    }, [token, userRoleFromAPI, teamId, isAdmin, isManager, isFieldOfficer, fetchStatusCounts]);
+
+    useEffect(() => {
+        if (token) {
+            fetchRequests();
+        }
+    }, [token, teamId, currentPage, pageSize, statusFilter, sortByField, sortDirection, fetchRequests]);
 
     const handleApproval = async (id: number, action: 'approved' | 'rejected') => {
         if (!token) return;
@@ -283,6 +377,8 @@ const ApprovalsPage = () => {
                 }
             );
             await fetchRequests();
+            // Refresh counts after approval action
+            await fetchStatusCounts();
             setApprovalType(prev => ({ ...prev, [id]: null }));
         } catch (err) {
             setError('Failed to update request status. Please try again.');
@@ -315,27 +411,8 @@ const ApprovalsPage = () => {
         });
     };
 
-    const getStatusCounts = () => {
-        const counts = {
-            all: requests.length,
-            pending: 0,
-            approved: 0,
-            rejected: 0
-        };
-
-        // Note: Statistics are now calculated server-side for better performance
-        // This is just for display purposes with current page data
-        requests.forEach(request => {
-            const status = request.status?.toLowerCase();
-            if (status === "pending") counts.pending++;
-            if (status === "approved") counts.approved++;
-            if (status === "rejected") counts.rejected++;
-        });
-
-        return counts;
-    };
-
-    const statusCounts = getStatusCounts();
+    // Use cached counts instead of calculating from filtered requests
+    const statusCounts = statusCountsCache;
 
     if (loading) {
         return (

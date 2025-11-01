@@ -520,6 +520,32 @@ export interface TeamResponseDto {
   avp?: TeamAvpValue;
 }
 
+// Team Hierarchy API Types
+export interface ScopedEmployee {
+  id: number;
+  name: string;
+  role: string;
+  employeeCode: string | null;
+  city: string;
+  state: string;
+  assignedCities: string[];
+}
+
+export interface TeamHierarchy {
+  teamId: number;
+  teamType: string;
+  avp: ScopedEmployee | null;
+  manager: ScopedEmployee | null;
+  fieldOfficers: ScopedEmployee[];
+  assignedCities: string[];
+}
+
+export interface TeamHierarchyResponse {
+  currentEmployee: ScopedEmployee;
+  scopeRole: string;
+  teams: TeamHierarchy[];
+}
+
 export interface TeamCreateRequest {
   officeManager: number;
   fieldOfficers: number[];
@@ -776,6 +802,10 @@ export class API {
 
   static async getTeams(): Promise<TeamResponseDto[]> {
     return apiService.getTeams();
+  }
+
+  static async getTeamHierarchyScoped(): Promise<TeamHierarchyResponse> {
+    return apiService.getTeamHierarchyScoped();
   }
 
   static async createTeam(payload: TeamCreateRequest): Promise<number> {
@@ -1275,7 +1305,7 @@ export class API {
     const queryParams = new URLSearchParams();
     
     if (params.storeName) queryParams.append('storeName', params.storeName);
-    if (params.ownerName) queryParams.append('clientName', params.ownerName);
+    if (params.ownerName) queryParams.append('clientFirstName', params.ownerName);
     if (params.city) queryParams.append('city', params.city);
     if (params.state) queryParams.append('state', params.state);
     if (params.clientType) queryParams.append('clientType', params.clientType);
@@ -1617,6 +1647,10 @@ export class API {
   // Bulk Visit Assignment APIs
   async getTeamFieldOfficers(): Promise<EmployeeDto[]> {
     return this.makeRequest<EmployeeDto[]>('/employee/getTeamFieldOfficers');
+  }
+
+  async getTeamHierarchyScoped(): Promise<TeamHierarchyResponse> {
+    return this.makeRequest<TeamHierarchyResponse>('/employee/team/hierarchy/scoped');
   }
 
   async getAllFieldOfficers(city?: string, state?: string): Promise<EmployeeDto[]> {

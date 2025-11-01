@@ -806,7 +806,7 @@ function CustomerListContent() {
                                 <DropdownMenuSeparator />
                                 {[
                                     { value: 'shopName', label: 'Shop Name' },
-                                    { value: 'ownerName', label: 'Owner Name' },
+                                    { value: 'ownerName', label: 'Owner First Name' },
                                     { value: 'city', label: 'City' },
                                     { value: 'state', label: 'State' },
                                     { value: 'storeLocation', label: 'Store Location' },
@@ -865,7 +865,7 @@ function CustomerListContent() {
                         <CardContent className="p-4">
                             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                 {renderFilterInput('storeName', 'Shop Name', <User className="h-4 w-4" />, false)}
-                                {renderFilterInput('ownerName', 'Owner Name', <User className="h-4 w-4" />, false)}
+                                {renderFilterInput('ownerName', 'Owner First Name', <User className="h-4 w-4" />, false)}
                                 {renderFilterInput('city', 'City', <Home className="h-4 w-4" />, false)}
                                 {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, false)}
                                 {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, false)}
@@ -889,7 +889,7 @@ function CustomerListContent() {
                         </SheetHeader>
                         <div className="py-4 space-y-4">
                             {renderFilterInput('storeName', 'Shop Name', <User className="h-4 w-4" />, true)}
-                            {renderFilterInput('ownerName', 'Owner Name', <User className="h-4 w-4" />, true)}
+                            {renderFilterInput('ownerName', 'Owner First Name', <User className="h-4 w-4" />, true)}
                             {renderFilterInput('city', 'City', <Home className="h-4 w-4" />, true)}
                             {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, true)}
                             {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, true)}
@@ -1064,7 +1064,7 @@ function CustomerListContent() {
                                 )}
                                 {selectedColumns.includes('ownerName') && (
                                     <TableHead className="cursor-pointer" onClick={() => handleSort('ownerName')}>
-                                        Owner Name
+                                        Owner First Name
                                         {sortColumn === 'ownerFirstName' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}

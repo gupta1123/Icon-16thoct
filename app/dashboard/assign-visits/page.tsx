@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Save, X, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { apiService, type EmployeeDto, type StoreDto, type VisitDto } from "@/lib/api";
+import { apiService, type EmployeeDto, type StoreDto, type VisitDto, type TeamHierarchyResponse, type ScopedEmployee } from "@/lib/api";
 
 // Using the actual types from API
 type Store = StoreDto;
@@ -129,26 +129,84 @@ export default function AssignVisitsPage() {
                            currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_COORDINATOR');
       const isDataManager = userRole === 'DATA_MANAGER' || 
                             currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_DATA_MANAGER');
+      const isManager = userRole === 'MANAGER' || 
+                        currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_MANAGER') ||
+                        userRole === 'OFFICE MANAGER' || 
+                        currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_OFFICE MANAGER');
       
-      console.log('Role checks:', { isRegionalManager, isAdmin, isCoordinator, isDataManager });
+      console.log('Role checks:', { isRegionalManager, isAdmin, isCoordinator, isDataManager, isManager });
       
-      if (isRegionalManager) {
-        console.log('Loading team field officers...');
+      // Use hierarchy API for all roles - it returns scoped team based on logged-in user
+      // The API automatically scopes results based on the logged-in user's role (Admin, AVP, Regional Manager, Coordinator, Data Manager, Manager)
+      if (isRegionalManager || isAdmin || isCoordinator || isDataManager || isManager) {
+        console.log('Loading team hierarchy with scoped API...');
         try {
-          employeeData = await apiService.getTeamFieldOfficers();
-          console.log('Team field officers loaded:', employeeData);
+          // Use the hierarchy API to get team structure scoped to current user's role
+          const hierarchyData: TeamHierarchyResponse = await apiService.getTeamHierarchyScoped();
+          console.log('Team hierarchy loaded:', hierarchyData);
+          
+          // Extract all field officers from all teams
+          const fieldOfficers: ScopedEmployee[] = [];
+          hierarchyData.teams.forEach(team => {
+            fieldOfficers.push(...team.fieldOfficers);
+          });
+          
+          // Convert ScopedEmployee to EmployeeDto format
+          employeeData = fieldOfficers.map((fo: ScopedEmployee) => {
+            // Split name into firstName and lastName
+            const nameParts = fo.name.trim().split(' ');
+            const firstName = nameParts[0] || '';
+            const lastName = nameParts.slice(1).join(' ') || '';
+            
+            return {
+              id: fo.id,
+              firstName,
+              lastName,
+              employeeId: fo.employeeCode || '',
+              primaryContact: 0,
+              secondaryContact: 0,
+              departmentName: '',
+              email: '',
+              role: fo.role,
+              addressLine1: '',
+              addressLine2: '',
+              city: fo.city,
+              state: fo.state,
+              country: 'India',
+              pincode: 0,
+              dateOfJoining: '',
+              createdAt: '',
+              status: 'ACTIVE'
+            } as EmployeeDto;
+          });
+          
+          console.log('Field officers converted:', employeeData);
+          
+          // Fallback to old APIs if new API doesn't return field officers
+          if (employeeData.length === 0) {
+            console.log('No field officers from hierarchy, falling back to role-specific APIs...');
+            if (isRegionalManager) {
+              employeeData = await apiService.getTeamFieldOfficers();
+            } else {
+              employeeData = await apiService.getAllFieldOfficers();
+            }
+          }
         } catch (apiError) {
-          console.error('API Error loading team field officers:', apiError);
-          throw apiError;
-        }
-      } else if (isAdmin || isCoordinator || isDataManager) {
-        console.log('Loading all field officers...');
-        try {
-          employeeData = await apiService.getAllFieldOfficers();
-          console.log('All field officers loaded:', employeeData);
-        } catch (apiError) {
-          console.error('API Error loading all field officers:', apiError);
-          throw apiError;
+          console.error('API Error loading team hierarchy:', apiError);
+          // Fallback to old APIs on error
+          try {
+            console.log('Falling back to role-specific APIs...');
+            if (isRegionalManager) {
+              employeeData = await apiService.getTeamFieldOfficers();
+              console.log('Team field officers loaded (fallback):', employeeData);
+            } else {
+              employeeData = await apiService.getAllFieldOfficers();
+              console.log('All field officers loaded (fallback):', employeeData);
+            }
+          } catch (fallbackError) {
+            console.error('Fallback API Error:', fallbackError);
+            throw apiError; // Throw original error
+          }
         }
       } else {
         throw new Error(`Insufficient permissions to load employees. Current role: ${userRole}, Authorities: ${JSON.stringify(currentUser?.authorities)}`);

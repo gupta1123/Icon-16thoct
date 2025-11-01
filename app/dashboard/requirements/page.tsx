@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { format, subDays, differenceInDays } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { API, type TeamDataDto } from '@/lib/api';
@@ -19,7 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, Image } from 'lucide-react';
 import SearchableSelect from "@/components/searchable-select";
 
@@ -105,6 +105,8 @@ const Requirements = () => {
     const [isCreating, setIsCreating] = useState(false);
     const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
     const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+    const [isMobileStartDatePickerOpen, setIsMobileStartDatePickerOpen] = useState(false);
+    const [isMobileEndDatePickerOpen, setIsMobileEndDatePickerOpen] = useState(false);
     const [isDueDatePickerOpen, setIsDueDatePickerOpen] = useState(false);
 
     const { token, userRole, userData, currentUser } = useAuth();
@@ -178,17 +180,6 @@ const Requirements = () => {
 
     const handleDateChange = (key: string, value: string) => {
         const newFilters = { ...filters, [key]: value };
-
-        if (newFilters.startDate && newFilters.endDate) {
-            const startDate = new Date(newFilters.startDate);
-            const endDate = new Date(newFilters.endDate);
-
-            if (differenceInDays(endDate, startDate) > 30) {
-                setErrorMessage('Date range should not exceed 30 days');
-                return;
-            }
-        }
-
         setFilters(newFilters);
     };
 
@@ -431,10 +422,15 @@ const Requirements = () => {
 
     useEffect(() => {
         if (tasks.length > 0) {
-            const uniqueEmployees = uniqBy(tasks.map(task => ({
-                id: task.assignedToId,
-                name: task.assignedToName
-            })), 'id');
+            const uniqueEmployees = uniqBy(
+                tasks
+                    .filter(task => task.assignedToId != null && task.assignedToId !== 0) // Filter out null/undefined/zero IDs
+                    .map(task => ({
+                        id: task.assignedToId,
+                        name: task.assignedToName || 'Unknown Employee'
+                    })),
+                'id'
+            );
             const sortedEmployees = sortBy(uniqueEmployees, 'name');
             setFilterEmployees(sortedEmployees);
 
@@ -737,10 +733,10 @@ const Requirements = () => {
                         <SelectContent>
                             <SelectItem value="all">All Employees</SelectItem>
                             {filterEmployees
-                                .filter((employee) => employee.id != null)
+                                .filter((employee) => employee.id != null && employee.id !== 0)
                                 .map((employee) => (
-                                    <SelectItem key={employee.id} value={employee.id.toString()}>
-                                        {employee.name}
+                                    <SelectItem key={employee.id} value={String(employee.id)}>
+                                        {employee.name || 'Unknown Employee'}
                                     </SelectItem>
                                 ))}
                         </SelectContent>
@@ -854,6 +850,175 @@ const Requirements = () => {
                         </>
                 </div>
             </div>
+
+            {/* Mobile Filters Sheet */}
+            <Sheet open={isFilterDrawerOpen} onOpenChange={setIsFilterDrawerOpen}>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle className="text-base font-medium">Requirement Filters</SheetTitle>
+                    </SheetHeader>
+                    <div className="py-4 space-y-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="filterSearch" className="text-sm">Search</Label>
+                            <Input
+                                id="filterSearch"
+                                placeholder="Search requirements"
+                                value={filters.search}
+                                onChange={(e) => handleFilterChange('search', e.target.value)}
+                                className="text-sm"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-sm">Employee</Label>
+                            <Select value={filters.employee} onValueChange={(value) => handleFilterChange('employee', value)}>
+                                <SelectTrigger className="w-full text-sm bg-background border-border">
+                                    <SelectValue placeholder="Filter by employee" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Employees</SelectItem>
+                                    {filterEmployees
+                                        .filter(employee => employee.id != null && employee.id !== 0) // Additional safety check
+                                        .map((employee) => (
+                                            <SelectItem key={employee.id} value={String(employee.id)}>
+                                                {employee.name || 'Unknown Employee'}
+                                            </SelectItem>
+                                        ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-sm">Priority</Label>
+                            <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
+                                <SelectTrigger className="w-full text-sm bg-background border-border">
+                                    <SelectValue placeholder="Filter by priority" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Priorities</SelectItem>
+                                    <SelectItem value="low">Low</SelectItem>
+                                    <SelectItem value="medium">Medium</SelectItem>
+                                    <SelectItem value="high">High</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-sm">Status</Label>
+                            <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
+                                <SelectTrigger className="w-full bg-background border-border">
+                                    <SelectValue placeholder="Filter by status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Open Statuses</SelectItem>
+                                    <SelectItem value="Assigned">Assigned</SelectItem>
+                                    <SelectItem value="Work In Progress">Work In Progress</SelectItem>
+                                    <SelectItem value="Complete">Complete</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-sm">District</Label>
+                            <Select value={filters.district} onValueChange={(value) => handleFilterChange('district', value)}>
+                                <SelectTrigger className="w-full bg-background border-border">
+                                    <SelectValue placeholder="Filter by district" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Districts</SelectItem>
+                                    {filterDistricts.map((district) => (
+                                        <SelectItem key={district} value={district}>
+                                            {district}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label>From</Label>
+                                <Popover open={isMobileStartDatePickerOpen} onOpenChange={setIsMobileStartDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`w-full justify-start text-left font-normal ${!filters.startDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick start date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('startDate', `${year}-${month}-${day}`);
+                                                    setIsMobileStartDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('startDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>To</Label>
+                                <Popover open={isMobileEndDatePickerOpen} onOpenChange={setIsMobileEndDatePickerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className={`w-full justify-start text-left font-normal ${!filters.endDate && 'text-muted-foreground'}`}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Pick end date</span>}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
+                                            onSelect={(date) => {
+                                                if (date) {
+                                                    const year = date.getFullYear();
+                                                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                    const day = String(date.getDate()).padStart(2, '0');
+                                                    handleDateChange('endDate', `${year}-${month}-${day}`);
+                                                    setIsMobileEndDatePickerOpen(false);
+                                                } else {
+                                                    handleDateChange('endDate', '');
+                                                }
+                                            }}
+                                            initialFocus
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        </div>
+                    </div>
+                    <SheetFooter className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                const today = format(new Date(), 'yyyy-MM-dd');
+                                setFilters({
+                                    search: '',
+                                    employee: '',
+                                    priority: '',
+                                    status: '',
+                                    district: 'all',
+                                    startDate: today,
+                                    endDate: today,
+                                });
+                            }}
+                        >
+                            Clear All
+                        </Button>
+                        <Button onClick={() => setIsFilterDrawerOpen(false)}>Apply Filters</Button>
+                    </SheetFooter>
+                </SheetContent>
+            </Sheet>
 
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent>
