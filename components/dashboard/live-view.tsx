@@ -177,7 +177,8 @@ export function DashboardLiveView({
     setStoreError(null);
 
     try {
-      const response = await fetch("/api/proxy/store/getAll", {
+      // Use the new /store/summary endpoint instead of /store/getAll
+      const response = await fetch("/api/proxy/store/summary", {
         headers: {
           Authorization: `Bearer ${authToken}`,
           Accept: "application/json",
@@ -195,6 +196,8 @@ export function DashboardLiveView({
         throw new Error("Unexpected response format while fetching store locations.");
       }
 
+      // The /store/summary endpoint returns data in the exact format we need
+      // so we can use normalizeStoreLocations to ensure compatibility
       const normalized = normalizeStoreLocations(payload);
 
       setStores(normalized);

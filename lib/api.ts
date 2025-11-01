@@ -432,6 +432,15 @@ export interface StoreDto {
   likes?: unknown;
 }
 
+export interface StoreSummary {
+  storeId: number;
+  storeName: string;
+  city: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface StoreResponse {
   content: StoreDto[];
   pageable: {
@@ -890,6 +899,10 @@ export class API {
 
   static async getStoresForTeam(teamId: number, page: number = 0, size: number = 10): Promise<StoreResponse> {
     return apiService.getStoresForTeam(teamId, page, size);
+  }
+
+  static async getStoreSummary(): Promise<StoreSummary[]> {
+    return apiService.getStoreSummary();
   }
 
   // Location static methods
@@ -1583,6 +1596,10 @@ export class API {
 
   async getStoresForTeam(teamId: number, page: number = 0, size: number = 10): Promise<StoreResponse> {
     return this.makeRequest<StoreResponse>(`/store/getForTeam?teamId=${teamId}&page=${page}&size=${size}`);
+  }
+
+  async getStoreSummary(): Promise<StoreSummary[]> {
+    return this.makeRequest<StoreSummary[]>('/store/summary');
   }
 
   // Location APIs

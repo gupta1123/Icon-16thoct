@@ -25,7 +25,7 @@ import {
 import { MapPin, Users, Calendar, ArrowLeft, Building } from "lucide-react";
 import { Heading, Text } from "@/components/ui/typography";
 import PricingCheckModal from "@/components/pricing-check-modal";
-import { API, type DashboardEmployeeSummary, type DashboardEmployeeVisitPoint, type DashboardLiveLocationSummary, type DashboardOverviewResponse, type CurrentUserDto } from "@/lib/api";
+import { API, type DashboardEmployeeSummary, type DashboardEmployeeVisitPoint, type DashboardLiveLocationSummary, type DashboardOverviewResponse, type CurrentUserDto, type StoreSummary } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardLiveView } from "@/components/dashboard/live-view";
@@ -224,6 +224,7 @@ function DashboardPageContent() {
   const [originalEmployeeMapZoom, setOriginalEmployeeMapZoom] = useState<number | null>(null);
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
+  const [storeSummaries, setStoreSummaries] = useState<StoreSummary[]>([]);
   const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -323,6 +324,22 @@ function DashboardPageContent() {
           } satisfies MapMarker;
         })
         .filter(Boolean) as MapMarker[],
+    []
+  );
+
+  const buildStoreMarkers = useCallback(
+    (stores: StoreSummary[]): MapMarker[] =>
+      stores
+        .filter((store) => store.latitude != null && store.longitude != null)
+        .map((store) => ({
+          id: `store-${store.storeId}`,
+          lat: store.latitude,
+          lng: store.longitude,
+          label: store.storeName,
+          description: `${store.storeName}, ${store.city}, ${store.state}`,
+          variant: "store" as const,
+        }) satisfies MapMarker,
+        ),
     []
   );
 
@@ -505,7 +522,9 @@ function DashboardPageContent() {
 
         // Update map markers for dashboard view
         if (view === "dashboard") {
-          setMapMarkers(buildLiveMarkers(data.liveLocations));
+          const liveMarkers = buildLiveMarkers(data.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
         }
       } catch (err: unknown) {
         console.error("Dashboard - Error fetching overview:", err);
@@ -522,13 +541,32 @@ function DashboardPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange.start, dateRange.end, isRoleDetermined, isHR]);
 
+  // Fetch store summaries
+  useEffect(() => {
+    const loadStoreSummaries = async () => {
+      if (!token) return;
+      
+      try {
+        const stores = await API.getStoreSummary();
+        setStoreSummaries(stores);
+      } catch (err: unknown) {
+        console.error("Dashboard - Error fetching store summaries:", err);
+        // Don't set error state for store summaries failure, just log it
+      }
+    };
+
+    loadStoreSummaries();
+  }, [token]);
+
   // Separate effect to update map markers when view changes back to dashboard
   useEffect(() => {
     if (view === "dashboard" && overview && !isLoadingOverview) {
-      setMapMarkers(buildLiveMarkers(overview.liveLocations));
+      const liveMarkers = buildLiveMarkers(overview.liveLocations);
+      const storeMarkers = buildStoreMarkers(storeSummaries);
+      setMapMarkers([...liveMarkers, ...storeMarkers]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, overview, storeSummaries]);
 
   const checkPricingForToday = useCallback(async () => {
     if (!token || !(isAdmin || isDataManager)) return;
@@ -810,7 +848,9 @@ function DashboardPageContent() {
         setMapCenter(DEFAULT_MAP_CENTER);
         setMapZoom(DEFAULT_MAP_ZOOM);
         if (overview) {
-          setMapMarkers(buildLiveMarkers(overview.liveLocations));
+          const liveMarkers = buildLiveMarkers(overview.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
         }
       } else {
         console.log("Going back to dashboard view");
@@ -825,7 +865,9 @@ function DashboardPageContent() {
         setMapCenter(DEFAULT_MAP_CENTER);
         setMapZoom(DEFAULT_MAP_ZOOM);
         if (overview) {
-          setMapMarkers(buildLiveMarkers(overview.liveLocations));
+          const liveMarkers = buildLiveMarkers(overview.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
         }
       }
       // Re-enable URL-driven effects shortly after navigation settles
@@ -845,11 +887,13 @@ function DashboardPageContent() {
       setMapCenter(DEFAULT_MAP_CENTER);
       setMapZoom(DEFAULT_MAP_ZOOM);
       if (overview) {
-        setMapMarkers(buildLiveMarkers(overview.liveLocations));
+        const liveMarkers = buildLiveMarkers(overview.liveLocations);
+        const storeMarkers = buildStoreMarkers(storeSummaries);
+        setMapMarkers([...liveMarkers, ...storeMarkers]);
       }
       setNavigationHistory(prev => prev.slice(0, -1));
     }
-  }, [view, previousView, overview, buildLiveMarkers, selectedState, pathname, router, searchParams, selectedDateRange]);
+  }, [view, previousView, overview, storeSummaries, buildLiveMarkers, buildStoreMarkers, selectedState, pathname, router, searchParams, selectedDateRange]);
 
   const handleStateSelect = useCallback((state: SelectedState) => {
     if (!state) return;
@@ -1071,9 +1115,11 @@ function DashboardPageContent() {
     }
     
     if (overview) {
-      setMapMarkers(buildLiveMarkers(overview.liveLocations));
+      const liveMarkers = buildLiveMarkers(overview.liveLocations);
+      const storeMarkers = buildStoreMarkers(storeSummaries);
+      setMapMarkers([...liveMarkers, ...storeMarkers]);
     }
-  }, [overview, buildLiveMarkers, originalEmployeeMapCenter, originalEmployeeMapZoom]);
+  }, [overview, storeSummaries, buildLiveMarkers, buildStoreMarkers, originalEmployeeMapCenter, originalEmployeeMapZoom]);
 
   const handleEmployeeDetailSelect = useCallback((employee: Employee) => {
     setSelectedEmployee(employee);

@@ -372,28 +372,36 @@ function CustomerListContent() {
             let data: StoreResponse;
             
             if (isAvp) {
-                // For AVP, use filteredValues API call
+                // For AVP, use filteredValues API call with query parameters
                 console.log('AVP API call');
                 // Map sort to single 'sort' param as required by provided URL pattern
                 let mappedSortColumn = sortColumn;
                 if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
                 if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
 
-                const baseUrl = '/api/proxy/store/filteredValues';
-                const url = `${baseUrl}?page=${currentPage - 1}&size=10&sort=${encodeURIComponent(`${mappedSortColumn},${sortDirection}`)}${desktopFilters.storeName ? `&storeName=${encodeURIComponent(desktopFilters.storeName)}` : ''}`;
+                // Build query parameters for filters
+                const queryParams = new URLSearchParams();
+                queryParams.append('page', (currentPage - 1).toString());
+                queryParams.append('size', '10');
+                queryParams.append('sort', `${mappedSortColumn},${sortDirection}`);
+                
+                // Add filters as query parameters
+                if (desktopFilters.storeName) queryParams.append('storeName', desktopFilters.storeName);
+                if (desktopFilters.ownerName) queryParams.append('clientFirstName', desktopFilters.ownerName);
+                if (desktopFilters.city) queryParams.append('city', desktopFilters.city);
+                if (desktopFilters.state) queryParams.append('state', desktopFilters.state);
+                if (desktopFilters.clientType) queryParams.append('clientType', desktopFilters.clientType);
+                if (desktopFilters.dealerSubType) queryParams.append('dealerSubType', desktopFilters.dealerSubType);
+                if (desktopFilters.primaryContact) {
+                    const cleanedPhone = desktopFilters.primaryContact.replace(/\D/g, '');
+                    if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
+                }
 
+                const url = `/api/proxy/store/filteredValues?${queryParams.toString()}`;
                 const headers: Record<string, string> = {
                     Authorization: token ? `Bearer ${token}` : '',
                     'Content-Type': 'application/json',
                 };
-                // Pass chosen filters via headers
-                if (desktopFilters.storeName) headers['x-store-name'] = desktopFilters.storeName;
-                if (desktopFilters.ownerName) headers['x-owner-name'] = desktopFilters.ownerName;
-                if (desktopFilters.city) headers['x-city'] = desktopFilters.city;
-                if (desktopFilters.state) headers['x-state'] = desktopFilters.state;
-                if (desktopFilters.clientType) headers['x-client-type'] = desktopFilters.clientType;
-                if (desktopFilters.dealerSubType) headers['x-dealer-sub-type'] = desktopFilters.dealerSubType;
-                if (desktopFilters.primaryContact) headers['x-primary-contact'] = desktopFilters.primaryContact;
 
                 const resp = await fetch(url, { headers });
                 if (!resp.ok) {
@@ -441,43 +449,44 @@ function CustomerListContent() {
                 });
                 console.log('Coordinator API response:', data);
             } else if (isAdmin) {
-                // For admins, call the localhost proxy and pass filters via headers
-                console.log('Admin API call (localhost proxy with headers)');
-                if (employeeId) {
-                    // Keep employee-specific endpoint behavior
-                    data = await API.getStoresByEmployee(Number(employeeId), {
-                        sortBy: sortColumn,
-                        sortOrder: sortDirection,
-                    });
-                } else {
-                    // Map sort to single 'sort' param as required by provided URL pattern
-                    let mappedSortColumn = sortColumn;
-                    if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
-                    if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
+                // For admins, always use filteredValues endpoint with query parameters
+                console.log('Admin API call (using filteredValues endpoint)');
+                // Map sort to single 'sort' param as required by provided URL pattern
+                let mappedSortColumn = sortColumn;
+                if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
+                if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
 
-                    const baseUrl = '/api/proxy/store/filteredValues';
-                    const url = `${baseUrl}?page=${currentPage - 1}&size=10&sort=${encodeURIComponent(`${mappedSortColumn},${sortDirection}`)}${desktopFilters.storeName ? `&storeName=${encodeURIComponent(desktopFilters.storeName)}` : ''}`;
-
-                    const headers: Record<string, string> = {
-                        Authorization: token ? `Bearer ${token}` : '',
-                        'Content-Type': 'application/json',
-                    };
-                    // Pass chosen filters via headers
-                    if (desktopFilters.storeName) headers['x-store-name'] = desktopFilters.storeName;
-                    if (desktopFilters.ownerName) headers['x-owner-name'] = desktopFilters.ownerName;
-                    if (desktopFilters.city) headers['x-city'] = desktopFilters.city;
-                    if (desktopFilters.state) headers['x-state'] = desktopFilters.state;
-                    if (desktopFilters.clientType) headers['x-client-type'] = desktopFilters.clientType;
-                    if (desktopFilters.dealerSubType) headers['x-dealer-sub-type'] = desktopFilters.dealerSubType;
-                    if (desktopFilters.primaryContact) headers['x-primary-contact'] = desktopFilters.primaryContact;
-
-                    const resp = await fetch(url, { headers });
-                    if (!resp.ok) {
-                        const text = await resp.text();
-                        throw new Error(`Admin customers fetch failed: ${resp.status} ${text}`);
-                    }
-                    data = await resp.json();
+                // Build query parameters for filters
+                const queryParams = new URLSearchParams();
+                queryParams.append('page', (currentPage - 1).toString());
+                queryParams.append('size', '10');
+                queryParams.append('sort', `${mappedSortColumn},${sortDirection}`);
+                
+                // Add filters as query parameters
+                if (desktopFilters.storeName) queryParams.append('storeName', desktopFilters.storeName);
+                if (desktopFilters.ownerName) queryParams.append('clientFirstName', desktopFilters.ownerName);
+                if (desktopFilters.city) queryParams.append('city', desktopFilters.city);
+                if (desktopFilters.state) queryParams.append('state', desktopFilters.state);
+                if (desktopFilters.clientType) queryParams.append('clientType', desktopFilters.clientType);
+                if (desktopFilters.dealerSubType) queryParams.append('dealerSubType', desktopFilters.dealerSubType);
+                if (desktopFilters.primaryContact) {
+                    const cleanedPhone = desktopFilters.primaryContact.replace(/\D/g, '');
+                    if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
                 }
+
+                const url = `/api/proxy/store/filteredValues?${queryParams.toString()}`;
+                const headers: Record<string, string> = {
+                    Authorization: token ? `Bearer ${token}` : '',
+                    'Content-Type': 'application/json',
+                };
+
+                const resp = await fetch(url, { headers });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    throw new Error(`Admin customers fetch failed: ${resp.status} ${text}`);
+                }
+                data = await resp.json();
+                console.log('Admin API response:', data);
             } else {
                 // Default to admin API call for unknown roles
                 console.log('Default (Admin) API call for unknown role');
