@@ -6,18 +6,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CreditCard,
   Calendar,
-  Users,
   BarChart3,
   Home,
+  Users,
 } from "lucide-react";
 
 // Import all the setting components
 import EmployeeSummary from "@/components/EmployeeSummary";
 import Allowance from "@/components/Allowance";
 import WorkingDays from "@/components/WorkingDays";
-import Teams from "@/components/Teams";
 import DailyBreakdown from "@/components/DailyBreakdown";
 import HomeLocationRequests from "@/components/HomeLocationRequests";
+import TestTeamsPage from "@/app/dashboard/test-teams/page";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("employeeSummary");
@@ -51,14 +51,6 @@ export default function SettingsPage() {
             <span className="hidden sm:inline">Working Days</span>
           </TabsTrigger>
           <TabsTrigger
-            value="team"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Team"
-          >
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Team</span>
-          </TabsTrigger>
-          <TabsTrigger
             value="home-location"
             className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
             aria-label="Home Location Updates"
@@ -74,6 +66,14 @@ export default function SettingsPage() {
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Daily Breakdown</span>
           </TabsTrigger>
+          <TabsTrigger
+            value="test-teams"
+            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
+            aria-label="Teams"
+          >
+            <Users className="h-4 w-4" />
+            <span className="hidden sm:inline">Teams</span>
+          </TabsTrigger>
         </TabsList>
         
         <TabsContent value="employeeSummary">
@@ -87,10 +87,6 @@ export default function SettingsPage() {
         <TabsContent value="working-days">
           <WorkingDays />
         </TabsContent>
-        
-        <TabsContent value="team">
-          <Teams />
-        </TabsContent>
 
         <TabsContent value="home-location">
           <HomeLocationRequests />
@@ -98,6 +94,10 @@ export default function SettingsPage() {
         
         <TabsContent value="dailyBreakdown">
           <DailyBreakdown />
+        </TabsContent>
+        
+        <TabsContent value="test-teams">
+          <TestTeamsPage />
         </TabsContent>
       </Tabs>
     </div>

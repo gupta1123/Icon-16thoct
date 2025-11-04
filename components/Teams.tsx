@@ -108,6 +108,316 @@ interface FieldOfficer {
     primaryContact?: number;
 }
 
+interface HierarchyEmployee {
+    id?: number | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    name?: string | null;
+    role?: string | null;
+    email?: string | null;
+    emailId?: string | null;
+    emailAddress?: string | null;
+    officialEmail?: string | null;
+    primaryContact?: number | string | null;
+    secondaryContact?: number | string | null;
+    contactNumber?: number | string | null;
+    phone?: number | string | null;
+    phoneNumber?: number | string | null;
+    mobile?: number | string | null;
+    alternateContact?: number | string | null;
+    departmentName?: string | null;
+    department?: string | null;
+    city?: string | null;
+    state?: string | null;
+    status?: string | null;
+    employmentStatus?: string | null;
+    dateOfJoining?: string | null;
+    joiningDate?: string | null;
+    assignedCity?: unknown;
+    assignedCities?: unknown;
+    cities?: unknown;
+    fieldOfficers?: HierarchyEmployee[] | null;
+}
+
+interface HierarchyManagerEntry {
+    teamId?: number | null;
+    manager?: HierarchyEmployee | null;
+    fieldOfficers?: HierarchyEmployee[] | null;
+}
+
+interface HierarchyAvpGroup {
+    avp?: HierarchyEmployee | null;
+    managers?: HierarchyManagerEntry[] | null;
+}
+
+interface TeamHierarchyApiResponse {
+    avpTeams?: HierarchyAvpGroup[] | null;
+    regionalManagerTeams?: HierarchyManagerEntry[] | null;
+    coordinatorTeams?: HierarchyManagerEntry[] | null;
+}
+
+const toContactNumber = (value: unknown): number | undefined => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const digits = value.replace(/\D/g, '');
+        if (!digits) {
+            return undefined;
+        }
+        const numeric = Number(digits);
+        return Number.isFinite(numeric) ? numeric : undefined;
+    }
+    return undefined;
+};
+
+const toStringArray = (value: unknown): string[] => {
+    if (!value) {
+        return [];
+    }
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) => {
+                if (typeof entry === 'string') {
+                    return entry.trim();
+                }
+                if (entry == null) {
+                    return '';
+                }
+                return String(entry).trim();
+            })
+            .filter((entry) => entry.length > 0);
+    }
+    if (typeof value === 'string') {
+        return value
+            .split(',')
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
+    }
+    return [String(value)].filter((entry) => entry.length > 0);
+};
+
+const resolveNameParts = (
+    employee?: HierarchyEmployee | null
+): { firstName: string | null; lastName: string | null } => {
+    const directFirst = employee?.firstName?.trim();
+    const directLast = employee?.lastName?.trim();
+
+    if (directFirst || directLast) {
+        return {
+            firstName: directFirst || null,
+            lastName: directLast || null,
+        };
+    }
+
+    const displayName = employee?.name?.trim();
+    if (!displayName) {
+        return { firstName: null, lastName: null };
+    }
+
+    const segments = displayName.split(/\s+/);
+    if (segments.length === 0) {
+        return { firstName: null, lastName: null };
+    }
+    const [first, ...rest] = segments;
+    return {
+        firstName: first ?? null,
+        lastName: rest.length > 0 ? rest.join(' ') : null,
+    };
+};
+
+const resolveEmail = (employee?: HierarchyEmployee | null): string | undefined => {
+    return (
+        employee?.email ||
+        employee?.emailId ||
+        employee?.emailAddress ||
+        employee?.officialEmail ||
+        undefined
+    )?.trim() || undefined;
+};
+
+const resolveAssignedCities = (employee?: HierarchyEmployee | null): string[] => {
+    if (!employee) return [];
+
+    const combined: string[] = [];
+
+    combined.push(...toStringArray(employee.assignedCity));
+    combined.push(...toStringArray(employee.assignedCities));
+    combined.push(...toStringArray(employee.cities));
+
+    if (combined.length === 0 && employee.city) {
+        combined.push(employee.city);
+    }
+
+    // Deduplicate while preserving order
+    const seen = new Set<string>();
+    return combined.filter((city) => {
+        if (!city) return false;
+        const normalized = city.trim();
+        if (!normalized || seen.has(normalized.toLowerCase())) {
+            return false;
+        }
+        seen.add(normalized.toLowerCase());
+        return true;
+    });
+};
+
+const buildOfficeManager = (employee?: HierarchyEmployee | null): Team["officeManager"] => {
+    const { firstName, lastName } = resolveNameParts(employee);
+    const role = employee?.role ?? undefined;
+
+    return {
+        id: typeof employee?.id === 'number' ? employee.id : 0,
+        firstName,
+        lastName,
+        role,
+        email: resolveEmail(employee),
+        primaryContact: toContactNumber(
+            employee?.primaryContact ??
+                employee?.contactNumber ??
+                employee?.phone ??
+                employee?.phoneNumber ??
+                employee?.mobile
+        ),
+        secondaryContact: toContactNumber(employee?.secondaryContact ?? employee?.alternateContact),
+        departmentName: employee?.departmentName ?? employee?.department ?? undefined,
+        assignedCity: resolveAssignedCities(employee),
+        city: employee?.city ?? undefined,
+        state: employee?.state ?? undefined,
+        dateOfJoining: employee?.dateOfJoining ?? employee?.joiningDate ?? undefined,
+        status: employee?.status ?? employee?.employmentStatus ?? undefined,
+    };
+};
+
+const buildAvpMember = (employee?: HierarchyEmployee | null): Team["avp"] => {
+    if (!employee) return null;
+    const manager = buildOfficeManager(employee);
+    return {
+        ...manager,
+        role: employee.role ?? manager.role ?? 'AVP',
+    };
+};
+
+const buildFieldOfficer = (employee?: HierarchyEmployee | null): FieldOfficer | null => {
+    if (!employee || typeof employee.id !== 'number') {
+        return null;
+    }
+
+    const { firstName, lastName } = resolveNameParts(employee);
+
+    return {
+        id: employee.id,
+        firstName: firstName ?? '',
+        lastName: lastName ?? '',
+        role: employee.role ?? 'Field Officer',
+        status: employee.status ?? employee.employmentStatus ?? 'ACTIVE',
+        city: employee.city ?? undefined,
+        state: employee.state ?? undefined,
+        email: resolveEmail(employee),
+        primaryContact: toContactNumber(
+            employee.primaryContact ??
+                employee.contactNumber ??
+                employee.phone ??
+                employee.phoneNumber ??
+                employee.mobile
+        ),
+    };
+};
+
+const normalizeFieldOfficers = (members?: HierarchyEmployee[] | null): FieldOfficer[] => {
+    if (!Array.isArray(members)) {
+        return [];
+    }
+    return members
+        .map((member) => buildFieldOfficer(member))
+        .filter((member): member is FieldOfficer => member !== null);
+};
+
+const transformTeamHierarchy = (payload?: TeamHierarchyApiResponse | null): Team[] => {
+    if (!payload) {
+        return [];
+    }
+
+    const teamsById = new Map<number, Team>();
+
+    const ensureTeam = (
+        teamId: number | null | undefined,
+        manager?: HierarchyEmployee | null,
+        teamType?: Team["teamType"]
+    ): Team | undefined => {
+        if (!teamId || teamId <= 0) {
+            return undefined;
+        }
+
+        const existing = teamsById.get(teamId);
+        if (existing) {
+            if (manager) {
+                existing.officeManager = buildOfficeManager(manager);
+            }
+            if (teamType) {
+                existing.teamType = teamType;
+            }
+            return existing;
+        }
+
+        if (!manager) {
+            return undefined;
+        }
+
+        const newTeam: Team = {
+            id: teamId,
+            officeManager: buildOfficeManager(manager),
+            fieldOfficers: [],
+            teamType: teamType ?? 'REGIONAL_MANAGER_TEAM',
+            avp: null,
+        };
+        teamsById.set(teamId, newTeam);
+        return newTeam;
+    };
+
+    const regionalTeams = Array.isArray(payload.regionalManagerTeams)
+        ? payload.regionalManagerTeams
+        : [];
+    regionalTeams.forEach((entry) => {
+        const team = ensureTeam(entry.teamId ?? null, entry.manager, 'REGIONAL_MANAGER_TEAM');
+        if (!team) {
+            return;
+        }
+        team.fieldOfficers = normalizeFieldOfficers(entry.fieldOfficers);
+    });
+
+    const coordinatorTeams = Array.isArray(payload.coordinatorTeams)
+        ? payload.coordinatorTeams
+        : [];
+    coordinatorTeams.forEach((entry) => {
+        const team = ensureTeam(entry.teamId ?? null, entry.manager, 'COORDINATOR_TEAM');
+        if (!team) {
+            return;
+        }
+        team.fieldOfficers = normalizeFieldOfficers(entry.fieldOfficers);
+    });
+
+    const avpTeams = Array.isArray(payload.avpTeams) ? payload.avpTeams : [];
+    avpTeams.forEach((group) => {
+        const avp = buildAvpMember(group.avp);
+        const managers = Array.isArray(group.managers) ? group.managers : [];
+        managers.forEach((managerEntry) => {
+            const team = ensureTeam(managerEntry.teamId ?? null, managerEntry.manager, 'AVP_TEAM');
+            if (!team) {
+                return;
+            }
+            if (avp) {
+                team.avp = avp;
+            }
+            if ((!team.fieldOfficers || team.fieldOfficers.length === 0) && managerEntry.fieldOfficers) {
+                team.fieldOfficers = normalizeFieldOfficers(managerEntry.fieldOfficers);
+            }
+        });
+    });
+
+    return Array.from(teamsById.values());
+};
+
 const resolveTeamCategory = (team: Team): 'coordinator' | 'regional' | 'avp' | null => {
     const normalizedTeamType = typeof team.teamType === 'string' ? team.teamType.toUpperCase() : '';
     if (normalizedTeamType === 'COORDINATOR_TEAM') {
@@ -167,7 +477,7 @@ const Teams: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch('/api/proxy/employee/team/getAll', {
+            const response = await fetch('/api/proxy/employee/team/hierarchy', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -177,10 +487,10 @@ const Teams: React.FC = () => {
                 throw new Error(`Failed to fetch teams: ${response.statusText}`);
             }
 
-            const data = await response.json();
-            const sortedTeams = [...data].sort(sortTeamsByLeadName);
-            setTeams(sortedTeams);
-            setIsDataAvailable(sortedTeams.length > 0);
+            const data = (await response.json()) as TeamHierarchyApiResponse;
+            const transformedTeams = transformTeamHierarchy(data);
+            setTeams(transformedTeams);
+            setIsDataAvailable(transformedTeams.length > 0);
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
             setIsDataAvailable(false);

@@ -30,8 +30,8 @@ import {
   API,
   EmployeeDto,
   TeamCreateRequest,
-  TeamResponseDto,
   apiService,
+  type TeamHierarchyTransformedTeam,
 } from "@/lib/api";
 import {
   Building,
@@ -50,20 +50,53 @@ import { normalizeRoleValue } from "@/lib/role-utils";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn } from "@/lib/utils";
 
-type TeamWithFlag = TeamResponseDto & { isAvpTeamCard?: boolean };
+type TeamWithFlag = TeamHierarchyTransformedTeam & { isAvpTeamCard?: boolean };
+
+// API Response types
+interface ApiEmployeeResponse {
+  id: number;
+  name?: string;
+  role?: string;
+  city?: string;
+  assignedCities?: string[];
+  assignedCity?: string[];
+  [key: string]: unknown;
+}
+
+interface ApiManagerEntryResponse {
+  teamId: number;
+  manager: ApiEmployeeResponse;
+  avp?: ApiEmployeeResponse;
+  fieldOfficers?: ApiEmployeeResponse[];
+}
+
+interface ApiAvpGroupResponse {
+  avp: ApiEmployeeResponse;
+  managers: Array<{
+    teamId: number;
+    manager: ApiEmployeeResponse;
+  }>;
+}
+
+interface ApiTeamHierarchyResponse {
+  avpTeams?: ApiAvpGroupResponse[];
+  regionalManagerTeams?: ApiManagerEntryResponse[];
+  coordinatorTeams?: ApiManagerEntryResponse[];
+}
 
 type TeamCardProps = {
   team: TeamWithFlag;
-  onEdit: (team: TeamResponseDto) => void;
+  onEdit: (team: TeamHierarchyTransformedTeam) => void;
   onDelete: (teamId: number) => void;
   onRemoveOfficer: (teamId: number, officerId: number) => void;
   avpEmployee: EmployeeDto | null;
-  onManageAvp: (team: TeamResponseDto) => void;
+  onManageAvp: (team: TeamHierarchyTransformedTeam) => void;
   isUpdatingAvp: boolean;
   canEdit: boolean;
   canDelete: boolean;
   canModify: boolean;
   isDeleting: boolean;
+  allTeams: TeamHierarchyTransformedTeam[];
   showConfirmationDialog: (
     title: string,
     description: string,
@@ -88,7 +121,7 @@ const categoryLabel = (
 };
 
 const getTeamCategory = (
-  team: TeamResponseDto
+  team: TeamHierarchyTransformedTeam
 ): "coordinator" | "regional" | "avp" | null => {
   const normalizedTeamType = (
     typeof team.teamType === "string" ? team.teamType : ""
@@ -144,7 +177,7 @@ const getAssignedCities = (employee?: EmployeeDto | null) => {
   );
 };
 
-const deriveTeamCities = (team: TeamResponseDto) => {
+const deriveTeamCities = (team: TeamHierarchyTransformedTeam) => {
   const cities = new Set<string>();
   const assigned = getAssignedCities(team.officeManager);
   if (getTeamCategory(team) === "regional") {
@@ -159,7 +192,7 @@ const deriveTeamCities = (team: TeamResponseDto) => {
 };
 
 const resolveTeamAvp = (
-  team: TeamResponseDto
+  team: TeamHierarchyTransformedTeam
 ): { id: number | null; employee: EmployeeDto | null } => {
   const value = team.avp;
   if (!value) {
@@ -193,6 +226,7 @@ function TeamCard({
   canDelete,
   canModify,
   isDeleting,
+  allTeams,
   showConfirmationDialog,
 }: TeamCardProps) {
   const isAvpTeamCard = team.isAvpTeamCard ?? false;
@@ -237,25 +271,14 @@ function TeamCard({
                 >
                   {teamTypeLabel}
                 </Badge>
-                {!isAvpTeamCard && hasAvpAssigned && (
-                  <Badge
-                    variant="outline"
-                    className="text-xs text-primary border-primary"
-                  >
-                    AVP Assigned
-                  </Badge>
-                )}
+                {/* Don't show "AVP Assigned" badge for RM teams - they're shown separately */}
               </CardTitle>
               <CardDescription className="mt-1 flex items-center gap-1 text-xs">
                 <Crown className="h-3 w-3" />
                 {isAvpTeamCard
                   ? avpEmployee?.role ?? "AVP"
                   : team.officeManager?.role ?? "Unknown Role"}
-                {isAvpTeamCard && team.officeManager && (
-                  <span className="ml-2 text-muted-foreground">
-                    • Oversees {formatEmployeeName(team.officeManager)}
-                  </span>
-                )}
+                {/* Managed RMs are shown in the body section below */}
               </CardDescription>
             </div>
           </div>
@@ -294,117 +317,66 @@ function TeamCard({
       </CardHeader>
       <CardContent className="pt-0">
         <div className="space-y-3">
-          {/* AVP Team Card: show overseen RM */}
-          {isAvpTeamCard && team.officeManager && (
-            <div>
-              <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1">
-                <Building className="h-3 w-3" />
-                Oversees Regional Manager
-              </h4>
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-xs">
-                      {(
-                        team.officeManager.firstName?.[0] ??
-                        team.officeManager.lastName?.[0] ??
-                        "?"
-                      ).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium truncate">
-                      {formatEmployeeName(team.officeManager)}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {team.officeManager.city ?? "City unknown"}
-                    </p>
-                  </div>
-                </div>
-                {canModify && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onManageAvp(team)}
-                    className="h-7 px-3 text-xs"
-                    disabled={isUpdatingAvp}
-                  >
-                    {isUpdatingAvp ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      "Manage AVP"
-                    )}
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+          {/* AVP Team Card: show overseen RMs */}
+          {isAvpTeamCard && team.officeManager && (() => {
+            // Find all RM teams managed by this AVP
+            const avpId = team.officeManager.id;
+            const managedRms = allTeams.filter(t => {
+              const resolved = resolveTeamAvp(t);
+              const rmAvpId = resolved.id ?? resolved.employee?.id;
+              const isRM = getTeamCategory(t) === "regional" || 
+                          (typeof t.teamType === "string" && t.teamType.toUpperCase() === "REGIONAL_MANAGER_TEAM");
+              return isRM && rmAvpId === avpId;
+            });
 
-          {/* RM Card: show AVP assignment */}
-          {!isAvpTeamCard &&
-            (teamCategory === "regional" || teamCategory === "avp") && (
+            return (
               <div>
                 <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1">
-                  <Crown className="h-3 w-3" />
-                  AVP
+                  <Building className="h-3 w-3" />
+                  Oversees Regional Manager{managedRms.length !== 1 ? "s" : ""} ({managedRms.length})
                 </h4>
-                {avpEmployee ? (
-                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-xs">
-                          {avpInitial(avpEmployee)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium truncate">
-                          {formatEmployeeName(avpEmployee)}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {avpEmployee.city ?? "City unknown"}
-                        </p>
+                <div className="space-y-2">
+                  {managedRms.length > 0 ? (
+                    managedRms.map((rmTeam) => (
+                      <div
+                        key={rmTeam.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className="text-xs">
+                              {(
+                                rmTeam.officeManager?.firstName?.[0] ??
+                                rmTeam.officeManager?.lastName?.[0] ??
+                                "?"
+                              ).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {formatEmployeeName(rmTeam.officeManager)}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {rmTeam.officeManager?.city ?? "City unknown"}
+                            </p>
+                          </div>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="rounded-md border border-dashed border-border px-3 py-2">
+                      <p className="text-xs text-muted-foreground">
+                        No regional managers assigned
+                      </p>
                     </div>
-                    {canModify && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onManageAvp(team)}
-                        className="h-7 px-3 text-xs"
-                        disabled={isUpdatingAvp}
-                      >
-                        {isUpdatingAvp ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Change"
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      No AVP assigned
-                    </p>
-                    {canModify && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onManageAvp(team)}
-                        className="h-7 px-3 text-xs"
-                        disabled={isUpdatingAvp}
-                      >
-                        {isUpdatingAvp ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Add AVP"
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            )}
+            );
+          })()}
+
+          {/* RM Card: Don't show AVP assignment - RMs are shown separately even if they have an AVP */}
+          {/* The AVP will be shown in a separate AVP team card */}
 
           {/* Cities */}
           {(!isAvpTeamCard || team.officeManager) && (
@@ -490,22 +462,7 @@ function TeamCard({
             </div>
           )}
 
-          {/* AVP cards: show managed FO count */}
-          {isAvpTeamCard && (
-            <div>
-              <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1">
-                <Users className="h-3 w-3" />
-                Field Officers (Managed Team)
-              </h4>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  {team.fieldOfficers.length} field officer
-                  {team.fieldOfficers.length !== 1 ? "s" : ""} under{" "}
-                  {formatEmployeeName(team.officeManager)}
-                </p>
-              </div>
-            </div>
-          )}
+          {/* AVP cards: Field officers are not shown here - they belong to RM teams */}
         </div>
       </CardContent>
     </Card>
@@ -550,7 +507,7 @@ export default function TeamSettings() {
   const isAvpUser = normalizedUserRole === "AVP";
   const avpEmployeeId = userData?.employeeId ?? null;
 
-  const [teams, setTeams] = useState<TeamResponseDto[]>([]);
+  const [teams, setTeams] = useState<TeamHierarchyTransformedTeam[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -563,14 +520,14 @@ export default function TeamSettings() {
   const [newTeam, setNewTeam] = useState<TeamFormState>(INITIAL_TEAM_FORM);
 
   const [isEditTeamOpen, setIsEditTeamOpen] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<TeamResponseDto | null>(null);
+  const [editingTeam, setEditingTeam] = useState<TeamHierarchyTransformedTeam | null>(null);
   const [editingManagerId, setEditingManagerId] = useState<number | null>(null);
   const [editingFieldOfficerIds, setEditingFieldOfficerIds] = useState<number[]>(
     []
   );
 
   const [isAvpDialogOpen, setIsAvpDialogOpen] = useState(false);
-  const [activeAvpTeam, setActiveAvpTeam] = useState<TeamResponseDto | null>(
+  const [activeAvpTeam, setActiveAvpTeam] = useState<TeamHierarchyTransformedTeam | null>(
     null
   );
   const [selectedAvpId, setSelectedAvpId] = useState<number | null>(null);
@@ -578,7 +535,7 @@ export default function TeamSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteInProgress, setDeleteInProgress] = useState<number | null>(null);
   const [isUpdatingAvp, setIsUpdatingAvp] = useState(false);
-  const [avpFilter, setAvpFilter] = useState<string>("all");
+  const [teamFilter, setTeamFilter] = useState<string>("all");
 
   const teamsForCurrentUser = useMemo(() => {
     if (!isAvpUser) {
@@ -849,12 +806,92 @@ export default function TeamSettings() {
     setLoadingTeams(true);
     setError(null);
     try {
-      const data = await API.getTeams();
-      const sortedTeams = data.sort((a, b) => {
-        const nameA = formatEmployeeName(a.officeManager).toLowerCase();
-        const nameB = formatEmployeeName(b.officeManager).toLowerCase();
+      // Get raw response from API - bypassing the transformation
+      const res = await (apiService as unknown as { makeRequest: (path: string) => Promise<ApiTeamHierarchyResponse> }).makeRequest('/employee/team/hierarchy') as ApiTeamHierarchyResponse;
+
+      type OfficeManagerDto = EmployeeDto & { assignedCity: string[] };
+      type FieldOfficerDto = EmployeeDto & { assignedCity?: string[] };
+      
+      const toOfficeManager = (p: ApiEmployeeResponse | null | undefined): OfficeManagerDto | null => {
+        if (!p) return null;
+        return {
+          id: p.id,
+          firstName: p.name || "",
+          lastName: "",
+          role: p.role,
+          city: p.city,
+          assignedCity: p.assignedCities || p.assignedCity || [],
+        } as unknown as OfficeManagerDto;
+      };
+      
+      const toFieldOfficer = (p: ApiEmployeeResponse | null | undefined): FieldOfficerDto | null => {
+        if (!p) return null;
+        return {
+          id: p.id,
+          firstName: p.name || "",
+          lastName: "",
+          role: p.role,
+          city: p.city,
+          assignedCity: p.assignedCities || p.assignedCity || [],
+        } as unknown as FieldOfficerDto;
+      };
+
+      const flat: TeamHierarchyTransformedTeam[] = [];
+
+      // Create a map of teamId to regional manager team data for easy lookup
+      const rmTeamMap = new Map<number, ApiManagerEntryResponse>();
+      (res.regionalManagerTeams || []).forEach((rm: ApiManagerEntryResponse) => {
+        rmTeamMap.set(rm.teamId, rm);
+      });
+
+      (res.regionalManagerTeams || []).forEach((rm: ApiManagerEntryResponse) => {
+        flat.push({
+          id: rm.teamId,
+          teamType: "REGIONAL_MANAGER_TEAM",
+          officeManager: toOfficeManager(rm.manager),
+          avp: toOfficeManager(rm.avp),
+          fieldOfficers: (rm.fieldOfficers || []).map(toFieldOfficer).filter((fo): fo is FieldOfficerDto => fo !== null),
+        });
+      });
+
+      (res.coordinatorTeams || []).forEach((ct: ApiManagerEntryResponse) => {
+        flat.push({
+          id: ct.teamId,
+          teamType: "COORDINATOR_TEAM",
+          officeManager: toOfficeManager(ct.manager),
+          avp: toOfficeManager(ct.avp),
+          fieldOfficers: (ct.fieldOfficers || []).map(toFieldOfficer).filter((fo): fo is FieldOfficerDto => fo !== null),
+        });
+      });
+
+      (res.avpTeams || []).forEach((avpBlock: ApiAvpGroupResponse) => {
+        const avpEmp = toOfficeManager(avpBlock.avp);
+        (avpBlock.managers || []).forEach((mgr: { teamId: number; manager: ApiEmployeeResponse }) => {
+          const exists = flat.some((t) => t.id === mgr.teamId);
+          if (!exists) {
+            // Look up the full team data to get field officers
+            const rmTeamData = rmTeamMap.get(mgr.teamId);
+            const fieldOfficers = rmTeamData?.fieldOfficers 
+              ? (rmTeamData.fieldOfficers || []).map(toFieldOfficer).filter((fo): fo is FieldOfficerDto => fo !== null)
+              : [];
+            
+            flat.push({
+              id: mgr.teamId,
+              teamType: "REGIONAL_MANAGER_TEAM",
+          officeManager: toOfficeManager(mgr.manager),
+          avp: avpEmp,
+          fieldOfficers: fieldOfficers,
+            });
+          }
+        });
+      });
+
+      const sortedTeams = flat.sort((a, b) => {
+        const nameA = (a.officeManager?.firstName || a.officeManager?.lastName || "").toLowerCase();
+        const nameB = (b.officeManager?.firstName || b.officeManager?.lastName || "").toLowerCase();
         return nameA.localeCompare(nameB);
       });
+
       setTeams(sortedTeams);
     } catch (err) {
       console.error("Failed to load teams", err);
@@ -932,14 +969,14 @@ export default function TeamSettings() {
     }
   };
 
-  const openEditDialog = (team: TeamResponseDto) => {
+  const openEditDialog = (team: TeamHierarchyTransformedTeam) => {
     setEditingTeam(team);
     setEditingManagerId(team.officeManager?.id ?? null);
     setEditingFieldOfficerIds(team.fieldOfficers.map((officer) => officer.id));
     setIsEditTeamOpen(true);
   };
 
-  const openAvpDialog = (team: TeamResponseDto) => {
+  const openAvpDialog = (team: TeamHierarchyTransformedTeam) => {
     const resolved = resolveTeamAvp(team);
     setActiveAvpTeam(team);
     setSelectedAvpId(resolved.id ?? null);
@@ -1146,15 +1183,16 @@ export default function TeamSettings() {
     );
   };
 
-  // Expand into RM card + AVP card (if AVP exists). Order: RM first, then AVP.
+  // Expand into RM card + AVP card (if AVP exists). 
+  // Regional Manager teams are always shown separately with their field officers.
+  // AVP cards show which RMs they oversee (but NOT the RMs' field officers).
   const expandedTeams = useMemo(() => {
     const out: TeamWithFlag[] = [];
+    const avpToRms = new Map<number, TeamHierarchyTransformedTeam[]>();
 
+    // First pass: collect RM teams and group them by AVP
     teamsForCurrentUser.forEach((team) => {
       const category = getTeamCategory(team);
-      const resolvedAvp = resolveTeamAvp(team);
-      const hasAvp =
-        resolvedAvp.id != null || resolvedAvp.employee != null;
       const normalizedTeamType = (
         typeof team.teamType === "string" ? team.teamType : ""
       )
@@ -1167,13 +1205,24 @@ export default function TeamSettings() {
         (normalizedTeamType === "AVP_TEAM" && team.officeManager);
 
       if (isRMish) {
-        out.push({ ...team, isAvpTeamCard: false });
-        if (hasAvp) {
-          out.push({
-            ...team,
-            isAvpTeamCard: true,
-            teamType: "AVP_TEAM",
-          });
+        // Always show RM teams separately with their field officers
+        // Ensure teamType is explicitly set to REGIONAL_MANAGER_TEAM
+        out.push({ 
+          ...team, 
+          isAvpTeamCard: false,
+          teamType: "REGIONAL_MANAGER_TEAM" 
+        });
+        
+        // Group RMs by their AVP for creating AVP cards
+        const resolvedAvp = resolveTeamAvp(team);
+        if (resolvedAvp.id != null || resolvedAvp.employee != null) {
+          const avpId = resolvedAvp.id ?? resolvedAvp.employee?.id;
+          if (avpId != null) {
+            if (!avpToRms.has(avpId)) {
+              avpToRms.set(avpId, []);
+            }
+            avpToRms.get(avpId)!.push(team);
+          }
         }
         return;
       }
@@ -1184,6 +1233,7 @@ export default function TeamSettings() {
       }
 
       if (normalizedTeamType === "AVP_TEAM") {
+        // This is an AVP team entry - show the RM first if it exists
         if (team.officeManager) {
           out.push({
             ...team,
@@ -1191,33 +1241,66 @@ export default function TeamSettings() {
             teamType: "REGIONAL_MANAGER_TEAM",
           });
         }
-        out.push({ ...team, isAvpTeamCard: true });
+        // AVP card will be created in second pass
         return;
       }
 
       out.push({ ...team, isAvpTeamCard: false });
     });
 
+    // Second pass: create AVP cards for each unique AVP
+    avpToRms.forEach((rmTeams, avpId) => {
+      if (rmTeams.length === 0) return;
+      
+      // Get AVP employee from first RM team
+      const firstRmTeam = rmTeams[0];
+      const resolvedAvp = resolveTeamAvp(firstRmTeam);
+      const avpEmployee = resolvedAvp.employee ?? 
+        (resolvedAvp.id != null ? avpLookupById.get(resolvedAvp.id) ?? null : null);
+      
+      if (avpEmployee) {
+        // Create AVP team card - fieldOfficers should be empty for AVP cards
+        // The managed RMs are found dynamically in TeamCard component
+        type OfficeManagerDto = EmployeeDto & { assignedCity: string[] };
+        const avpAsOfficeManager: OfficeManagerDto = {
+          ...avpEmployee,
+          assignedCity: ('assignedCity' in avpEmployee && Array.isArray(avpEmployee.assignedCity)) 
+            ? avpEmployee.assignedCity 
+            : [],
+        } as unknown as OfficeManagerDto;
+        const avpTeamCard: TeamWithFlag = {
+          ...firstRmTeam,
+          id: -avpId, // Negative ID to distinguish AVP cards
+          officeManager: avpAsOfficeManager,
+          teamType: "AVP_TEAM",
+          isAvpTeamCard: true,
+          // AVP cards should NOT have field officers - those belong to RM cards
+          fieldOfficers: [],
+        };
+        out.push(avpTeamCard);
+      }
+    });
+
     // Sort by display person name; keeps RM/AVP pairs adjacent overall
     return out.sort((a, b) => {
       const nameA = formatEmployeeName(
         (a.isAvpTeamCard
-          ? resolveTeamAvp(a).employee
+          ? resolveTeamAvp(a).employee ?? a.officeManager
           : a.officeManager) as EmployeeDto | null
       ).toLowerCase();
       const nameB = formatEmployeeName(
         (b.isAvpTeamCard
-          ? resolveTeamAvp(b).employee
+          ? resolveTeamAvp(b).employee ?? b.officeManager
           : b.officeManager) as EmployeeDto | null
       ).toLowerCase();
       return nameA.localeCompare(nameB);
     });
-  }, [teamsForCurrentUser]);
+  }, [teamsForCurrentUser, avpLookupById]);
 
-  // Existing AVP filter continues to work on expanded set
+  // Filter teams by type (AVP, Regional Manager, Coordinator)
   const filteredTeams = useMemo(() => {
     const sourceTeams = expandedTeams;
-    if (avpFilter === "all") {
+    if (teamFilter === "all") {
       return sourceTeams;
     }
     return sourceTeams.filter((team) => {
@@ -1225,20 +1308,57 @@ export default function TeamSettings() {
       const category = getTeamCategory(team);
       const isAvpTeamCard =
         (team as TeamWithFlag).isAvpTeamCard === true;
+      const normalizedTeamType = (
+        typeof team.teamType === "string" ? team.teamType : ""
+      )
+        .toUpperCase()
+        .trim();
 
-      if (avpFilter === "with") {
+      // Regional Manager filter - check both category and teamType, and also check raw role for variations
+      if (teamFilter === "regional-manager") {
+        if (isAvpTeamCard) return false;
+        
+        // Check category and teamType
+        if (category === "regional" || normalizedTeamType === "REGIONAL_MANAGER_TEAM") {
+          return true;
+        }
+        
+        // Also check raw role string for variations like "Regional Manager", "Regional_Manager", "regional manager", etc.
+        const rawRole = team.officeManager?.role;
+        if (rawRole) {
+          const roleLower = rawRole.toLowerCase().trim();
+          // Check for any variation of Regional Manager
+          if (
+            roleLower.includes("regional") && 
+            roleLower.includes("manager") &&
+            !roleLower.includes("coordinator")
+          ) {
+            return true;
+          }
+        }
+        
+        return false;
+      }
+
+      // Coordinator filter
+      if (teamFilter === "coordinator") {
+        return category === "coordinator" || normalizedTeamType === "COORDINATOR_TEAM";
+      }
+
+      // AVP filters
+      if (teamFilter === "with") {
         if (isAvpTeamCard) return true;
         return id != null;
       }
-      if (avpFilter === "without") {
+      if (teamFilter === "without") {
         if (isAvpTeamCard) return false;
         return id == null;
       }
-      if (avpFilter === "avp-team") {
+      if (teamFilter === "avp-team") {
         return isAvpTeamCard || category === "avp";
       }
-      if (avpFilter.startsWith("avp-")) {
-        const targetId = Number(avpFilter.split("-")[1]);
+      if (teamFilter.startsWith("avp-")) {
+        const targetId = Number(teamFilter.split("-")[1]);
         if (isAvpTeamCard) {
           return id === targetId;
         }
@@ -1246,12 +1366,12 @@ export default function TeamSettings() {
       }
       return true;
     });
-  }, [expandedTeams, avpFilter]);
+  }, [expandedTeams, teamFilter]);
 
-  // Group into 3 sections for clearer UX
+  // Group into sections - Regional Managers grouped by exact role value
   const grouped = useMemo(() => {
     const avpCards: TeamWithFlag[] = [];
-    const regionalCards: TeamWithFlag[] = [];
+    const regionalCardsByRole = new Map<string, TeamWithFlag[]>();
     const coordinatorCards: TeamWithFlag[] = [];
 
     filteredTeams.forEach((t) => {
@@ -1260,17 +1380,25 @@ export default function TeamSettings() {
 
       if (isAvpCard || cat === "avp") {
         avpCards.push(t);
-      } else if (cat === "regional") {
-        regionalCards.push(t);
       } else if (cat === "coordinator") {
         coordinatorCards.push(t);
       } else {
-        // unknown → bucket with RM
-        regionalCards.push(t);
+        // Regional Manager or unknown - group by exact role value
+        const role = t.officeManager?.role || "Unknown Role";
+        if (!regionalCardsByRole.has(role)) {
+          regionalCardsByRole.set(role, []);
+        }
+        regionalCardsByRole.get(role)!.push(t);
       }
     });
 
-    return { avpCards, regionalCards, coordinatorCards };
+    // Convert map to array of role groups
+    const regionalGroups = Array.from(regionalCardsByRole.entries()).map(([role, teams]) => ({
+      role,
+      teams,
+    }));
+
+    return { avpCards, regionalGroups, coordinatorCards };
   }, [filteredTeams]);
 
   return (
@@ -1283,15 +1411,17 @@ export default function TeamSettings() {
           </CardDescription>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <Select value={avpFilter} onValueChange={setAvpFilter}>
+          <Select value={teamFilter} onValueChange={setTeamFilter}>
             <SelectTrigger className="w-full sm:w-[220px]">
-              <SelectValue placeholder="Filter by AVP" />
+              <SelectValue placeholder="Filter teams" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Teams</SelectItem>
+              <SelectItem value="regional-manager">Regional Manager Teams</SelectItem>
+              <SelectItem value="coordinator">Coordinator Teams</SelectItem>
+              <SelectItem value="avp-team">AVP Teams</SelectItem>
               <SelectItem value="with">Teams with AVP</SelectItem>
               <SelectItem value="without">Teams without AVP</SelectItem>
-              <SelectItem value="avp-team">AVP Teams</SelectItem>
               {avpFilterOptions.map((avp) => (
                 <SelectItem key={avp.id} value={`avp-${avp.id}`}>
                   {formatEmployeeName(avp)}
@@ -1449,7 +1579,7 @@ export default function TeamSettings() {
           Loading teams...
         </div>
       ) : grouped.avpCards.length +
-          grouped.regionalCards.length +
+          grouped.regionalGroups.length +
           grouped.coordinatorCards.length ===
         0 ? (
         <Card>
@@ -1491,6 +1621,7 @@ export default function TeamSettings() {
                     canDelete={false}
                     canModify={canModifyTeams}
                     isDeleting={deleteInProgress === team.id}
+                    allTeams={teamsForCurrentUser}
                     showConfirmationDialog={showConfirmationDialog}
                   />
                 );
@@ -1498,12 +1629,13 @@ export default function TeamSettings() {
             </Section>
           )}
 
-          {grouped.regionalCards.length > 0 && (
+          {grouped.regionalGroups.map((group) => (
             <Section
-              title="Regional Manager Teams"
-              count={grouped.regionalCards.length}
+              key={group.role}
+              title={`Regional Manager Teams (${group.role})`}
+              count={group.teams.length}
             >
-              {grouped.regionalCards.map((team) => {
+              {group.teams.map((team) => {
                 const resolvedAvp = resolveTeamAvp(team);
                 const avpEmployee =
                   resolvedAvp.employee ??
@@ -1529,12 +1661,13 @@ export default function TeamSettings() {
                     canDelete={canCreateTeam}
                     canModify={canModifyTeams}
                     isDeleting={deleteInProgress === team.id}
+                    allTeams={teamsForCurrentUser}
                     showConfirmationDialog={showConfirmationDialog}
                   />
                 );
               })}
             </Section>
-          )}
+          ))}
 
           {grouped.coordinatorCards.length > 0 && (
             <Section
@@ -1561,6 +1694,7 @@ export default function TeamSettings() {
                     canDelete={canCreateTeam}
                     canModify={canModifyTeams}
                     isDeleting={deleteInProgress === team.id}
+                    allTeams={teamsForCurrentUser}
                     showConfirmationDialog={showConfirmationDialog}
                   />
                 );

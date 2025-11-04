@@ -140,7 +140,7 @@ const AddTeam = () => {
     const [availableAvps, setAvailableAvps] = useState<Employee[]>([]);
     const [teamsWithoutAvp, setTeamsWithoutAvp] = useState<TeamSummary[]>([]);
     const [selectedAvpId, setSelectedAvpId] = useState<number | null>(null);
-    const [selectedAvpTeamId, setSelectedAvpTeamId] = useState<number | null>(null);
+    const [selectedAvpTeamIds, setSelectedAvpTeamIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     const managerOptions = useMemo<SearchableOption<OfficeManager>[]>(() => {
@@ -205,7 +205,7 @@ const AddTeam = () => {
         setEmployees([]);
         setIsCoordinator(false);
         setSelectedAvpId(null);
-        setSelectedAvpTeamId(null);
+        setSelectedAvpTeamIds([]);
         setError(null);
     };
 
@@ -591,102 +591,106 @@ const AddTeam = () => {
 
     const handleCreateTeam = async () => {
         if (teamType === 'avp') {
-            if (!selectedAvpId || !selectedAvpTeamId) {
+            if (!selectedAvpId || selectedAvpTeamIds.length === 0) {
                 return;
             }
             try {
                 setIsCreatingTeam(true);
                 setError(null);
                 
-                // Check if this is a synthetic team ID (negative) for a regional manager without a team
-                let actualTeamId = selectedAvpTeamId;
+                // Process synthetic teams (negative IDs) and create teams for them
+                const actualTeamIds: number[] = [];
                 
-                if (selectedAvpTeamId < 0) {
-                    // This is a synthetic team - need to get the office manager ID
-                    // Synthetic ID format: -(employee.id) - 1000000
-                    const employeeId = -(selectedAvpTeamId + 1000000);
-                    
-                    // Find the team for this manager from teamsWithoutAvp
-                    const syntheticTeam = teamsWithoutAvp.find(t => t.id === selectedAvpTeamId);
-                    if (!syntheticTeam || !syntheticTeam.officeManager) {
-                        console.error("Could not find synthetic team or office manager");
-                        throw new Error("Could not find regional manager team");
-                    }
-                    
-                    const officeManagerId = Array.isArray(syntheticTeam.officeManager)
-                        ? syntheticTeam.officeManager[0]?.id
-                        : syntheticTeam.officeManager.id;
-                    
-                    if (!officeManagerId || typeof officeManagerId !== "number") {
-                        console.error("Invalid office manager ID");
-                        throw new Error("Invalid regional manager ID");
-                    }
-                    
-                    // First, create a team for this regional manager
-                    const createTeamResponse = await fetch(
-                        "/api/proxy/employee/team/create",
-                        {
-                            method: 'POST',
-                            headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                            },
-                            body: JSON.stringify({
-                                officeManagerId: officeManagerId,
-                                fieldOfficerIds: [],
-                                teamType: "REGIONAL_MANAGER_TEAM",
-                            }),
-                        }
-                    );
-                    
-                    if (!createTeamResponse.ok) {
-                        const errorText = await createTeamResponse.text();
-                        console.error("Error creating team:", errorText);
-                        
-                        // Check if it's the "id must not be null" error
-                        if (errorText.toLowerCase().includes("id must not be null") || 
-                            errorText.toLowerCase().includes("given id must not be null")) {
-                            const manager = Array.isArray(syntheticTeam.officeManager)
-                                ? syntheticTeam.officeManager[0]
-                                : syntheticTeam.officeManager;
-                            const managerName = manager
-                                ? `${manager.firstName ?? ""} ${manager.lastName ?? ""}`.trim()
-                                : "the Regional Manager";
-                            throw new Error(`Please add team members to ${managerName} first before assigning an AVP.`);
+                for (const selectedTeamId of selectedAvpTeamIds) {
+                    if (selectedTeamId < 0) {
+                        // This is a synthetic team - need to get the office manager ID
+                        // Synthetic ID format: -(employee.id) - 1000000
+                        const syntheticTeam = teamsWithoutAvp.find(t => t.id === selectedTeamId);
+                        if (!syntheticTeam || !syntheticTeam.officeManager) {
+                            console.error("Could not find synthetic team or office manager");
+                            throw new Error("Could not find regional manager team");
                         }
                         
-                        throw new Error("Failed to create team for regional manager");
+                        const officeManagerId = Array.isArray(syntheticTeam.officeManager)
+                            ? syntheticTeam.officeManager[0]?.id
+                            : syntheticTeam.officeManager.id;
+                        
+                        if (!officeManagerId || typeof officeManagerId !== "number") {
+                            console.error("Invalid office manager ID");
+                            throw new Error("Invalid regional manager ID");
+                        }
+                        
+                        // First, create a team for this regional manager
+                        const createTeamResponse = await fetch(
+                            "/api/proxy/employee/team/create",
+                            {
+                                method: 'POST',
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({
+                                    officeManager: officeManagerId,
+                                    fieldOfficers: [],
+                                }),
+                            }
+                        );
+                        
+                        if (!createTeamResponse.ok) {
+                            const errorText = await createTeamResponse.text();
+                            console.error("Error creating team:", errorText);
+                            
+                            // Check if it's the "id must not be null" error
+                            if (errorText.toLowerCase().includes("id must not be null") || 
+                                errorText.toLowerCase().includes("given id must not be null")) {
+                                const manager = Array.isArray(syntheticTeam.officeManager)
+                                    ? syntheticTeam.officeManager[0]
+                                    : syntheticTeam.officeManager;
+                                const managerName = manager
+                                    ? `${manager.firstName ?? ""} ${manager.lastName ?? ""}`.trim()
+                                    : "the Regional Manager";
+                                throw new Error(`Please add team members to ${managerName} first before assigning an AVP.`);
+                            }
+                            
+                            throw new Error("Failed to create team for regional manager");
+                        }
+                        
+                        const createdTeam = await createTeamResponse.json();
+                        actualTeamIds.push(createdTeam.id || createdTeam);
+                    } else {
+                        // Existing team ID
+                        actualTeamIds.push(selectedTeamId);
                     }
-                    
-                    const createdTeam = await createTeamResponse.json();
-                    actualTeamId = createdTeam.id || createdTeam;
                 }
                 
-                // Now assign AVP to the team (either existing or newly created)
+                // Now assign AVP to all selected teams using the new endpoint
                 const response = await fetch(
-                    `/api/proxy/employee/team/editAvp?id=${actualTeamId}`,
+                    `/api/proxy/employee/team/assignAvpToTeams`,
                     {
                         method: 'PUT',
                         headers: {
                             "Content-Type": "application/json",
                             Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ avp: selectedAvpId }),
+                        body: JSON.stringify({
+                            avpId: selectedAvpId,
+                            teamIds: actualTeamIds,
+                        }),
                     }
                 );
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error("Error assigning AVP:", errorText);
-                    throw new Error(`Failed to assign AVP to team ${actualTeamId}`);
+                    console.error("Error assigning AVP to teams:", errorText);
+                    throw new Error(`Failed to assign AVP to teams`);
                 }
 
                 setIsModalOpen(false);
                 resetForm();
                 window.location.reload();
             } catch (error) {
-                console.error("Error assigning AVP to team:", error);
-                const errorMessage = error instanceof Error ? error.message : "An error occurred while assigning AVP to team";
+                console.error("Error assigning AVP to teams:", error);
+                const errorMessage = error instanceof Error ? error.message : "An error occurred while assigning AVP to teams";
                 setError(errorMessage);
             } finally {
                 setIsCreatingTeam(false);
@@ -804,19 +808,16 @@ const AddTeam = () => {
         }
     };
 
-    const handleTeamOptionSelect = (option: SearchableOption<TeamSummary> | null) => {
-        if (!option) {
-            setSelectedAvpTeamId(null);
-            setError(null);
-            return;
-        }
-
-        const teamId = Number(option.value);
-        if (isNaN(teamId)) {
-            return;
-        }
-
-        setSelectedAvpTeamId(teamId);
+    const handleTeamToggle = (teamId: number) => {
+        setSelectedAvpTeamIds((prev) => {
+            if (prev.includes(teamId)) {
+                // Remove from selection
+                return prev.filter((id) => id !== teamId);
+            } else {
+                // Add to selection
+                return [...prev, teamId];
+            }
+        });
         setError(null); // Clear error when selection changes
     };
 
@@ -861,7 +862,7 @@ const AddTeam = () => {
                                     setSelectedEmployees([]);
                                     setSelectedCities([]);
                                     setSelectedAvpId(null);
-                                    setSelectedAvpTeamId(null);
+                                    setSelectedAvpTeamIds([]);
                                     setEmployees([]);
                                 }}
                             >
@@ -887,7 +888,7 @@ const AddTeam = () => {
                                     setSelectedEmployees([]);
                                     setSelectedCities([]);
                                     setSelectedAvpId(null);
-                                    setSelectedAvpTeamId(null);
+                                    setSelectedAvpTeamIds([]);
                                     setEmployees([]);
                                 }}
                             >
@@ -913,7 +914,7 @@ const AddTeam = () => {
                                     setSelectedEmployees([]);
                                     setSelectedCities([]);
                                     setSelectedAvpId(null);
-                                    setSelectedAvpTeamId(null);
+                                    setSelectedAvpTeamIds([]);
                                     setEmployees([]);
                                 }}
                             >
@@ -1037,20 +1038,42 @@ const AddTeam = () => {
                                     </div>
 
                                     <div>
-                                        <label className="text-sm font-medium">Assign to Team</label>
-                                        <SearchableSelect<TeamSummary>
-                                            options={avpTeamOptions}
-                                            value={selectedAvpTeamId != null ? selectedAvpTeamId.toString() : undefined}
-                                            onSelect={handleTeamOptionSelect}
-                                            placeholder="Select a regional manager team"
-                                            emptyMessage="No teams available"
-                                            noResultsMessage="No teams found"
-                                            searchPlaceholder="Search teams..."
-                                            allowClear={Boolean(selectedAvpTeamId)}
-                                        />
-                                        {teamsWithoutAvp.length === 0 && (
+                                        <label className="text-sm font-medium">Assign to Teams (Select Multiple)</label>
+                                        {teamsWithoutAvp.length === 0 ? (
                                             <p className="mt-2 text-xs text-muted-foreground">
                                                 All regional teams already have an AVP assigned.
+                                            </p>
+                                        ) : (
+                                            <div className="mt-2 max-h-60 overflow-y-auto border rounded-md p-2 space-y-2">
+                                                {avpTeamOptions.map((option) => {
+                                                    const teamId = Number(option.value);
+                                                    const isSelected = selectedAvpTeamIds.includes(teamId);
+                                                    return (
+                                                        <div
+                                                            key={option.value}
+                                                            className="flex items-center space-x-2 p-2 rounded-md hover:bg-muted"
+                                                        >
+                                                            <Checkbox
+                                                                id={`team-checkbox-${option.value}`}
+                                                                checked={isSelected}
+                                                                onCheckedChange={() => {
+                                                                    handleTeamToggle(teamId);
+                                                                }}
+                                                            />
+                                                            <label 
+                                                                htmlFor={`team-checkbox-${option.value}`}
+                                                                className="text-sm cursor-pointer flex-1 select-none"
+                                                            >
+                                                                {option.label}
+                                                            </label>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {selectedAvpTeamIds.length > 0 && (
+                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                {selectedAvpTeamIds.length} team(s) selected
                                             </p>
                                         )}
                                     </div>
@@ -1075,7 +1098,7 @@ const AddTeam = () => {
                                         setSelectedCities([]);
                                         setSelectedEmployees([]);
                                         setSelectedAvpId(null);
-                                        setSelectedAvpTeamId(null);
+                                        setSelectedAvpTeamIds([]);
                                         setEmployees([]);
                                     }}
                                 >
@@ -1096,7 +1119,7 @@ const AddTeam = () => {
                                         setSelectedEmployees([]);
                                         setSelectedCities([]);
                                         setSelectedAvpId(null);
-                                        setSelectedAvpTeamId(null);
+                                        setSelectedAvpTeamIds([]);
                                         setEmployees([]);
                                         fetchOfficeManagers();
                                         if (teamType === 'regional') {
@@ -1114,7 +1137,7 @@ const AddTeam = () => {
                                     disabled={
                                         isCreatingTeam ||
                                         (teamType === 'avp'
-                                            ? (!selectedAvpId || !selectedAvpTeamId)
+                                            ? (!selectedAvpId || selectedAvpTeamIds.length === 0)
                                             : (!officeManager || (teamType === 'regional' && selectedEmployees.length === 0)))
                                     }
                                 >

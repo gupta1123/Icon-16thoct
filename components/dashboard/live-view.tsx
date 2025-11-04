@@ -525,6 +525,8 @@ export function DashboardLiveView({
                 zoom={mapZoom}
                 highlightedEmployee={showStores ? null : highlightedEmployee}
                 markers={displayMarkers}
+                onCenterChange={onMapCenterChange}
+                onZoomChange={onMapZoomChange}
                 onMarkerClick={handleMarkerClick}
               />
             </Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -40,6 +40,8 @@ interface LeafletMapProps {
   highlightedEmployee: { id?: number | string; listId?: number | string } | null;
   markers?: MarkerData[];
   onMarkerClick?: (marker: MarkerData) => void;
+  onCenterChange?: (center: [number, number]) => void;
+  onZoomChange?: (zoom: number) => void;
 }
 
 const getHighlightedId = (employee: { id?: number | string; listId?: number | string } | null) => {
@@ -61,6 +63,57 @@ const MapController: FC<{ center: [number, number]; zoom: number }> = ({ center,
       // no-op
     }
   }, [center, map, zoom]);
+  return null;
+};
+
+interface MapEventHandlerProps {
+  center: [number, number];
+  zoom: number;
+  onCenterChange?: (center: [number, number]) => void;
+  onZoomChange?: (zoom: number) => void;
+}
+
+const MapEventHandler: FC<MapEventHandlerProps> = ({ center, zoom, onCenterChange, onZoomChange }) => {
+  const lastCenterRef = useRef<[number, number]>(center);
+  const lastZoomRef = useRef<number>(zoom);
+
+  useEffect(() => {
+    lastCenterRef.current = center;
+  }, [center]);
+
+  useEffect(() => {
+    lastZoomRef.current = zoom;
+  }, [zoom]);
+
+  useMapEvents({
+    moveend(event) {
+      if (!onCenterChange) {
+        return;
+      }
+      const mapInstance = event.target as L.Map;
+      const currentCenter = mapInstance.getCenter();
+      const nextCenter: [number, number] = [currentCenter.lat, currentCenter.lng];
+      const [lastLat, lastLng] = lastCenterRef.current;
+      if (Math.abs(nextCenter[0] - lastLat) < 1e-6 && Math.abs(nextCenter[1] - lastLng) < 1e-6) {
+        return;
+      }
+      lastCenterRef.current = nextCenter;
+      onCenterChange(nextCenter);
+    },
+    zoomend(event) {
+      if (!onZoomChange) {
+        return;
+      }
+      const mapInstance = event.target as L.Map;
+      const currentZoom = mapInstance.getZoom();
+      if (currentZoom === lastZoomRef.current) {
+        return;
+      }
+      lastZoomRef.current = currentZoom;
+      onZoomChange(currentZoom);
+    },
+  });
+
   return null;
 };
 
@@ -96,7 +149,15 @@ const formatHumanTime = (value?: string | null) => {
   return format(date, "d MMM ''yy hh:mm a");
 };
 
-const LeafletMapComponent: FC<LeafletMapProps> = ({ center, zoom, highlightedEmployee: _highlightedEmployee, markers = [], onMarkerClick }) => {
+const LeafletMapComponent: FC<LeafletMapProps> = ({
+  center,
+  zoom,
+  highlightedEmployee: _highlightedEmployee,
+  markers = [],
+  onMarkerClick,
+  onCenterChange,
+  onZoomChange,
+}) => {
   const [isClient, setIsClient] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   void _highlightedEmployee;
@@ -386,6 +447,12 @@ const MarkerClusterGroup: FC<{ markers: MarkerData[]; onMarkerClick?: (marker: M
       {isMapReady && (
         <>
           <MapController center={center} zoom={zoom} />
+          <MapEventHandler
+            center={center}
+            zoom={zoom}
+            onCenterChange={onCenterChange}
+            onZoomChange={onZoomChange}
+          />
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
@@ -410,6 +477,12 @@ const LeafletMap = memo(
       return false;
     }
     if (prev.markers !== next.markers) {
+      return false;
+    }
+    if (prev.onCenterChange !== next.onCenterChange) {
+      return false;
+    }
+    if (prev.onZoomChange !== next.onZoomChange) {
       return false;
     }
     return true;
