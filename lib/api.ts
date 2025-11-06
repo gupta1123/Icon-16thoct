@@ -437,8 +437,38 @@ export interface StoreSummary {
   storeName: string;
   city: string;
   state: string;
+  district?: string | null;
   latitude: number;
   longitude: number;
+}
+
+export interface StoreSummaryPage {
+  content: StoreSummary[];
+  pageable: {
+    pageNumber: number;
+    pageSize: number;
+    sort: {
+      empty: boolean;
+      sorted: boolean;
+      unsorted: boolean;
+    };
+    offset: number;
+    paged: boolean;
+    unpaged: boolean;
+  };
+  totalPages: number;
+  totalElements: number;
+  last: boolean;
+  size: number;
+  number: number;
+  sort: {
+    empty: boolean;
+    sorted: boolean;
+    unsorted: boolean;
+  };
+  numberOfElements: number;
+  first: boolean;
+  empty: boolean;
 }
 
 export interface StoreResponse {
@@ -1251,8 +1281,13 @@ export class API {
     return apiService.getStoresForTeam(teamId, page, size);
   }
 
-  static async getStoreSummary(): Promise<StoreSummary[]> {
-    return apiService.getStoreSummary();
+  static async getStoreSummary(params: {
+    storeName?: string;
+    district?: string;
+    page?: number;
+    size?: number;
+  } = {}): Promise<StoreSummaryPage> {
+    return apiService.getStoreSummary(params);
   }
 
   // Location static methods
@@ -1949,8 +1984,35 @@ export class API {
     return this.makeRequest<StoreResponse>(`/store/getForTeam?teamId=${teamId}&page=${page}&size=${size}`);
   }
 
-  async getStoreSummary(): Promise<StoreSummary[]> {
-    return this.makeRequest<StoreSummary[]>('/store/summary');
+  async getStoreSummary(params: {
+    storeName?: string;
+    district?: string;
+    page?: number;
+    size?: number;
+  } = {}): Promise<StoreSummaryPage> {
+    const searchParams = new URLSearchParams();
+
+    const storeName = params.storeName?.trim();
+    if (storeName) {
+      searchParams.set('storeName', storeName);
+    }
+    const district = params.district?.trim();
+    if (district) {
+      searchParams.set('district', district);
+    }
+    if (typeof params.page === 'number' && Number.isFinite(params.page)) {
+      const pageValue = Math.max(0, Math.floor(params.page));
+      searchParams.set('page', pageValue.toString());
+      // Some environments appear to expect `pae`. Include both to be safe.
+      searchParams.set('pae', pageValue.toString());
+    }
+    if (typeof params.size === 'number' && Number.isFinite(params.size)) {
+      searchParams.set('size', Math.max(1, Math.floor(params.size)).toString());
+    }
+
+    const query = searchParams.toString();
+    const endpoint = query ? `/store/summary?${query}` : '/store/summary';
+    return this.makeRequest<StoreSummaryPage>(endpoint);
   }
 
   // Location APIs

@@ -1,13 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Heading, Text } from "@/components/ui/typography";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Users, Building, Calendar, Store, Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { MapPin, Users, Building, Calendar, Store, Loader2, X } from "lucide-react";
 import type { ExtendedEmployee, MapMarker, StateItem } from "./types";
 
 const LeafletMap = dynamic(() => import("@/components/leaflet-map"), {
@@ -19,6 +26,7 @@ interface StoreLocation {
   storeName: string;
   city?: string | null;
   state?: string | null;
+  district?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -53,11 +61,20 @@ const normalizeStoreLocations = (data: unknown): StoreLocation[] => {
           ? nameRaw.trim()
           : `Store ${idValue}`;
 
+      // Handle city and state - normalize empty strings to null, preserve null values
+      const cityValue = record.city;
+      const stateValue = record.state;
+      const districtValue = record.district;
+      const city = typeof cityValue === "string" && cityValue.trim().length > 0 ? cityValue.trim() : null;
+      const state = typeof stateValue === "string" && stateValue.trim().length > 0 ? stateValue.trim() : null;
+      const district = typeof districtValue === "string" && districtValue.trim().length > 0 ? districtValue.trim() : null;
+
       return {
         storeId: idValue as number,
         storeName,
-        city: typeof record.city === "string" ? record.city : null,
-        state: typeof record.state === "string" ? record.state : null,
+        city,
+        state,
+        district,
         latitude: parseStoreCoordinate(record.latitude),
         longitude: parseStoreCoordinate(record.longitude),
       };
@@ -162,58 +179,258 @@ export function DashboardLiveView({
   const [originalMapCenter, setOriginalMapCenter] = useState<[number, number] | null>(null);
   const [originalMapZoom, setOriginalMapZoom] = useState<number | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
+  const [storeNameInput, setStoreNameInput] = useState("");
+  const [districtInput, setDistrictInput] = useState("");
+  const [currentStoreFilters, setCurrentStoreFilters] = useState<{ storeName: string; district: string }>({
+    storeName: "",
+    district: "",
+  });
+  const [currentStorePage, setCurrentStorePage] = useState(0);
+  const [storePageSize, setStorePageSize] = useState(10);
+  const [storeTotalElements, setStoreTotalElements] = useState(0);
+  const [storeTotalPages, setStoreTotalPages] = useState(0);
+  const latestStoreRequestRef = useRef(0);
 
-  const fetchStoreLocations = useCallback(async () => {
-    const authToken =
-      typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+  const fetchStoreLocations = useCallback(
+    async ({
+      page = currentStorePage,
+      size = storePageSize,
+      filters = currentStoreFilters,
+    }: {
+      page?: number;
+      size?: number;
+      filters?: { storeName?: string; district?: string };
+    } = {}) => {
+      const authToken =
+        typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
 
-    if (!authToken) {
-      setStoreError("Authentication token not found. Please log in.");
-      setStores([]);
-      return;
-    }
+      if (!authToken) {
+        setStoreError("Authentication token not found. Please log in.");
+        setStores([]);
+        setStoreTotalElements(0);
+        setStoreTotalPages(0);
+        return;
+      }
 
-    setIsStoresLoading(true);
-    setStoreError(null);
+      const safePage =
+        typeof page === "number" && Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0;
+      const safeSize =
+        typeof size === "number" && Number.isFinite(size) ? Math.max(1, Math.floor(size)) : storePageSize;
+      const trimmedFilters = {
+        storeName: filters?.storeName?.trim() ?? "",
+        district: filters?.district?.trim() ?? "",
+      };
 
-    try {
-      // Use the new /store/summary endpoint instead of /store/getAll
-      const response = await fetch("/api/proxy/store/summary", {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          Accept: "application/json",
+      const requestId = latestStoreRequestRef.current + 1;
+      latestStoreRequestRef.current = requestId;
+      setIsStoresLoading(true);
+      setStoreError(null);
+
+      try {
+        const params = new URLSearchParams();
+        params.set("page", safePage.toString());
+        params.set("pae", safePage.toString());
+        params.set("size", safeSize.toString());
+        if (trimmedFilters.storeName) {
+          params.set("storeName", trimmedFilters.storeName);
+        }
+        if (trimmedFilters.district) {
+          params.set("district", trimmedFilters.district);
+        }
+
+        const response = await fetch(`/api/proxy/store/summary?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            Accept: "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const message = await readResponseMessage(response);
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as unknown;
+        const isValidPayload =
+          payload &&
+          typeof payload === "object" &&
+          Array.isArray((payload as { content?: unknown[] }).content);
+
+        if (!isValidPayload) {
+          throw new Error("Unexpected response format while fetching store locations.");
+        }
+
+        const pageData = payload as {
+          content: unknown[];
+          number?: number;
+          size?: number;
+          totalElements?: number;
+          totalPages?: number;
+        };
+
+        const normalized = normalizeStoreLocations(pageData.content);
+
+        if (latestStoreRequestRef.current !== requestId) {
+          return;
+        }
+
+        const resolvedPage =
+          typeof pageData.number === "number" && pageData.number >= 0 ? pageData.number : safePage;
+        const resolvedSize =
+          typeof pageData.size === "number" && pageData.size > 0 ? pageData.size : safeSize;
+        const resolvedTotalElements =
+          typeof pageData.totalElements === "number" && pageData.totalElements >= 0
+            ? pageData.totalElements
+            : normalized.length;
+        const resolvedTotalPages =
+          typeof pageData.totalPages === "number" && pageData.totalPages >= 0
+            ? pageData.totalPages
+            : resolvedTotalElements > 0
+            ? Math.ceil(resolvedTotalElements / resolvedSize)
+            : 0;
+
+        setStores(normalized);
+        setCurrentStorePage(resolvedPage);
+        setStorePageSize(resolvedSize);
+        setStoreTotalElements(resolvedTotalElements);
+        setStoreTotalPages(resolvedTotalPages);
+        setCurrentStoreFilters(trimmedFilters);
+        setStoreNameInput(trimmedFilters.storeName);
+        setDistrictInput(trimmedFilters.district);
+      } catch (err) {
+        console.error("Dashboard - Error loading store locations:", err);
+        if (latestStoreRequestRef.current === requestId) {
+          setStores([]);
+          setStoreTotalElements(0);
+          setStoreTotalPages(0);
+          setStoreError(
+            err instanceof Error ? err.message : "Unable to load store locations right now."
+          );
+        }
+      } finally {
+        if (latestStoreRequestRef.current === requestId) {
+          setIsStoresLoading(false);
+        }
+      }
+    },
+    [currentStoreFilters, currentStorePage, latestStoreRequestRef, storePageSize]
+  );
+
+  const handleStoreFilterSubmit = useCallback(
+    (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      void fetchStoreLocations({
+        page: 0,
+        size: storePageSize,
+        filters: {
+          storeName: storeNameInput,
+          district: districtInput,
         },
       });
+    },
+    [districtInput, fetchStoreLocations, storeNameInput, storePageSize]
+  );
 
-      if (!response.ok) {
-        const message = await readResponseMessage(response);
-        throw new Error(message);
+  const handleClearStoreFilters = useCallback(() => {
+    setStoreNameInput("");
+    setDistrictInput("");
+    void fetchStoreLocations({
+      page: 0,
+      size: storePageSize,
+      filters: {
+        storeName: "",
+        district: "",
+      },
+    });
+  }, [fetchStoreLocations, storePageSize]);
+
+  const handleStorePageChange = useCallback(
+    (direction: "previous" | "next") => {
+      if (direction === "previous" && currentStorePage > 0) {
+        void fetchStoreLocations({ page: currentStorePage - 1 });
+        return;
       }
 
-      const payload = (await response.json()) as unknown;
+      if (direction === "next" && currentStorePage + 1 < storeTotalPages) {
+        void fetchStoreLocations({ page: currentStorePage + 1 });
+      }
+    },
+    [currentStorePage, fetchStoreLocations, storeTotalPages]
+  );
 
-      if (!Array.isArray(payload)) {
-        throw new Error("Unexpected response format while fetching store locations.");
+  const handleStorePageSizeChange = useCallback(
+    (value: string) => {
+      const nextSize = Number(value);
+      if (!Number.isFinite(nextSize) || nextSize <= 0) {
+        return;
+      }
+      setStorePageSize(nextSize);
+      void fetchStoreLocations({ page: 0, size: nextSize });
+    },
+    [fetchStoreLocations]
+  );
+
+  const resolvedStores = useMemo(() => {
+    return [...stores].sort((a, b) => {
+      const nameA = (a.storeName ?? "").trim().toLowerCase();
+      const nameB = (b.storeName ?? "").trim().toLowerCase();
+
+      if (nameA && nameB) {
+        const nameCompare = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+        if (nameCompare !== 0) {
+          return nameCompare;
+        }
+      } else if (nameA) {
+        return -1;
+      } else if (nameB) {
+        return 1;
       }
 
-      // The /store/summary endpoint returns data in the exact format we need
-      // so we can use normalizeStoreLocations to ensure compatibility
-      const normalized = normalizeStoreLocations(payload);
+      const aId = Number(a.storeId);
+      const bId = Number(b.storeId);
 
-      setStores(normalized);
-    } catch (err) {
-      console.error("Dashboard - Error loading store locations:", err);
-      setStores([]);
-      setStoreError(
-        err instanceof Error ? err.message : "Unable to load store locations right now."
-      );
-    } finally {
-      setIsStoresLoading(false);
+      if (Number.isFinite(aId) && Number.isFinite(bId)) {
+        return aId - bId;
+      }
+      if (Number.isFinite(aId)) {
+        return -1;
+      }
+      if (Number.isFinite(bId)) {
+        return 1;
+      }
+
+      return 0;
+    });
+  }, [stores]);
+
+  const hasActiveStoreFilters = useMemo(
+    () => Boolean(currentStoreFilters.storeName || currentStoreFilters.district),
+    [currentStoreFilters]
+  );
+
+  const storeRangeLabel = useMemo(() => {
+    if (storeTotalElements === 0) {
+      return "0 of 0";
     }
-  }, []);
+    if (resolvedStores.length === 0) {
+      return `0 of ${storeTotalElements}`;
+    }
+    const startIndex = currentStorePage * storePageSize;
+    const first = startIndex + 1;
+    const last = Math.min(storeTotalElements, startIndex + resolvedStores.length);
+    return `${first}-${last} of ${storeTotalElements}`;
+  }, [currentStorePage, resolvedStores.length, storePageSize, storeTotalElements]);
+
+  const canGoToPreviousStorePage = currentStorePage > 0;
+  const canGoToNextStorePage = storeTotalPages > 0 && currentStorePage + 1 < storeTotalPages;
+  const currentStorePageDisplay = storeTotalPages > 0 ? currentStorePage + 1 : storeTotalElements === 0 ? 0 : 1;
+  const canClearStoreFilters =
+    hasActiveStoreFilters ||
+    storeNameInput.trim().length > 0 ||
+    districtInput.trim().length > 0;
 
   const storeMarkers = useMemo<MapMarker[]>(() => {
-    return stores
+    return resolvedStores
       .filter(
         (store) =>
           typeof store.latitude === "number" &&
@@ -225,12 +442,12 @@ export function DashboardLiveView({
         id: `store-${store.storeId}`,
         label: store.storeName,
         storeName: store.storeName,
-        description: [store.city, store.state].filter(Boolean).join(", "),
+        description: [store.district, store.city, store.state].filter(Boolean).join(", "),
         lat: store.latitude as number,
         lng: store.longitude as number,
         variant: "store",
       }));
-  }, [stores]);
+  }, [resolvedStores]);
 
   const displayMarkers = useMemo<MapMarker[]>(() => {
     const markers = showStores ? storeMarkers : mapMarkers;
@@ -323,6 +540,19 @@ export function DashboardLiveView({
       onResetMap();
     }
   }, [onResetMap, onMapCenterChange, onMapZoomChange, originalMapCenter, originalMapZoom]);
+
+  useEffect(() => {
+    if (selectedStoreId === null) {
+      return;
+    }
+
+    const isVisible = resolvedStores.some((store) => store.storeId === selectedStoreId);
+    if (!isVisible) {
+      setSelectedStoreId(null);
+    }
+  }, [resolvedStores, selectedStoreId]);
+
+  // Filter and sort stores alphabetically (matching Employees search pattern)
 
   return (
     <>
@@ -454,7 +684,9 @@ export function DashboardLiveView({
                   <>
                     <Badge variant="secondary" className="flex items-center gap-1 text-xs font-semibold sm:text-sm">
                       <Store className="h-3 w-3" />
-                      {stores.length} store locations
+                      {storeTotalElements === 0
+                        ? "No store locations"
+                        : `Showing ${storeRangeLabel} stores`}
                     </Badge>
                     <span>Use this view to compare coverage clusters.</span>
                   </>
@@ -534,19 +766,91 @@ export function DashboardLiveView({
           {showStores ? (
             <div className="w-full lg:w-96">
               <Card className="flex h-[600px] flex-col overflow-hidden rounded-xl">
-                <CardHeader className="border-b space-y-2">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Store className="h-5 w-5" />
-                    <span>Store Network</span>
+                <CardHeader className="space-y-4 border-b">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Store className="h-5 w-5" />
+                      <span>Store Network</span>
+                    </CardTitle>
                     {!isStoresLoading && (
-                      <Badge variant="secondary" className="ml-auto">
-                        {stores.length} locations
+                      <Badge variant="secondary" className="w-fit whitespace-nowrap">
+                        {storeTotalElements === 0
+                          ? "No stores"
+                          : `Showing ${storeRangeLabel}`}
                       </Badge>
                     )}
-                  </CardTitle>
+                  </div>
                   <Text size="sm" tone="muted">
                     Live store coverage pulled from the stores service.
                   </Text>
+                  <form onSubmit={handleStoreFilterSubmit} className="space-y-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <div className="relative flex-1">
+                        <Input
+                          type="text"
+                          value={storeNameInput}
+                          onChange={(event) => setStoreNameInput(event.target.value)}
+                          placeholder="Filter by store name..."
+                          className="h-9 pr-8"
+                          aria-label="Filter by store name"
+                          disabled={isStoresLoading}
+                        />
+                        {storeNameInput && (
+                          <button
+                            type="button"
+                            onClick={() => setStoreNameInput("")}
+                            className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground transition-colors hover:text-foreground"
+                            aria-label="Clear store name filter"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative flex-1">
+                        <Input
+                          type="text"
+                          value={districtInput}
+                          onChange={(event) => setDistrictInput(event.target.value)}
+                          placeholder="Filter by district..."
+                          className="h-9 pr-8"
+                          aria-label="Filter by district"
+                          disabled={isStoresLoading}
+                        />
+                        {districtInput && (
+                          <button
+                            type="button"
+                            onClick={() => setDistrictInput("")}
+                            className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground transition-colors hover:text-foreground"
+                            aria-label="Clear district filter"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="submit" size="sm" disabled={isStoresLoading}>
+                        Apply filters
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleClearStoreFilters}
+                        disabled={!canClearStoreFilters || isStoresLoading}
+                      >
+                        Clear
+                      </Button>
+                      {hasActiveStoreFilters && (
+                        <Badge variant="outline" className="text-xs font-semibold">
+                          Active:{" "}
+                          {[currentStoreFilters.storeName, currentStoreFilters.district]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </Badge>
+                      )}
+                    </div>
+                  </form>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-y-auto p-0">
                   {isStoresLoading ? (
@@ -554,21 +858,37 @@ export function DashboardLiveView({
                       <Loader2 className="h-5 w-5 animate-spin" />
                       <span className="text-sm">Loading store locations...</span>
                     </div>
-                  ) : stores.length === 0 ? (
-                    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
+                  ) : storeTotalElements === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
                       <Store className="h-10 w-10 opacity-30" />
-                      <p className="font-medium">No store locations yet</p>
-                      <p className="text-sm">
-                        The stores API did not return any locations. Try refreshing to sync again.
+                      <p className="font-medium">
+                        {hasActiveStoreFilters ? "No stores match your filters" : "No store locations yet"}
                       </p>
-                      <Button variant="outline" size="sm" onClick={handleRetryStores}>
-                        Refresh data
-                      </Button>
+                      <p className="text-sm">
+                        {hasActiveStoreFilters
+                          ? "Try adjusting your filters or clear them to see all stores."
+                          : "The stores API did not return any locations. Try refreshing to sync again."}
+                      </p>
+                      {hasActiveStoreFilters ? (
+                        <Button variant="ghost" size="sm" onClick={handleClearStoreFilters}>
+                          Clear filters
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={handleRetryStores}>
+                          Refresh data
+                        </Button>
+                      )}
+                    </div>
+                  ) : resolvedStores.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+                      <Store className="h-10 w-10 opacity-30" />
+                      <p className="font-medium">No stores on this page</p>
+                      <p className="text-sm">Use the pagination controls below to navigate to another page.</p>
                     </div>
                   ) : (
                     <div className="divide-y">
-                      {stores.map((store) => {
-                        const locationLabel = [store.city, store.state]
+                      {resolvedStores.map((store) => {
+                        const locationLabel = [store.district, store.city, store.state]
                           .map((part) => (typeof part === "string" ? part.trim() : ""))
                           .filter((part) => part.length > 0)
                           .join(", ");
@@ -598,6 +918,11 @@ export function DashboardLiveView({
                                 <Text size="sm" tone="muted">
                                   {locationLabel || "Location unavailable"}
                                 </Text>
+                                {store.district && (
+                                  <Text size="xs" tone="muted" className="mt-1">
+                                    District: {store.district}
+                                  </Text>
+                                )}
                               </div>
                               <Badge variant="outline" className="text-xs font-semibold">
                                 ID · {store.storeId}
@@ -619,6 +944,61 @@ export function DashboardLiveView({
                     </div>
                   )}
                 </CardContent>
+                <div className="flex flex-col gap-3 border-t bg-muted/30 px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:text-sm">
+                  <div>
+                    {storeTotalElements === 0
+                      ? "No stores to display"
+                      : `Showing ${storeRangeLabel} ${storeTotalElements === 1 ? "store" : "stores"}`}
+                    {storeTotalPages > 0 && (
+                      <span className="ml-2">
+                        Page {currentStorePageDisplay} of {storeTotalPages}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground/80">
+                        Page size
+                      </span>
+                      <Select
+                        value={String(storePageSize)}
+                        onValueChange={handleStorePageSizeChange}
+                        disabled={isStoresLoading}
+                      >
+                        <SelectTrigger size="sm" className="w-[90px]">
+                          <SelectValue aria-label="Store page size" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[5, 10, 20, 50].map((option) => (
+                            <SelectItem key={option} value={String(option)}>
+                              {option} / page
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStorePageChange("previous")}
+                        disabled={!canGoToPreviousStorePage || isStoresLoading}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStorePageChange("next")}
+                        disabled={!canGoToNextStorePage || isStoresLoading}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </Card>
             </div>
           ) : (
@@ -642,14 +1022,26 @@ export function DashboardLiveView({
                       </Badge>
                     </div>
                   </CardTitle>
-                  <Input
-                    type="search"
-                    value={employeeSearchTerm}
-                    onChange={(event) => onEmployeeSearch(event.target.value)}
-                    placeholder="Search employees by name, role, or location..."
-                    className="h-9"
-                    aria-label="Search employees"
-                  />
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={employeeSearchTerm}
+                      onChange={(event) => onEmployeeSearch(event.target.value)}
+                      placeholder="Search employees by name, role, or location..."
+                      className="h-9 pr-8"
+                      aria-label="Search employees"
+                    />
+                    {employeeSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => onEmployeeSearch("")}
+                        className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-y-auto p-0">
                   <div className="divide-y">

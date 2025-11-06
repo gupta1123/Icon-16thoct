@@ -547,8 +547,8 @@ function DashboardPageContent() {
       if (!token) return;
       
       try {
-        const stores = await API.getStoreSummary();
-        setStoreSummaries(stores);
+        const storeResponse = await API.getStoreSummary({ page: 0, size: 500 });
+        setStoreSummaries(storeResponse.content ?? []);
       } catch (err: unknown) {
         console.error("Dashboard - Error fetching store summaries:", err);
         // Don't set error state for store summaries failure, just log it
