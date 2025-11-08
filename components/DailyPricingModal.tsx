@@ -41,7 +41,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
       const newBrandData = {
         ...newBrand,
         price: parseFloat(newBrand.price),
-        employeeDto: { id: 86 }
+        employeeDto: { id: 99 }
       };
 
       const response = await fetch('/api/proxy/brand/create', {

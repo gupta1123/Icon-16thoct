@@ -11,7 +11,7 @@ interface TopbarProps {
 export default function Topbar({ heading, subheading }: TopbarProps) {
   return (
     <header className="flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         {heading && (
           <Heading as="h1" size="xl" className="truncate" weight="semibold">
             {heading}
@@ -24,7 +24,7 @@ export default function Topbar({ heading, subheading }: TopbarProps) {
         )}
       </div>
       
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <ThemeToggle />
       </div>
     </header>

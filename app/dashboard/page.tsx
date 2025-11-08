@@ -246,12 +246,26 @@ function DashboardPageContent() {
   const [navigationHistory, setNavigationHistory] = useState<Array<"dashboard" | "state" | "employeeDetail">>([]);
   const [previousView, setPreviousView] = useState<"dashboard" | "state" | "employeeDetail">("dashboard");
 
+  const formatToSentenceCase = useCallback((text?: string | null) => {
+    if (!text) return "";
+    return text
+      .toLowerCase()
+      .split(" ")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }, []);
+
+  const formatRole = useCallback((role?: string | null) => {
+    if (!role) return "Employee";
+    return role.replace(/_/g, " ");
+  }, []);
+
   const composeLocation = useCallback((city?: string | null, state?: string | null) => {
     const parts = [city, state]
-      .map((part) => (part ?? "").trim())
+      .map((part) => formatToSentenceCase(part))
       .filter(Boolean);
     return parts.join(", ") || "—";
-  }, []);
+  }, [formatToSentenceCase]);
 
   const formatTimestamp = useCallback((iso?: string | null) => {
     if (!iso) return undefined;
@@ -272,7 +286,7 @@ function DashboardPageContent() {
       return {
         id: summary.employeeId,
         name: employeeName,
-        position: summary.role ?? "Employee",
+        position: formatRole(summary.role),
         avatar: getInitials(employeeName), // Use initials instead of placeholder
         lastUpdated: summary.liveLocationUpdatedAt ?? summary.lastVisitAt ?? new Date().toISOString(),
         status:
@@ -284,7 +298,7 @@ function DashboardPageContent() {
         location: composeLocation(summary.city, summary.state),
       };
     },
-    [composeLocation]
+    [composeLocation, formatRole]
   );
 
   const buildLiveMarkers = useCallback(
@@ -320,7 +334,7 @@ function DashboardPageContent() {
             storeName: loc.lastVisitStoreName ?? undefined,
             description,
             variant,
-            employeeColor: generateEmployeeColor(loc.employeeId), // Add unique color for employee
+            employeeColor: generateEmployeeColor(loc.employeeId), 
           } satisfies MapMarker;
         })
         .filter(Boolean) as MapMarker[],
@@ -748,7 +762,7 @@ function DashboardPageContent() {
         return {
           id: liveLocation.employeeId,
           name: employeeName,
-          position: summary?.role ?? "Employee",
+          position: formatRole(summary?.role),
           avatar: getInitials(employeeName),
           lastUpdated: bestTimestamp ?? new Date().toISOString(),
           status,
@@ -759,7 +773,7 @@ function DashboardPageContent() {
         } satisfies ExtendedEmployee;
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [overview, summaryByEmployeeId, formatTimestamp, composeLocation]);
+  }, [overview, summaryByEmployeeId, formatTimestamp, composeLocation, formatRole]);
 
   const filteredEmployeeList = useMemo(() => {
     const term = employeeSearchTerm.trim().toLowerCase();
@@ -1240,16 +1254,14 @@ function DashboardPageContent() {
           </div>
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="space-y-1">
-          <Heading as="h1" size="lg" weight="semibold">
-            {view === "dashboard"
-              ? "Dashboard"
-              : view === "state" && selectedState
-              ? selectedState.name
-              : selectedEmployee?.name || "Employee Details"}
-          </Heading>
-          {view !== "dashboard" && (
+      {view !== "dashboard" && (
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1">
+            <Heading as="h1" size="lg" weight="semibold">
+              {view === "state" && selectedState
+                ? selectedState.name
+                : selectedEmployee?.name || "Employee Details"}
+            </Heading>
             <Text tone="muted" size="sm">
               {view === "state" && selectedState
                 ? "Active employees in this state"
@@ -1257,10 +1269,8 @@ function DashboardPageContent() {
                 ? selectedEmployee.position
                 : ""}
             </Text>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          {view !== "dashboard" && (
+          </div>
+          <div className="flex items-center gap-4">
             <Button
               variant="outline"
               onClick={handleBack}
@@ -1269,7 +1279,11 @@ function DashboardPageContent() {
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>
-          )}
+          </div>
+        </div>
+      )}
+      {view === "dashboard" && (
+        <div className="flex items-center justify-end gap-4">
           <Select
             value={selectedDateRange}
             onValueChange={(value) => setSelectedDateRange(value as DateRangeKey)}
@@ -1286,7 +1300,7 @@ function DashboardPageContent() {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      )}
 
       {/* Show skeleton loader while role is being determined or data is loading */}
       {!isRoleDetermined || isLoadingOverview ? (

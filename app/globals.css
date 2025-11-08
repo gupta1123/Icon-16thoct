@@ -131,6 +131,17 @@
     overflow-x: hidden;
     width: 100%;
   }
+
+  /* Remove default number input steppers (increase/decrease controls) */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
   
   /* Ensure proper mobile scaling */
   @media screen and (max-width: 768px) {

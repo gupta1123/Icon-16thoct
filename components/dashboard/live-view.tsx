@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Heading, Text } from "@/components/ui/typography";
@@ -83,6 +84,21 @@ const normalizeStoreLocations = (data: unknown): StoreLocation[] => {
   
   return result;
 };
+
+const STORE_FILTER_KEYS = ["storeName", "district"] as const;
+type StoreFilterKey = (typeof STORE_FILTER_KEYS)[number];
+type StoreFiltersState = Record<StoreFilterKey, string>;
+const INITIAL_STORE_FILTERS: StoreFiltersState = {
+  storeName: "",
+  district: "",
+};
+
+const STORE_FILTER_QUERY_KEYS: Record<StoreFilterKey, string> = {
+  storeName: "storeName",
+  district: "storeDistrict",
+};
+
+const DEFAULT_STORE_PAGE_SIZE = 10;
 
 const formatCoordinate = (value?: number | null, fractionDigits = 4) => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -179,17 +195,19 @@ export function DashboardLiveView({
   const [originalMapCenter, setOriginalMapCenter] = useState<[number, number] | null>(null);
   const [originalMapZoom, setOriginalMapZoom] = useState<number | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
-  const [storeNameInput, setStoreNameInput] = useState("");
-  const [districtInput, setDistrictInput] = useState("");
-  const [currentStoreFilters, setCurrentStoreFilters] = useState<{ storeName: string; district: string }>({
-    storeName: "",
-    district: "",
-  });
+  const [storeFilters, setStoreFilters] = useState<StoreFiltersState>(() => ({ ...INITIAL_STORE_FILTERS }));
+  const [currentStoreFilters, setCurrentStoreFilters] = useState<StoreFiltersState>(() => ({
+    ...INITIAL_STORE_FILTERS,
+  }));
   const [currentStorePage, setCurrentStorePage] = useState(0);
-  const [storePageSize, setStorePageSize] = useState(10);
+  const [storePageSize, setStorePageSize] = useState(DEFAULT_STORE_PAGE_SIZE);
   const [storeTotalElements, setStoreTotalElements] = useState(0);
   const [storeTotalPages, setStoreTotalPages] = useState(0);
+  const [isStoreFiltersInitialized, setIsStoreFiltersInitialized] = useState(false);
   const latestStoreRequestRef = useRef(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const fetchStoreLocations = useCallback(
     async ({
@@ -295,8 +313,7 @@ export function DashboardLiveView({
         setStoreTotalElements(resolvedTotalElements);
         setStoreTotalPages(resolvedTotalPages);
         setCurrentStoreFilters(trimmedFilters);
-        setStoreNameInput(trimmedFilters.storeName);
-        setDistrictInput(trimmedFilters.district);
+        setStoreFilters(trimmedFilters);
       } catch (err) {
         console.error("Dashboard - Error loading store locations:", err);
         if (latestStoreRequestRef.current === requestId) {
@@ -319,28 +336,24 @@ export function DashboardLiveView({
   const handleStoreFilterSubmit = useCallback(
     (event?: FormEvent<HTMLFormElement>) => {
       event?.preventDefault();
+      setCurrentStoreFilters(storeFilters);
       void fetchStoreLocations({
         page: 0,
         size: storePageSize,
-        filters: {
-          storeName: storeNameInput,
-          district: districtInput,
-        },
+        filters: storeFilters,
       });
     },
-    [districtInput, fetchStoreLocations, storeNameInput, storePageSize]
+    [fetchStoreLocations, storeFilters, storePageSize]
   );
 
   const handleClearStoreFilters = useCallback(() => {
-    setStoreNameInput("");
-    setDistrictInput("");
+    const clearedFilters = { ...INITIAL_STORE_FILTERS };
+    setStoreFilters(clearedFilters);
+    setCurrentStoreFilters(clearedFilters);
     void fetchStoreLocations({
       page: 0,
       size: storePageSize,
-      filters: {
-        storeName: "",
-        district: "",
-      },
+      filters: clearedFilters,
     });
   }, [fetchStoreLocations, storePageSize]);
 
@@ -426,8 +439,8 @@ export function DashboardLiveView({
   const currentStorePageDisplay = storeTotalPages > 0 ? currentStorePage + 1 : storeTotalElements === 0 ? 0 : 1;
   const canClearStoreFilters =
     hasActiveStoreFilters ||
-    storeNameInput.trim().length > 0 ||
-    districtInput.trim().length > 0;
+    storeFilters.storeName.trim().length > 0 ||
+    storeFilters.district.trim().length > 0;
 
   const storeMarkers = useMemo<MapMarker[]>(() => {
     return resolvedStores
@@ -483,6 +496,132 @@ export function DashboardLiveView({
   const handleRetryStores = useCallback(() => {
     void fetchStoreLocations();
   }, [fetchStoreLocations]);
+
+  useEffect(() => {
+    if (isStoreFiltersInitialized) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    const initialFilters: StoreFiltersState = { ...INITIAL_STORE_FILTERS };
+
+    STORE_FILTER_KEYS.forEach((key) => {
+      const queryKey = STORE_FILTER_QUERY_KEYS[key];
+      const paramValue = params.get(queryKey);
+      if (paramValue !== null) {
+        initialFilters[key] = paramValue;
+      }
+    });
+
+    const pageParam = params.get("storePage");
+    const parsedPage = pageParam !== null ? Number(pageParam) - 1 : NaN;
+    const isValidPage = Number.isFinite(parsedPage) && parsedPage >= 0;
+
+    const sizeParam = params.get("storePageSize");
+    const parsedSize = sizeParam !== null ? Number(sizeParam) : NaN;
+    const isValidSize = Number.isFinite(parsedSize) && parsedSize > 0;
+
+    if (isValidSize) {
+      setStorePageSize(parsedSize);
+    }
+
+    if (isValidPage) {
+      setCurrentStorePage(parsedPage);
+    }
+
+    setStoreFilters(initialFilters);
+    setCurrentStoreFilters(initialFilters);
+
+    const hasFilterValues = STORE_FILTER_KEYS.some((key) => initialFilters[key].trim().length > 0);
+    const shouldShowStoresInitially = params.get("storeView") === "stores" || hasFilterValues;
+
+    if (shouldShowStoresInitially) {
+      setShowStores(true);
+      void fetchStoreLocations({
+        page: isValidPage ? parsedPage : 0,
+        size: isValidSize ? parsedSize : DEFAULT_STORE_PAGE_SIZE,
+        filters: initialFilters,
+      });
+    }
+
+    setIsStoreFiltersInitialized(true);
+  }, [
+    fetchStoreLocations,
+    isStoreFiltersInitialized,
+    searchParams,
+  ]);
+
+  useEffect(() => {
+    if (!isStoreFiltersInitialized) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    let hasUpdates = false;
+
+    STORE_FILTER_KEYS.forEach((key) => {
+      const queryKey = STORE_FILTER_QUERY_KEYS[key];
+      const value = currentStoreFilters[key].trim();
+
+      if (value) {
+        if (params.get(queryKey) !== value) {
+          params.set(queryKey, value);
+          hasUpdates = true;
+        }
+      } else if (params.has(queryKey)) {
+        params.delete(queryKey);
+        hasUpdates = true;
+      }
+    });
+
+    if (showStores) {
+      if (params.get("storeView") !== "stores") {
+        params.set("storeView", "stores");
+        hasUpdates = true;
+      }
+    } else if (params.has("storeView")) {
+      params.delete("storeView");
+      hasUpdates = true;
+    }
+
+    if (currentStorePage > 0) {
+      const pageValue = String(currentStorePage + 1);
+      if (params.get("storePage") !== pageValue) {
+        params.set("storePage", pageValue);
+        hasUpdates = true;
+      }
+    } else if (params.has("storePage")) {
+      params.delete("storePage");
+      hasUpdates = true;
+    }
+
+    if (storePageSize !== DEFAULT_STORE_PAGE_SIZE) {
+      const sizeValue = String(storePageSize);
+      if (params.get("storePageSize") !== sizeValue) {
+        params.set("storePageSize", sizeValue);
+        hasUpdates = true;
+      }
+    } else if (params.has("storePageSize")) {
+      params.delete("storePageSize");
+      hasUpdates = true;
+    }
+
+    if (!hasUpdates) {
+      return;
+    }
+
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [
+    currentStoreFilters,
+    currentStorePage,
+    isStoreFiltersInitialized,
+    pathname,
+    router,
+    searchParams,
+    showStores,
+    storePageSize,
+  ]);
 
   const handleMarkerClick = useCallback(
     (marker: { variant?: string; lat: number; lng: number; id?: number | string }) => {
@@ -665,6 +804,15 @@ export function DashboardLiveView({
                 >
                   <Store className="h-4 w-4" />
                   <span>Stores</span>
+                  {showStores && canClearStoreFilters && (
+                    <X
+                      className="h-3.5 w-3.5 ml-1 hover:opacity-70 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleClearStoreFilters();
+                      }}
+                    />
+                  )}
                 </button>
               </div>
             </div>
@@ -781,24 +929,48 @@ export function DashboardLiveView({
                     )}
                   </div>
                   <Text size="sm" tone="muted">
-                    Live store coverage pulled from the stores service.
+                    Live store coverage pulled from the stores service. Filter updates automatically as you type.
                   </Text>
-                  <form onSubmit={handleStoreFilterSubmit} className="space-y-2">
+                  <div className="space-y-2">
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <div className="relative flex-1">
                         <Input
                           type="text"
-                          value={storeNameInput}
-                          onChange={(event) => setStoreNameInput(event.target.value)}
+                          value={storeFilters.storeName}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            const nextFilters = {
+                              ...storeFilters,
+                              storeName: value,
+                            };
+                            setStoreFilters(nextFilters);
+                            setCurrentStoreFilters(nextFilters);
+                            void fetchStoreLocations({
+                              page: 0,
+                              size: storePageSize,
+                              filters: nextFilters,
+                            });
+                          }}
                           placeholder="Filter by store name..."
                           className="h-9 pr-8"
                           aria-label="Filter by store name"
-                          disabled={isStoresLoading}
                         />
-                        {storeNameInput && (
+                        {storeFilters.storeName && (
                           <button
                             type="button"
-                            onClick={() => setStoreNameInput("")}
+                            onClick={() => {
+                              const nextFilters = {
+                                ...storeFilters,
+                                storeName: "",
+                              };
+                              setStoreFilters(nextFilters);
+                              setCurrentStoreFilters(nextFilters);
+                              void fetchStoreLocations({
+                                page: 0,
+                                size: storePageSize,
+                                filters: nextFilters,
+                              });
+                            }}
                             className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground transition-colors hover:text-foreground"
                             aria-label="Clear store name filter"
                           >
@@ -809,17 +981,41 @@ export function DashboardLiveView({
                       <div className="relative flex-1">
                         <Input
                           type="text"
-                          value={districtInput}
-                          onChange={(event) => setDistrictInput(event.target.value)}
+                          value={storeFilters.district}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            const nextFilters = {
+                              ...storeFilters,
+                              district: value,
+                            };
+                            setStoreFilters(nextFilters);
+                            setCurrentStoreFilters(nextFilters);
+                            void fetchStoreLocations({
+                              page: 0,
+                              size: storePageSize,
+                              filters: nextFilters,
+                            });
+                          }}
                           placeholder="Filter by district..."
                           className="h-9 pr-8"
                           aria-label="Filter by district"
-                          disabled={isStoresLoading}
                         />
-                        {districtInput && (
+                        {storeFilters.district && (
                           <button
                             type="button"
-                            onClick={() => setDistrictInput("")}
+                            onClick={() => {
+                              const nextFilters = {
+                                ...storeFilters,
+                                district: "",
+                              };
+                              setStoreFilters(nextFilters);
+                              setCurrentStoreFilters(nextFilters);
+                              void fetchStoreLocations({
+                                page: 0,
+                                size: storePageSize,
+                                filters: nextFilters,
+                              });
+                            }}
                             className="absolute inset-y-0 right-0 flex items-center pr-2 text-muted-foreground transition-colors hover:text-foreground"
                             aria-label="Clear district filter"
                           >
@@ -828,29 +1024,15 @@ export function DashboardLiveView({
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="submit" size="sm" disabled={isStoresLoading}>
-                        Apply filters
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleClearStoreFilters}
-                        disabled={!canClearStoreFilters || isStoresLoading}
-                      >
-                        Clear
-                      </Button>
-                      {hasActiveStoreFilters && (
-                        <Badge variant="outline" className="text-xs font-semibold">
-                          Active:{" "}
-                          {[currentStoreFilters.storeName, currentStoreFilters.district]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </Badge>
-                      )}
-                    </div>
-                  </form>
+                    {hasActiveStoreFilters && (
+                      <Badge variant="outline" className="text-xs font-semibold">
+                        Active filters:{" "}
+                        {[currentStoreFilters.storeName, currentStoreFilters.district]
+                          .filter(Boolean)
+                          .join(", ")}
+                      </Badge>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-y-auto p-0">
                   {isStoresLoading ? (

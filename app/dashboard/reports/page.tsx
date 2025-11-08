@@ -614,8 +614,9 @@ const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
             {/* Filters Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-muted/30 rounded-lg">
-                        <div className="space-y-2">
+            <div className="flex flex-col lg:flex-row gap-4 p-4 bg-muted/30 rounded-lg">
+                <div className="flex flex-col sm:flex-row gap-4 flex-1 flex-wrap">
+                        <div className="space-y-2 flex-1 min-w-[200px]">
                             <Label htmlFor="employeeSelectTrigger" className="text-sm text-muted-foreground">Field Officer</Label>
                             {employeesLoading ? (
                                 <div className="flex items-center justify-center h-10 w-full">
@@ -670,7 +671,7 @@ const ReportsPage: React.FC = () => {
                             )}
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-2 flex-1 min-w-[200px]">
                             <Label htmlFor="rangeSelectTrigger" className="text-sm text-muted-foreground">Date Range</Label>
                             <Select value={rangeSelect} onValueChange={(value) => { 
                                 setRangeSelect(value); 
@@ -694,7 +695,7 @@ const ReportsPage: React.FC = () => {
               </Select>
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-2 flex-1 min-w-[200px]">
                             <Label htmlFor="startDateTrigger" className="text-sm text-muted-foreground">From Date</Label>
                             <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
                 <PopoverTrigger asChild>
@@ -720,7 +721,7 @@ const ReportsPage: React.FC = () => {
                             </Popover>
                         </div>
             
-                        <div className="space-y-2">
+                        <div className="space-y-2 flex-1 min-w-[200px]">
                             <Label htmlFor="endDateTrigger" className="text-sm text-muted-foreground">To Date</Label>
                             <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
                                 <PopoverTrigger asChild>
@@ -745,11 +746,12 @@ const ReportsPage: React.FC = () => {
                 </PopoverContent>
               </Popover>
             </div>
+                </div>
             
-            <div className="flex items-end">
+            <div className="flex items-end shrink-0">
                             <Button
                                 onClick={handleGenerateReport}
-                                className="w-full"
+                                className="w-full sm:w-auto min-w-[180px]"
                                 disabled={reportLoading || fieldOfficers.length === 0 || !selectedEmployeeId || !startDate || !endDate}
                             >
                                 {reportLoading ? (

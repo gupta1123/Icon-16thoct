@@ -16,7 +16,7 @@ interface PricingCheckModalProps {
 
 interface PricingData {
   brandName: string;
-  price: number;
+  price: string;
   city: string;
 }
 
@@ -26,7 +26,7 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
   const [error, setError] = useState<string | null>(null);
   const [pricingData, setPricingData] = useState<PricingData>({
     brandName: "Icon Steel",
-    price: 0,
+    price: "",
     city: ""
   });
 
@@ -35,7 +35,7 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
       // Reset form when modal opens
       setPricingData({
         brandName: "Icon Steel",
-        price: 0,
+        price: "",
         city: ""
       });
       setError(null);
@@ -52,12 +52,19 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
     setIsLoading(true);
     setError(null);
 
+    const parsedPrice = parseFloat(pricingData.price);
+    if (Number.isNaN(parsedPrice)) {
+      setError('Please enter a valid price');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         brandName: pricingData.brandName,
-        price: pricingData.price,
+        price: parsedPrice,
         employeeDto: {
-          id: userData?.employeeId || 1
+          id: 99
         },
         city: pricingData.city,
         state: "Maharashtra",
@@ -94,7 +101,7 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
     }
   };
 
-  const handleInputChange = (field: keyof PricingData, value: string | number) => {
+  const handleInputChange = (field: keyof PricingData, value: string) => {
     setPricingData(prev => ({
       ...prev,
       [field]: value
@@ -132,9 +139,8 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
               <Input
                 id="brandName"
                 value={pricingData.brandName}
-                onChange={(e) => handleInputChange('brandName', e.target.value)}
-                required
-                disabled={isLoading}
+                disabled
+                readOnly
               />
             </div>
 
@@ -146,7 +152,7 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
                 step="0.01"
                 min="0"
                 value={pricingData.price}
-                onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
+                onChange={(e) => handleInputChange('price', e.target.value)}
                 required
                 disabled={isLoading}
                 placeholder="Enter price"

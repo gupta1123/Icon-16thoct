@@ -40,17 +40,20 @@ interface Brand {
     id: number;
     brandName: string;
     price: number;
-    city: string;
-    state: string;
+    metric?: string | null;
+    city: string | null;
+    state: string | null;
     employeeDto: {
         id: number;
         firstName: string;
         lastName: string;
         city: string;
+        role?: string | null;
     };
-    metric: string;
-    createdAt: string;
-    updatedAt: string;
+    createdAt?: string | null;
+    createdTime?: string | null;
+    updatedAt?: string | null;
+    updatedTime?: string | null;
 }
 
 interface EmployeeOption {
@@ -92,6 +95,7 @@ const PricingPage = () => {
     const [brandQuery, setBrandQuery] = useState("");
 
     const { token, userRole, currentUser, userData } = useAuth();
+    const todayKey = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
     
     // State for role checking
     const [isManager, setIsManager] = useState(false);
@@ -428,6 +432,66 @@ const PricingPage = () => {
             return cityMatch && officerMatch && brandMatch;
         });
     }, [brandData, selectedCities, selectedFieldOfficer, selectedBrands]);
+
+    const iconSalesHighlight = useMemo(() => {
+        if (brandData.length === 0) {
+            return null;
+        }
+
+        const normalizeDate = (value?: string | null) => {
+            if (!value) return null;
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'yyyy-MM-dd');
+        };
+
+        const combineDateTime = (dateValue?: string | null, timeValue?: string | null) => {
+            if (!dateValue) return null;
+            if (timeValue) {
+                const candidate = new Date(`${dateValue}T${timeValue}`);
+                if (!Number.isNaN(candidate.getTime())) {
+                    return candidate.getTime();
+                }
+            }
+            const fallback = new Date(dateValue);
+            return Number.isNaN(fallback.getTime()) ? null : fallback.getTime();
+        };
+
+        const targetEntries = brandData.filter((brand) => {
+            const brandName = brand.brandName?.toLowerCase().trim();
+            if (brandName !== 'icon steel' && brandName !== 'icon sales') {
+                return false;
+            }
+            const updatedToday = normalizeDate(brand.updatedAt) === todayKey;
+            const createdToday = normalizeDate(brand.createdAt) === todayKey;
+            return updatedToday || createdToday;
+        });
+
+        if (targetEntries.length === 0) {
+            return null;
+        }
+
+        const latestEntry = targetEntries.reduce((latest, current) => {
+            const latestTimestamp =
+                combineDateTime(latest.updatedAt ?? latest.createdAt, latest.updatedTime ?? latest.createdTime) ?? 0;
+            const currentTimestamp =
+                combineDateTime(current.updatedAt ?? current.createdAt, current.updatedTime ?? current.createdTime) ?? 0;
+            return currentTimestamp >= latestTimestamp ? current : latest;
+        }, targetEntries[0]);
+
+        const employeeName = latestEntry.employeeDto
+            ? formatEmployeeName(latestEntry.employeeDto.firstName, latestEntry.employeeDto.lastName)
+            : null;
+        const employeeRole = latestEntry.employeeDto?.role ?? null;
+
+        return {
+            brandName: latestEntry.brandName ?? 'Icon Sales',
+            price: latestEntry.price,
+            metric: latestEntry.metric,
+            employeeName,
+            city: latestEntry.city ?? latestEntry.employeeDto?.city ?? null,
+            role: employeeRole,
+        };
+    }, [brandData, todayKey]);
 
     const scopedBrandNames = useMemo(() => {
         return Array.from(
@@ -797,8 +861,72 @@ const PricingPage = () => {
                         </div>
                     </div>
                     
-                    {/* Gajkesari Rate Display */}
-                    <div className="flex flex-col items-end gap-2">
+                    {/* Icon Sales Highlight & Actions */}
+                    <div className="flex flex-col items-end gap-4">
+                        {iconSalesHighlight ? (
+                            <div className="group relative">
+                                {/* Gradient backdrop */}
+                                <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-br from-primary/40 via-primary/20 to-primary/10 opacity-70 blur-sm group-hover:opacity-100 transition-opacity" />
+                                
+                                {/* Content card */}
+                                <div className="relative rounded-2xl border border-primary/20 bg-gradient-to-br from-background via-background to-primary/5 px-8 py-6 shadow-lg backdrop-blur-sm">
+                                    <div className="space-y-3">
+                                        {/* Header label */}
+                                        <div className="flex items-center justify-end gap-2">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                                            <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-primary">
+                                                Today&apos;s Pricing
+                                            </span>
+                                        </div>
+                                        
+                                        {/* Brand name */}
+                                        <div className="text-right">
+                                            <h3 className="text-sm font-medium text-muted-foreground">
+                                                Icon Sales
+                                            </h3>
+                                        </div>
+                                        
+                                        {/* Price display */}
+                                        <div className="flex items-baseline justify-end gap-2.5">
+                                            <span className="bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-4xl font-bold tracking-tight text-transparent">
+                                                ₹{iconSalesHighlight.price.toLocaleString('en-IN', {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                            {iconSalesHighlight.metric && (
+                                                <span className="text-sm font-semibold text-muted-foreground/80">
+                                                    {iconSalesHighlight.metric}
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Meta information */}
+                                        <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                                            {iconSalesHighlight.role && (
+                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-[11px] font-semibold text-primary ring-1 ring-primary/20">
+                                                    <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 8 8">
+                                                        <circle cx="4" cy="4" r="3" />
+                                                    </svg>
+                                                    {iconSalesHighlight.role.replace(/_/g, ' ')}
+                                                </span>
+                                            )}
+                                            {iconSalesHighlight.city && (
+                                                <span className="text-xs text-muted-foreground/70">
+                                                    {iconSalesHighlight.city}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 px-6 py-4 text-right">
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground/60">Today&apos;s Pricing</p>
+                                <p className="mt-1 text-sm font-medium text-muted-foreground">No Icon Sales price set for today</p>
+                            </div>
+                        )}
+                        
                         {showGajkesariRate && gajkesariRate > 0 && (
                             <div className="text-right">
                                 <h2 className="text-2xl">
@@ -806,11 +934,13 @@ const PricingPage = () => {
                                 </h2>
                             </div>
                         )}
+                        
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={handleExport}
                             disabled={isLoading || filteredBrands.length === 0}
+                            className="shadow-sm"
                         >
                             Export CSV
                         </Button>

@@ -314,8 +314,10 @@ export default function AttendancePage() {
 
   return (
     <div className="container mx-auto py-8 px-4 sm:px-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
+      {/* Filters Section */}
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-6">
+        {/* Year, Month, and Search Filters */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
           <div className="w-full sm:w-auto">
             <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
               <SelectTrigger className="w-[180px]">
@@ -330,7 +332,7 @@ export default function AttendancePage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Select a month" />
@@ -344,40 +346,43 @@ export default function AttendancePage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <Input
               type="text"
               placeholder="Filter by name"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
+              className="w-full sm:w-[180px]"
             />
           </div>
         </div>
-        <div className="mb-4">
+
+        {/* Legend Section */}
+        <div className="shrink-0">
           <p className="text-sm font-semibold mb-2">Legend:</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-purple-500 mr-1.5 rounded"></div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-2 text-xs">
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-purple-500 mr-1.5 rounded shrink-0"></div>
               <p>Paid Leave</p>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-cyan-500 mr-1.5 rounded"></div>
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-cyan-500 mr-1.5 rounded shrink-0"></div>
               <p>Activity</p>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-green-500 mr-1.5 rounded"></div>
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-green-500 mr-1.5 rounded shrink-0"></div>
               <p>Full Day</p>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-yellow-500 mr-1.5 rounded"></div>
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-yellow-500 mr-1.5 rounded shrink-0"></div>
               <p>Half Day</p>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-blue-500 mr-1.5 rounded"></div>
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-blue-500 mr-1.5 rounded shrink-0"></div>
               <p>Present</p>
             </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-red-500 mr-1.5 rounded"></div>
+            <div className="flex items-center whitespace-nowrap">
+              <div className="w-3 h-3 bg-red-500 mr-1.5 rounded shrink-0"></div>
               <p>Absent</p>
             </div>
           </div>
@@ -392,7 +397,7 @@ export default function AttendancePage() {
             <div key={index} className="h-48 bg-gray-200 animate-pulse rounded-lg"></div>
           ))
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredEmployees.map((employee) => {
               const initialSummary = { fullDays: 0, halfDays: 0, absentDays: 0 };
               const employeeAttendance = attendanceData.filter((data) => data.employeeId === employee.id);
