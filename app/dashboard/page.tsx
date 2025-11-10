@@ -243,8 +243,6 @@ function DashboardPageContent() {
   const lastUrlRef = useRef<string>("");
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suppressUrlSyncRef = useRef<boolean>(false);
-  const [navigationHistory, setNavigationHistory] = useState<Array<"dashboard" | "state" | "employeeDetail">>([]);
-  const [previousView, setPreviousView] = useState<"dashboard" | "state" | "employeeDetail">("dashboard");
 
   const formatToSentenceCase = useCallback((text?: string | null) => {
     if (!text) return "";
@@ -677,23 +675,40 @@ function DashboardPageContent() {
   useEffect(() => {
     const viewParam = searchParams.get("view");
     const employeeIdParam = searchParams.get("employeeId");
+    const stateNameParam = searchParams.get("stateName");
 
     // Prevent URL-driven view changes while we are handling an explicit back navigation
     if (suppressUrlSyncRef.current) {
       return;
     }
 
+    // Handle navigation back to dashboard (no view params)
     if (!viewParam && !employeeIdParam) {
+      if (view !== "dashboard") {
+        console.log("URL change detected: navigating back to dashboard");
+        setView("dashboard");
+        setSelectedEmployee(null);
+        setHighlightedEmployee(null);
+        setPendingEmployeeId(null);
+        setSelectedState(null);
+        setSelectedEmployeeForMap(null);
+        setOriginalEmployeeMapCenter(null);
+        setOriginalEmployeeMapZoom(null);
+        setMapCenter(DEFAULT_MAP_CENTER);
+        setMapZoom(DEFAULT_MAP_ZOOM);
+        if (overview) {
+          const liveMarkers = buildLiveMarkers(overview.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
+        }
+      }
       return;
     }
 
     if (viewParam === "employeeDetail") {
       if (view !== "employeeDetail") {
-        setPreviousView("dashboard"); // Set dashboard as previous view for direct navigation
+        console.log("URL change detected: navigating to employee detail");
         setView("employeeDetail");
-        // If navigating directly to employee detail (e.g., from visit detail page),
-        // don't add to navigation history as we don't know the previous context
-        // The navigation history will be empty, so back will go to dashboard
       }
 
       if (employeeIdParam) {
@@ -707,16 +722,74 @@ function DashboardPageContent() {
           }
         }
       }
-    } else if (viewParam === "state" && view !== "state") {
-      setView("state");
-    } else if (viewParam === "dashboard" && view !== "dashboard") {
-      setView("dashboard");
+    } else if (viewParam === "state") {
+      if (view !== "state") {
+        console.log("URL change detected: navigating to state view");
+        setView("state");
+        setSelectedEmployee(null);
+        setHighlightedEmployee(null);
+        setPendingEmployeeId(null);
+        setSelectedEmployeeForMap(null);
+        setOriginalEmployeeMapCenter(null);
+        setOriginalEmployeeMapZoom(null);
+        setMapCenter(DEFAULT_MAP_CENTER);
+        setMapZoom(DEFAULT_MAP_ZOOM);
+        if (overview) {
+          const liveMarkers = buildLiveMarkers(overview.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
+        }
+      }
+      
+      // Restore selected state from URL if needed
+      if (stateNameParam && overview) {
+        const stateIndex = overview.states.findIndex(
+          (state) => (state.stateName ?? "Unknown") === stateNameParam
+        );
+        if (stateIndex >= 0) {
+          const overviewState = overview.states[stateIndex];
+          const restoredState = {
+            id: stateIndex + 1,
+            name: stateNameParam,
+            activeEmployeeCount: overviewState.activeEmployeeCount,
+            ongoingVisitCount: overviewState.ongoingVisitCount,
+            completedVisitCount: overviewState.completedVisitCount,
+            color: colorPalette[stateIndex % colorPalette.length],
+          };
+          
+          // Only update if it's different
+          if (selectedState?.name !== stateNameParam) {
+            console.log("Restoring selected state from URL:", stateNameParam);
+            setSelectedState(restoredState);
+          }
+        }
+      }
+    } else if (viewParam === "dashboard") {
+      if (view !== "dashboard") {
+        console.log("URL change detected: navigating to dashboard");
+        setView("dashboard");
+        setSelectedEmployee(null);
+        setHighlightedEmployee(null);
+        setPendingEmployeeId(null);
+        setSelectedState(null);
+        setSelectedEmployeeForMap(null);
+        setOriginalEmployeeMapCenter(null);
+        setOriginalEmployeeMapZoom(null);
+        setMapCenter(DEFAULT_MAP_CENTER);
+        setMapZoom(DEFAULT_MAP_ZOOM);
+        if (overview) {
+          const liveMarkers = buildLiveMarkers(overview.liveLocations);
+          const storeMarkers = buildStoreMarkers(storeSummaries);
+          setMapMarkers([...liveMarkers, ...storeMarkers]);
+        }
+      }
     }
 
+    // Clean up pending employee ID if param is removed
     if (!employeeIdParam && pendingEmployeeId !== null) {
       setPendingEmployeeId(null);
     }
-  }, [searchParams, view, pendingEmployeeId, selectedEmployee]);
+  }, [searchParams, view, pendingEmployeeId, selectedEmployee, selectedState, overview, storeSummaries, buildLiveMarkers, buildStoreMarkers]);
 
   useEffect(() => {
     const dateRangeParam = searchParams.get("dateRange");
@@ -830,96 +903,27 @@ function DashboardPageContent() {
   }, [overview, highlightedEmployee]);
 
   const handleBack = useCallback(() => {
-    console.log("Back button clicked. Current view:", view, "Previous view:", previousView);
-    
-    if (view === "employeeDetail") {
-      // Suppress URL-driven effects during back navigation to avoid bounce
-      suppressUrlSyncRef.current = true;
-      // Immediately clear view-related URL params to avoid debounce race
-      if (pathname) {
-        const currentParams = new URLSearchParams(searchParams.toString());
-        if (currentParams.has("view")) currentParams.delete("view");
-        if (currentParams.has("employeeId")) currentParams.delete("employeeId");
-        if (currentParams.get("dateRange") !== selectedDateRange) {
-          currentParams.set("dateRange", selectedDateRange);
-        }
-        const nextQuery = currentParams.toString();
-        const newUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-        lastUrlRef.current = newUrl;
-        router.replace(newUrl, { scroll: false });
-      }
-      // Prefer returning to state view when available
-      if (selectedState) {
-        console.log("Going back to state view");
-        setView("state");
-        // Keep selectedState as it should already be set
-        setSelectedEmployee(null);
-        setHighlightedEmployee(null);
-        setPendingEmployeeId(null);
-        setSelectedEmployeeForMap(null);
-        setOriginalEmployeeMapCenter(null);
-        setOriginalEmployeeMapZoom(null);
-        setMapCenter(DEFAULT_MAP_CENTER);
-        setMapZoom(DEFAULT_MAP_ZOOM);
-        if (overview) {
-          const liveMarkers = buildLiveMarkers(overview.liveLocations);
-          const storeMarkers = buildStoreMarkers(storeSummaries);
-          setMapMarkers([...liveMarkers, ...storeMarkers]);
-        }
-      } else {
-        console.log("Going back to dashboard view");
-        setView("dashboard");
-        setSelectedEmployee(null);
-        setHighlightedEmployee(null);
-        setPendingEmployeeId(null);
-        setSelectedState(null);
-        setSelectedEmployeeForMap(null);
-        setOriginalEmployeeMapCenter(null);
-        setOriginalEmployeeMapZoom(null);
-        setMapCenter(DEFAULT_MAP_CENTER);
-        setMapZoom(DEFAULT_MAP_ZOOM);
-        if (overview) {
-          const liveMarkers = buildLiveMarkers(overview.liveLocations);
-          const storeMarkers = buildStoreMarkers(storeSummaries);
-          setMapMarkers([...liveMarkers, ...storeMarkers]);
-        }
-      }
-      // Re-enable URL-driven effects shortly after navigation settles
-      setTimeout(() => {
-        suppressUrlSyncRef.current = false;
-      }, 150);
-      return;
-    }
-
-    if (view === "state") {
-      setView("dashboard");
-      setSelectedState(null);
-      setHighlightedEmployee(null);
-      setSelectedEmployeeForMap(null);
-      setOriginalEmployeeMapCenter(null);
-      setOriginalEmployeeMapZoom(null);
-      setMapCenter(DEFAULT_MAP_CENTER);
-      setMapZoom(DEFAULT_MAP_ZOOM);
-      if (overview) {
-        const liveMarkers = buildLiveMarkers(overview.liveLocations);
-        const storeMarkers = buildStoreMarkers(storeSummaries);
-        setMapMarkers([...liveMarkers, ...storeMarkers]);
-      }
-      setNavigationHistory(prev => prev.slice(0, -1));
-    }
-  }, [view, previousView, overview, storeSummaries, buildLiveMarkers, buildStoreMarkers, selectedState, pathname, router, searchParams, selectedDateRange]);
+    console.log("Back button clicked. Current view:", view);
+    // Use browser's back to maintain consistency with browser back button
+    router.back();
+  }, [router, view]);
 
   const handleStateSelect = useCallback((state: SelectedState) => {
     if (!state) return;
     setSelectedState(state);
-    setPreviousView(view); // Set current view as previous before changing
-    setNavigationHistory(prev => {
-      const newHistory: Array<"dashboard" | "state" | "employeeDetail"> = [...prev, "state"];
-      console.log("Adding state to navigation history:", newHistory);
-      return newHistory;
-    });
     setView("state");
-  }, [view]);
+    
+    // Update URL to include state view
+    if (pathname) {
+      const currentParams = new URLSearchParams(searchParams.toString());
+      currentParams.set("view", "state");
+      currentParams.set("stateName", state.name);
+      const nextQuery = currentParams.toString();
+      const newUrl = `${pathname}?${nextQuery}`;
+      lastUrlRef.current = newUrl;
+      router.push(newUrl, { scroll: false });
+    }
+  }, [pathname, searchParams, router]);
 
   const handleEmployeeSelect = useCallback(
     async (employee: ExtendedEmployee) => {
@@ -1138,14 +1142,23 @@ function DashboardPageContent() {
   const handleEmployeeDetailSelect = useCallback((employee: Employee) => {
     setSelectedEmployee(employee);
     setPendingEmployeeId(employee.id);
-    setPreviousView(view); // Set current view as previous before changing
-    setNavigationHistory(prev => {
-      const newHistory: Array<"dashboard" | "state" | "employeeDetail"> = [...prev, "employeeDetail"];
-      console.log("Adding employeeDetail to navigation history:", newHistory);
-      return newHistory;
-    });
     setView("employeeDetail");
-  }, [view]);
+    
+    // Update URL to include employee detail, preserving state name if coming from state view
+    if (pathname) {
+      const currentParams = new URLSearchParams(searchParams.toString());
+      currentParams.set("view", "employeeDetail");
+      currentParams.set("employeeId", String(employee.id));
+      // Keep stateName parameter if we're coming from a state view
+      if (view === "state" && selectedState) {
+        currentParams.set("stateName", selectedState.name);
+      }
+      const nextQuery = currentParams.toString();
+      const newUrl = `${pathname}?${nextQuery}`;
+      lastUrlRef.current = newUrl;
+      router.push(newUrl, { scroll: false });
+    }
+  }, [view, pathname, searchParams, router, selectedState]);
 
   const handlePricingModalClose = useCallback(() => {
     setIsPricingModalOpen(false);
@@ -1160,62 +1173,35 @@ function DashboardPageContent() {
     sessionStorage.setItem('pricingModalShown', 'true');
   }, []);
 
+  // Sync dateRange to URL when it changes from user interaction
   useEffect(() => {
     if (!pathname) {
       return;
     }
 
-    const currentParams = new URLSearchParams(searchParams.toString());
-    const targetEmployeeId = selectedEmployee?.id ?? pendingEmployeeId ?? null;
-    let shouldUpdate = false;
-
-    if (view === "employeeDetail" && targetEmployeeId) {
-      if (currentParams.get("view") !== "employeeDetail") {
-        currentParams.set("view", "employeeDetail");
-        shouldUpdate = true;
-      }
-      if (currentParams.get("employeeId") !== String(targetEmployeeId)) {
-        currentParams.set("employeeId", String(targetEmployeeId));
-        shouldUpdate = true;
-      }
-    } else {
-      if (currentParams.has("view")) {
-        currentParams.delete("view");
-        shouldUpdate = true;
-      }
-      if (currentParams.has("employeeId")) {
-        currentParams.delete("employeeId");
-        shouldUpdate = true;
-      }
-    }
-
+    const currentParams = new URLSearchParams(window.location.search);
+    
     if (currentParams.get("dateRange") !== selectedDateRange) {
       currentParams.set("dateRange", selectedDateRange);
-      shouldUpdate = true;
-    }
-
-    if (!shouldUpdate) {
-      return;
-    }
-
-    const nextQuery = currentParams.toString();
-    const newUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    
-    // Prevent infinite loop by checking if URL actually changed
-    if (lastUrlRef.current !== newUrl) {
-      lastUrlRef.current = newUrl;
+      const nextQuery = currentParams.toString();
+      const newUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
       
-      // Clear any existing timeout
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
+      // Prevent infinite loop by checking if URL actually changed
+      if (lastUrlRef.current !== newUrl) {
+        lastUrlRef.current = newUrl;
+        
+        // Clear any existing timeout
+        if (debounceTimeoutRef.current) {
+          clearTimeout(debounceTimeoutRef.current);
+        }
+        
+        // Debounce URL updates to prevent rapid successive calls
+        debounceTimeoutRef.current = setTimeout(() => {
+          router.replace(newUrl, { scroll: false });
+        }, 100);
       }
-      
-      // Debounce URL updates to prevent rapid successive calls
-      debounceTimeoutRef.current = setTimeout(() => {
-        router.replace(newUrl, { scroll: false });
-      }, 100);
     }
-  }, [view, selectedEmployee, pendingEmployeeId, pathname, router, selectedDateRange]);
+  }, [pathname, router, selectedDateRange]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
