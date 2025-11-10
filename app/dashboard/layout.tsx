@@ -95,7 +95,39 @@ export default function Layout({ children }: { children: ReactNode }) {
     }
   };
 
-  const currentPage = pageHeadings[pathname] || pageHeadings["/dashboard"];
+  // Function to determine page heading based on pathname
+  const getPageHeading = () => {
+    // Check for detail pages with dynamic routes
+    if (pathname.match(/^\/dashboard\/visits\/\d+/)) {
+      return {
+        heading: "Visit Detail",
+        subheading: "View and manage visit information"
+      };
+    }
+    if (pathname.match(/^\/dashboard\/customers\/\d+/)) {
+      return {
+        heading: "Customer Detail",
+        subheading: "View and manage customer information"
+      };
+    }
+    if (pathname.match(/^\/dashboard\/employees\/\d+/)) {
+      return {
+        heading: "Employee Detail",
+        subheading: "View and manage employee information"
+      };
+    }
+    if (pathname.match(/^\/dashboard\/employee\/\d+/)) {
+      return {
+        heading: "Employee Detail",
+        subheading: "View and manage employee information"
+      };
+    }
+    
+    // Return exact match or default
+    return pageHeadings[pathname] || pageHeadings["/dashboard"];
+  };
+
+  const currentPage = getPageHeading();
 
   return (
     <DashboardLayout 
