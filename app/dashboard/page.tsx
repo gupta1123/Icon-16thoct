@@ -553,10 +553,11 @@ function DashboardPageContent() {
         setError(null);
 
         // Update map markers for dashboard view
+        // Employees tab should only show employee locations (live/home),
+        // store locations are handled separately in the Stores tab UI.
         if (view === "dashboard") {
           const liveMarkers = buildLiveMarkers(data.liveLocations);
-          const storeMarkers = buildStoreMarkers(storeSummaries);
-          setMapMarkers([...liveMarkers, ...storeMarkers]);
+          setMapMarkers(liveMarkers);
         }
       } catch (err: unknown) {
         console.error("Dashboard - Error fetching overview:", err);
@@ -594,8 +595,7 @@ function DashboardPageContent() {
   useEffect(() => {
     if (view === "dashboard" && overview && !isLoadingOverview) {
       const liveMarkers = buildLiveMarkers(overview.liveLocations);
-      const storeMarkers = buildStoreMarkers(storeSummaries);
-      setMapMarkers([...liveMarkers, ...storeMarkers]);
+      setMapMarkers(liveMarkers);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, overview, storeSummaries]);
@@ -1187,10 +1187,9 @@ function DashboardPageContent() {
     
     if (overview) {
       const liveMarkers = buildLiveMarkers(overview.liveLocations);
-      const storeMarkers = buildStoreMarkers(storeSummaries);
-      setMapMarkers([...liveMarkers, ...storeMarkers]);
+      setMapMarkers(liveMarkers);
     }
-  }, [overview, storeSummaries, buildLiveMarkers, buildStoreMarkers, originalEmployeeMapCenter, originalEmployeeMapZoom]);
+  }, [overview, buildLiveMarkers, originalEmployeeMapCenter, originalEmployeeMapZoom]);
 
   const handleEmployeeDetailSelect = useCallback((employee: Employee) => {
     setSelectedEmployee(employee);

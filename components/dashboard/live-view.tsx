@@ -100,6 +100,10 @@ const STORE_FILTER_QUERY_KEYS: Record<StoreFilterKey, string> = {
 
 const DEFAULT_STORE_PAGE_SIZE = 10;
 
+// Default zoomed-out map view (matches dashboard default – India-wide)
+const DEFAULT_MAP_CENTER: [number, number] = [20.5937, 78.9629];
+const DEFAULT_MAP_ZOOM = 5;
+
 const formatCoordinate = (value?: number | null, fractionDigits = 4) => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "—";
@@ -480,6 +484,9 @@ export function DashboardLiveView({
         if (stores.length === 0 && !isStoresLoading) {
           void fetchStoreLocations();
         }
+        // When switching from Employees → Stores, zoom out to give a network overview
+        onMapCenterChange(DEFAULT_MAP_CENTER);
+        onMapZoomChange(DEFAULT_MAP_ZOOM);
         return;
       }
 
