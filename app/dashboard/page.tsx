@@ -12,6 +12,7 @@ import {
   endOfMonth,
   isToday,
   isYesterday,
+  differenceInDays,
 } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MapPin, Users, Calendar, ArrowLeft, Building } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Label } from "@/components/ui/label";
+import { MapPin, Users, CalendarIcon, ArrowLeft, Building } from "lucide-react";
 import { Heading, Text } from "@/components/ui/typography";
 import PricingCheckModal from "@/components/pricing-check-modal";
 import { API, type DashboardEmployeeSummary, type DashboardEmployeeVisitPoint, type DashboardLiveLocationSummary, type DashboardOverviewResponse, type CurrentUserDto, type StoreSummary } from "@/lib/api";
@@ -173,6 +177,7 @@ const dateRanges = [
   { value: "yesterday", label: "Yesterday" },
   { value: "thisWeek", label: "This Week" },
   { value: "thisMonth", label: "This Month" },
+  { value: "custom", label: "Custom Range" },
 ] as const;
 
 const validDateRangeValues = new Set<DateRangeKey>(dateRanges.map((range) => range.value));
@@ -224,6 +229,13 @@ function DashboardPageContent() {
   const [originalEmployeeMapZoom, setOriginalEmployeeMapZoom] = useState<number | null>(null);
   const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
+  const [appliedCustomStartDate, setAppliedCustomStartDate] = useState<Date | undefined>(undefined);
+  const [appliedCustomEndDate, setAppliedCustomEndDate] = useState<Date | undefined>(undefined);
+  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [storeSummaries, setStoreSummaries] = useState<StoreSummary[]>([]);
   const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -491,10 +503,18 @@ function DashboardPageContent() {
         return { start: startOfWeek(today), end: endOfWeek(today) };
       case "thisMonth":
         return { start: startOfMonth(today), end: endOfMonth(today) };
+      case "custom":
+        // Only use applied dates - don't trigger API calls until Apply is clicked
+        if (appliedCustomStartDate && appliedCustomEndDate) {
+          return { start: appliedCustomStartDate, end: appliedCustomEndDate };
+        }
+        // If custom is selected but not applied yet, keep using today's date
+        // This prevents API calls until Apply is clicked
+        return { start: today, end: today };
       default:
         return { start: today, end: today };
     }
-  }, [selectedDateRange]);
+  }, [selectedDateRange, appliedCustomStartDate, appliedCustomEndDate]);
 
   useEffect(() => {
     const loadOverview = async () => {
@@ -904,9 +924,42 @@ function DashboardPageContent() {
 
   const handleBack = useCallback(() => {
     console.log("Back button clicked. Current view:", view);
-    // Use browser's back to maintain consistency with browser back button
-    router.back();
-  }, [router, view]);
+
+    // If we don't have a pathname for some reason, fall back to browser back
+    if (!pathname) {
+      router.back();
+      return;
+    }
+
+    const currentParams = new URLSearchParams(searchParams.toString());
+
+    if (view === "employeeDetail") {
+      // If we came from a state view, go back to that state view
+      if (selectedState) {
+        currentParams.set("view", "state");
+        currentParams.set("stateName", selectedState.name);
+        currentParams.delete("employeeId");
+      } else {
+        // Otherwise, go back to the main dashboard view
+        currentParams.delete("view");
+        currentParams.delete("employeeId");
+        currentParams.delete("stateName");
+      }
+    } else if (view === "state") {
+      // From state view, go back to the main dashboard view
+      currentParams.delete("view");
+      currentParams.delete("stateName");
+    } else {
+      // For any other unexpected state, fall back to history back
+      router.back();
+      return;
+    }
+
+    const nextQuery = currentParams.toString();
+    const newUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    lastUrlRef.current = newUrl;
+    router.push(newUrl, { scroll: false });
+  }, [view, pathname, router, searchParams, selectedState]);
 
   const handleStateSelect = useCallback((state: SelectedState) => {
     if (!state) return;
@@ -1269,10 +1322,19 @@ function DashboardPageContent() {
         </div>
       )}
       {view === "dashboard" && (
-        <div className="flex items-center justify-end gap-4">
+        <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-4">
           <Select
             value={selectedDateRange}
-            onValueChange={(value) => setSelectedDateRange(value as DateRangeKey)}
+            onValueChange={(value) => {
+              setSelectedDateRange(value as DateRangeKey);
+              setDateRangeError(null);
+              if (value !== "custom") {
+                setCustomStartDate(undefined);
+                setCustomEndDate(undefined);
+                setAppliedCustomStartDate(undefined);
+                setAppliedCustomEndDate(undefined);
+              }
+            }}
           >
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Select date range" />
@@ -1285,6 +1347,133 @@ function DashboardPageContent() {
               ))}
             </SelectContent>
           </Select>
+          
+          {selectedDateRange === "custom" && (
+            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Start Date</Label>
+                <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-[160px] justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customStartDate ? format(customStartDate, "MMM d, yyyy") : "Start date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={customStartDate}
+                      onSelect={(date) => {
+                        if (date) {
+                          setCustomStartDate(date);
+                          setDateRangeError(null);
+                          // If end date is set and the range exceeds 30 days, adjust end date
+                          if (customEndDate) {
+                            const daysDiff = differenceInDays(customEndDate, date);
+                            if (daysDiff > 30) {
+                              const newEndDate = new Date(date);
+                              newEndDate.setDate(newEndDate.getDate() + 30);
+                              setCustomEndDate(newEndDate);
+                            }
+                          }
+                          setIsStartDatePickerOpen(false);
+                        }
+                      }}
+                      initialFocus
+                      disabled={(date) => date > new Date()}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">End Date</Label>
+                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-[160px] justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customEndDate ? format(customEndDate, "MMM d, yyyy") : "End date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={customEndDate}
+                      onSelect={(date) => {
+                        if (date) {
+                          if (customStartDate) {
+                            const daysDiff = differenceInDays(date, customStartDate);
+                            if (daysDiff > 30) {
+                              setDateRangeError("Date range cannot exceed 30 days");
+                              return;
+                            }
+                            if (date < customStartDate) {
+                              setDateRangeError("End date cannot be before start date");
+                              return;
+                            }
+                          }
+                          setCustomEndDate(date);
+                          setDateRangeError(null);
+                          setIsEndDatePickerOpen(false);
+                        }
+                      }}
+                      initialFocus
+                      disabled={(date) => {
+                        if (date > new Date()) return true;
+                        if (customStartDate) {
+                          const daysDiff = differenceInDays(date, customStartDate);
+                          return daysDiff > 30;
+                        }
+                        return false;
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              {dateRangeError && (
+                <div className="text-xs text-red-500 mt-1 sm:mt-0">
+                  {dateRangeError}
+                </div>
+              )}
+              
+              <div className="flex items-end">
+                <Button
+                  onClick={() => {
+                    if (customStartDate && customEndDate) {
+                      // Validate dates before applying
+                      const daysDiff = differenceInDays(customEndDate, customStartDate);
+                      if (daysDiff > 30) {
+                        setDateRangeError("Date range cannot exceed 30 days");
+                        return;
+                      }
+                      if (customEndDate < customStartDate) {
+                        setDateRangeError("End date cannot be before start date");
+                        return;
+                      }
+                      // Apply the dates - this will trigger API calls
+                      setAppliedCustomStartDate(customStartDate);
+                      setAppliedCustomEndDate(customEndDate);
+                      setDateRangeError(null);
+                    }
+                  }}
+                  disabled={!customStartDate || !customEndDate || !!dateRangeError}
+                  size="sm"
+                  className="h-9"
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1295,7 +1484,7 @@ function DashboardPageContent() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle>Total Visits</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <Skeleton className="h-8 w-16" />

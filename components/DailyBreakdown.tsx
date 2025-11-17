@@ -4,12 +4,13 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Calendar, User, DollarSign, MapPin, Clock } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Loader2, CalendarIcon, User, DollarSign, MapPin, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 interface DailyBreakdownData {
     date: string;
@@ -43,10 +44,12 @@ const DailyBreakdown: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dailyLoading, setDailyLoading] = useState(false);
-    const [startDate, setStartDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
-    const [endDate, setEndDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'));
-    const [selectedEmployee, setSelectedEmployee] = useState("all");
+    const [startDate, setStartDate] = useState<Date>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const [endDate, setEndDate] = useState<Date>(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0));
+    const [selectedEmployee, setSelectedEmployee] = useState<string>("");
     const [employees, setEmployees] = useState<Employee[]>([]);
+    const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
+    const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -63,13 +66,15 @@ const DailyBreakdown: React.FC = () => {
             if (!startDate || !endDate) {
                 throw new Error('Please select a valid date range');
             }
-            if (selectedEmployee === 'all') {
+            if (!selectedEmployee) {
                 throw new Error('Please select an employee to view daily breakdown');
             }
             const employeeId = selectedEmployee;
+            const startDateStr = format(startDate, 'yyyy-MM-dd');
+            const endDateStr = format(endDate, 'yyyy-MM-dd');
 
             const response = await fetch(
-                `/api/proxy/salary-calculation/daily-breakdown?employeeId=${employeeId}&startDate=${startDate}&endDate=${endDate}`,
+                `/api/proxy/salary-calculation/daily-breakdown?employeeId=${employeeId}&startDate=${startDateStr}&endDate=${endDateStr}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -119,21 +124,18 @@ const DailyBreakdown: React.FC = () => {
                         return nameA.localeCompare(nameB);
                     });
                 setEmployees(fieldOfficers);
-                if (fieldOfficers.length > 0 && selectedEmployee === 'all') {
-                    setSelectedEmployee(fieldOfficers[0].id.toString());
-                }
             }
         } catch (error) {
             console.error('Error fetching employees:', error);
         }
-    }, [token, selectedEmployee]);
+    }, [token]);
 
     const fetchAllData = useCallback(async () => {
-        if (!token || !startDate || !endDate) return;
+        if (!token || !startDate || !endDate || !selectedEmployee) return;
         
         setError(null);
-        await Promise.all([fetchDailyBreakdown(), fetchEmployees()]);
-    }, [token, startDate, endDate, fetchDailyBreakdown, fetchEmployees]);
+        await fetchDailyBreakdown();
+    }, [token, startDate, endDate, selectedEmployee, fetchDailyBreakdown]);
 
     // Load employees on mount only
     useEffect(() => {
@@ -185,12 +187,12 @@ const DailyBreakdown: React.FC = () => {
         if (!startDate || !endDate) {
             return 'Select Date Range';
         }
-        return `${format(new Date(startDate), 'd MMM yyyy')} - ${format(new Date(endDate), 'd MMM yyyy')}`;
+        return `${format(startDate, 'd MMM yyyy')} - ${format(endDate, 'd MMM yyyy')}`;
     };
 
     // Get selected employee display name
     const getSelectedEmployeeDisplay = () => {
-        if (selectedEmployee === 'all') return 'All Employees';
+        if (!selectedEmployee) return 'Select Employee';
         const selected = employeeOptions.find(e => e.value === selectedEmployee);
         return selected ? selected.label : 'Selected Employee';
     };
@@ -209,10 +211,10 @@ const DailyBreakdown: React.FC = () => {
                             <Label htmlFor="employee" className="text-sm font-medium text-foreground">Employee</Label>
                             <SearchableSelect<Employee>
                                 options={employeeOptions}
-                                value={selectedEmployee !== 'all' ? selectedEmployee : undefined}
+                                value={selectedEmployee || undefined}
                                 onSelect={(option) => {
                                     if (!option) {
-                                        setSelectedEmployee('all');
+                                        setSelectedEmployee('');
                                         return;
                                     }
                                     setSelectedEmployee(option.value);
@@ -221,39 +223,77 @@ const DailyBreakdown: React.FC = () => {
                                 emptyMessage="No employees available"
                                 noResultsMessage="No employees match your search"
                                 searchPlaceholder="Search employees..."
-                                allowClear={selectedEmployee !== 'all'}
+                                allowClear={!!selectedEmployee}
                                 disabled={employeeOptions.length === 0}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="startDate" className="text-sm font-medium text-foreground">From Date</Label>
-                            <Input
-                                type="date"
-                                id="startDate"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="w-full"
-                            />
+                            <Label className="text-sm font-medium text-foreground">From Date</Label>
+                            <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full justify-start text-left font-normal"
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {startDate ? format(startDate, "MMM d, yyyy") : "Start date"}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={startDate}
+                                        onSelect={(date) => {
+                                            if (date) {
+                                                setStartDate(date);
+                                                setIsStartDatePickerOpen(false);
+                                            }
+                                        }}
+                                        initialFocus
+                                        disabled={(date) => date > new Date()}
+                                    />
+                                </PopoverContent>
+                            </Popover>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="endDate" className="text-sm font-medium text-foreground">To Date</Label>
-                            <Input
-                                type="date"
-                                id="endDate"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="w-full"
-                            />
+                            <Label className="text-sm font-medium text-foreground">To Date</Label>
+                            <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full justify-start text-left font-normal"
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {endDate ? format(endDate, "MMM d, yyyy") : "End date"}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={endDate}
+                                        onSelect={(date) => {
+                                            if (date) {
+                                                setEndDate(date);
+                                                setIsEndDatePickerOpen(false);
+                                            }
+                                        }}
+                                        initialFocus
+                                        disabled={(date) => date > new Date() || (startDate && date < startDate)}
+                                    />
+                                </PopoverContent>
+                            </Popover>
                         </div>
                         <div className="space-y-2 flex items-end">
-                            <Button onClick={fetchAllData} className="w-full" disabled={dailyLoading || selectedEmployee === 'all'}>
+                            <Button onClick={fetchAllData} className="w-full" disabled={dailyLoading || !selectedEmployee}>
                                 {dailyLoading ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         Loading...
                                     </>
                                 ) : (
-                                    selectedEmployee === 'all' ? 'Select Employee' : 'Apply Filter'
+                                    !selectedEmployee ? 'Select Employee' : 'Apply Filter'
                                 )}
                             </Button>
                         </div>
@@ -349,7 +389,7 @@ const DailyBreakdown: React.FC = () => {
                                                                 </div>
                                                                 <div className="space-y-2">
                                                                     <div className="flex items-center space-x-2">
-                                                                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                                                                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                                                                         <span className="text-muted-foreground">Travel:</span>
                                                                         <span className="font-medium text-foreground">{formatCurrency(day.travelAllowance)}</span>
                                                                     </div>
@@ -441,7 +481,7 @@ const DailyBreakdown: React.FC = () => {
                                 <Card className="bg-muted/30">
                                     <CardContent className="pt-6">
                                         <div className="flex items-start space-x-3">
-                                            <Calendar className="h-5 w-5 text-primary mt-0.5" />
+                                            <CalendarIcon className="h-5 w-5 text-primary mt-0.5" />
                                             <div className="space-y-2">
                                                 <h4 className="font-medium text-foreground">Daily Breakdown Summary</h4>
                                                 <p className="text-sm text-muted-foreground">

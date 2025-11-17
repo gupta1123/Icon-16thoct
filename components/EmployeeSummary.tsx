@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { motion } from 'framer-motion';
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
+import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 
 interface SummaryData {
     employeeName: string;
@@ -37,7 +38,7 @@ const EmployeeSummary: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
-    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
     const [startDate, setStartDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
     const [endDate, setEndDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'));
 
@@ -92,10 +93,24 @@ const EmployeeSummary: React.FC = () => {
         }).format(amount);
     };
 
-    // Filter summary data based on search query and sort alphabetically by employee name
+    const employeeOptions = useMemo<SearchableOption<string>[]>(() => {
+        const unique = new Map<string, string>();
+        summaryData.forEach((employee) => {
+            unique.set(employee.employeeId.toString(), employee.employeeName);
+        });
+        return Array.from(unique.entries()).map(([value, label]) => ({
+            value,
+            label,
+            data: value,
+        }));
+    }, [summaryData]);
+
+    // Filter summary data based on selected employee and sort alphabetically by employee name
     const filteredSummaryData = summaryData
         .filter(employee =>
-            employee.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
+            selectedEmployeeId
+                ? employee.employeeId.toString() === selectedEmployeeId
+                : true
         )
         .sort((a, b) => 
             a.employeeName.toLowerCase().localeCompare(b.employeeName.toLowerCase())
@@ -120,13 +135,23 @@ const EmployeeSummary: React.FC = () => {
                     {/* Filters Section */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg">
                         <div className="space-y-2">
-                            <Label htmlFor="searchQuery" className="text-sm font-medium text-foreground">Search Employee</Label>
-                            <Input
-                                id="searchQuery"
-                                placeholder="Search employees..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full"
+                            <Label className="text-sm font-medium text-foreground">Employee</Label>
+                            <SearchableSelect<string>
+                                options={employeeOptions}
+                                value={selectedEmployeeId || undefined}
+                                onSelect={(option) => {
+                                    if (!option) {
+                                        setSelectedEmployeeId("");
+                                        return;
+                                    }
+                                    setSelectedEmployeeId(option.value);
+                                }}
+                                placeholder="Select employee"
+                                emptyMessage="No employees available"
+                                noResultsMessage="No employees match your search"
+                                searchPlaceholder="Search employees..."
+                                allowClear={!!selectedEmployeeId}
+                                disabled={employeeOptions.length === 0}
                             />
                         </div>
                         <div className="space-y-2">
@@ -135,7 +160,7 @@ const EmployeeSummary: React.FC = () => {
                                 type="date"
                                 id="startDate"
                                 value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)}
                                 className="w-full"
                             />
                         </div>
@@ -145,7 +170,7 @@ const EmployeeSummary: React.FC = () => {
                                 type="date"
                                 id="endDate"
                                 value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)}
                                 className="w-full"
                             />
                         </div>

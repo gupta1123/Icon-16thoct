@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/typography";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 interface AttendanceData {
   employeeId: number;
   attendanceStatus: string; // Can be: 'full day', 'half day', 'present', 'absent', 'paid leave', 'full day (activity)'
@@ -99,15 +100,41 @@ const CustomCalendar: React.FC<CustomCalendarProps> = ({
             }
             // 'present' doesn't count in any category
           }
-          // If no attendance record and it's not Sunday, count as absent
+          // If no attendance record and it's not Sunday
           else {
-            dateDiv.classList.add('absent');
-            tooltip.textContent = 'Absent';
-            absentDays++;
+            // Check if the date is in the future
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Reset time to compare dates only
+            const currentDate = new Date(year, month, i);
+            currentDate.setHours(0, 0, 0, 0);
+            
+            // Only mark as absent if the date is today or in the past
+            if (currentDate <= today) {
+              dateDiv.classList.add('absent');
+              tooltip.textContent = 'Absent';
+              absentDays++;
+            }
+            // Future dates are left unmarked (no class added, no tooltip, not counted)
           }
           dateDiv.appendChild(tooltip);
           // Handle date click using ref to avoid effect dependency on function identity
           dateDiv.addEventListener('click', () => {
+            // Check if this is a future date without attendance record
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const clickedDate = new Date(year, month, i);
+            clickedDate.setHours(0, 0, 0, 0);
+            
+            // If it's a future date and has no attendance record, show toast
+            if (clickedDate > today && !attendanceStatus && date.getDay() !== 0) {
+              toast.info("Future Date", {
+                description: "Attendance cannot be marked for future dates. Please check back on or after this date.",
+                duration: 4000,
+              });
+              return;
+            }
+            
+            // Otherwise, proceed with normal click handler
             onDateClickRef.current?.(dateKey, employeeName);
           });
           datesRef.current.appendChild(dateDiv);

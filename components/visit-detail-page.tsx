@@ -425,6 +425,47 @@ export default function VisitDetailPage({
       return new URLSearchParams(entries).toString();
     }
   } : hookSearchParams;
+
+  // Store the original source when visit detail loads
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const from = searchParams?.get('from');
+      // If visit detail came from employees page, store it
+      // Check if from parameter indicates it came from employees (not employee or dashboardEmployee)
+      if (from === 'employees' || (!from || (from !== 'employee' && from !== 'dashboardEmployee'))) {
+        // If no from parameter or from is not employee/dashboardEmployee, 
+        // check if the referrer suggests it came from employees page
+        const referrer = document.referrer;
+        if (referrer && referrer.includes('/dashboard/employees')) {
+          try {
+            window.localStorage.setItem('visitDetailFrom', 'employees');
+          } catch (error) {
+            console.error('Failed to store visit detail from:', error);
+          }
+        } else if (!from) {
+          // If no from parameter and referrer doesn't help, 
+          // check if we have a stored context indicating employees
+          const storedContext = window.localStorage.getItem('visitReturnContext');
+          if (storedContext) {
+            try {
+              const parsed = JSON.parse(storedContext);
+              if (parsed.route && parsed.route.includes('/dashboard/employees')) {
+                window.localStorage.setItem('visitDetailFrom', 'employees');
+              }
+            } catch (e) {
+              // Ignore
+            }
+          }
+        } else if (from === 'employees') {
+          try {
+            window.localStorage.setItem('visitDetailFrom', 'employees');
+          } catch (error) {
+            console.error('Failed to store visit detail from:', error);
+          }
+        }
+      }
+    }
+  }, [searchParams]);
   
   const params = useParams();
   const visitId = params?.id as string;

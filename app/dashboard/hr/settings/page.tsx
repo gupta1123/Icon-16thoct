@@ -3,19 +3,21 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  CreditCard, 
-  Calendar, 
+import {
+  CreditCard,
+  Calendar,
+  BarChart3,
+  Home,
   Users,
-  BarChart3
 } from "lucide-react";
 
 // Import all the setting components
 import EmployeeSummary from "@/components/EmployeeSummary";
 import Allowance from "@/components/Allowance";
 import WorkingDays from "@/components/WorkingDays";
-import Teams from "@/components/Teams";
 import DailyBreakdown from "@/components/DailyBreakdown";
+import HomeLocationRequests from "@/components/HomeLocationRequests";
+import TestTeamsPage from "@/app/dashboard/test-teams/page";
 
 export default function HRSettingsPage() {
   const [activeTab, setActiveTab] = useState("employeeSummary");
@@ -49,12 +51,12 @@ export default function HRSettingsPage() {
             <span className="hidden sm:inline">Working Days</span>
           </TabsTrigger>
           <TabsTrigger
-            value="team"
+            value="home-location"
             className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Team"
+            aria-label="Home Location Updates"
           >
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Team</span>
+            <Home className="h-4 w-4" />
+            <span className="hidden sm:inline">Home Location Updates</span>
           </TabsTrigger>
           <TabsTrigger
             value="dailyBreakdown"
@@ -63,6 +65,14 @@ export default function HRSettingsPage() {
           >
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Daily Breakdown</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="test-teams"
+            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
+            aria-label="Teams"
+          >
+            <Users className="h-4 w-4" />
+            <span className="hidden sm:inline">Teams</span>
           </TabsTrigger>
         </TabsList>
         
@@ -77,13 +87,17 @@ export default function HRSettingsPage() {
         <TabsContent value="working-days">
           <WorkingDays />
         </TabsContent>
-        
-        <TabsContent value="team">
-          <Teams />
+
+        <TabsContent value="home-location">
+          <HomeLocationRequests />
         </TabsContent>
         
         <TabsContent value="dailyBreakdown">
           <DailyBreakdown />
+        </TabsContent>
+        
+        <TabsContent value="test-teams">
+          <TestTeamsPage />
         </TabsContent>
       </Tabs>
     </div>

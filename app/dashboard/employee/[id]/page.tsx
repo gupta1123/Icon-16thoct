@@ -149,6 +149,22 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   
   const handleBack = () => {
     if (typeof window !== 'undefined') {
+      // Check if we came from visit detail that came from employees
+      const visitReturnContext = window.localStorage.getItem('visitReturnContext');
+      if (visitReturnContext) {
+        try {
+          const parsedContext = JSON.parse(visitReturnContext) as { route?: string | null; originalSource?: string };
+          // If the visit detail came from employees, go back to employees
+          if (parsedContext?.originalSource === 'employees') {
+            window.localStorage.removeItem('visitReturnContext');
+            router.push('/dashboard/employees');
+            return;
+          }
+        } catch (error) {
+          console.error('Failed to parse visit return context:', error);
+        }
+      }
+
       const storedContext = window.localStorage.getItem(EMPLOYEE_LIST_RETURN_CONTEXT_KEY);
       if (storedContext) {
         try {
@@ -161,6 +177,18 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         } catch (error) {
           console.error('Failed to parse employee list return context:', error);
           window.localStorage.removeItem(EMPLOYEE_LIST_RETURN_CONTEXT_KEY);
+        }
+      }
+
+      // Check searchParams to see if we came from visit detail
+      const from = searchParams?.get('from');
+      if (from === 'visitDetail') {
+        // Check if visit detail came from employees by checking the referrer or localStorage
+        const visitFrom = window.localStorage.getItem('visitDetailFrom');
+        if (visitFrom === 'employees') {
+          window.localStorage.removeItem('visitDetailFrom');
+          router.push('/dashboard/employees');
+          return;
         }
       }
 

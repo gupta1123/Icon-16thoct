@@ -30,7 +30,7 @@ export type DateRangeValue = {
   end: Date;
 };
 
-export type DateRangeKey = "today" | "yesterday" | "thisWeek" | "thisMonth";
+export type DateRangeKey = "today" | "yesterday" | "thisWeek" | "thisMonth" | "custom";
 
 export type MapMarker = {
   id: string;

@@ -411,7 +411,7 @@ export default function AttendancePage() {
                   key={employee.id}
                   employee={{
                     id: employee.id,
-                    name: `${employee.firstName} ${employee.lastName}`,
+                    name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'Unknown Employee',
                     position: employee.position,
                     avatar: "/placeholder.svg?height=40&width=40",
                     fullDays: 0,

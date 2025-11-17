@@ -131,11 +131,27 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
 
   // Get employee initials
   const getInitials = (name: string) => {
-    const parts = name.split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (!name || typeof name !== 'string') {
+      return '??';
     }
-    return parts[0]?.substring(0, 2).toUpperCase() || '??';
+    
+    // Filter out undefined, null, empty strings, and trim whitespace
+    const parts = name
+      .split(' ')
+      .map(part => part.trim())
+      .filter(part => part && part !== 'undefined' && part !== 'null' && part.length > 0);
+    
+    if (parts.length >= 2) {
+      // Get first letter of first name and first letter of last name
+      const firstInitial = parts[0][0]?.toUpperCase() || '';
+      const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
+      return (firstInitial + lastInitial) || '??';
+    } else if (parts.length === 1) {
+      // If only one name part, take first 2 characters
+      return parts[0].substring(0, 2).toUpperCase() || '??';
+    }
+    
+    return '??';
   };
 
   const getStatusColor = (status: string) => {
