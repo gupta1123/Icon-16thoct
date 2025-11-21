@@ -93,6 +93,75 @@ const HRDashboardSkeleton = () => (
 const DEFAULT_MAP_CENTER: [number, number] = [20.5937, 78.9629]; // India's geographic center
 const DEFAULT_MAP_ZOOM = 5; // Appropriate zoom level to view all of India
 
+const INDIA_LATITUDE_RANGE: [number, number] = [6, 37.5];
+const INDIA_LONGITUDE_RANGE: [number, number] = [68, 98];
+
+const clampToRange = (value: number, range: [number, number]) =>
+  Math.min(Math.max(value, range[0]), range[1]);
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+type CoordinateCandidate = [unknown, unknown] | null | undefined;
+
+const getValidIndianCoordinate = (
+  latValue?: unknown,
+  lngValue?: unknown
+): [number, number] | null => {
+  const lat = toFiniteNumber(latValue);
+  const lng = toFiniteNumber(lngValue);
+  if (lat == null || lng == null) {
+    return null;
+  }
+  if (
+    lat < INDIA_LATITUDE_RANGE[0] ||
+    lat > INDIA_LATITUDE_RANGE[1] ||
+    lng < INDIA_LONGITUDE_RANGE[0] ||
+    lng > INDIA_LONGITUDE_RANGE[1]
+  ) {
+    return null;
+  }
+  return [lat, lng];
+};
+
+const pickFirstValidIndianCoordinate = (
+  ...pairs: CoordinateCandidate[]
+): [number, number] | null => {
+  for (const pair of pairs) {
+    if (!pair) continue;
+    const [lat, lng] = pair;
+    const coords = getValidIndianCoordinate(lat, lng);
+    if (coords) {
+      return coords;
+    }
+  }
+  return null;
+};
+
+const ensureIndianCenter = (
+  coords: [number, number] | null | undefined
+): [number, number] => {
+  if (!coords) {
+    return DEFAULT_MAP_CENTER;
+  }
+  const [lat, lng] = coords;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return DEFAULT_MAP_CENTER;
+  }
+  return [
+    clampToRange(lat, INDIA_LATITUDE_RANGE),
+    clampToRange(lng, INDIA_LONGITUDE_RANGE),
+  ];
+};
+
 const CITY_COORDINATES: Record<string, [number, number]> = {
   Mumbai: [19.076, 72.8777],
   Bangalore: [12.9716, 77.5946],
@@ -317,23 +386,32 @@ function DashboardPageContent() {
         .map((loc) => {
           const isLive = Boolean(loc.updatedAt);
           const source = loc.source ?? (isLive ? "LIVE" : "VISIT");
-          const lat = loc.latitude ?? loc.lastVisitLatitude ?? loc.fallbackLatitude ?? null;
-          const lng = loc.longitude ?? loc.lastVisitLongitude ?? loc.fallbackLongitude ?? null;
+          const coordinate = pickFirstValidIndianCoordinate(
+            [loc.latitude, loc.longitude],
+            [loc.lastVisitLatitude, loc.lastVisitLongitude],
+            [loc.fallbackLatitude, loc.fallbackLongitude]
+          );
 
-          if (lat == null || lng == null) {
+          if (!coordinate) {
             return null;
           }
 
+          const [lat, lng] = coordinate;
           const timestamp = isLive ? loc.updatedAt : loc.lastVisitAt;
-          const variant = source === "HOME" ? "home"
-            : source === "LIVE" ? "current"
-            : source === "VISIT" ? "visit"
-            : "checkin";
-          const description = source === "LIVE"
-            ? "Live location"
-            : source === "HOME"
-            ? "Home location"
-            : "Last known visit";
+          const variant =
+            source === "HOME"
+              ? "home"
+              : source === "LIVE"
+              ? "current"
+              : source === "VISIT"
+              ? "visit"
+              : "checkin";
+          const description =
+            source === "LIVE"
+              ? "Live location"
+              : source === "HOME"
+              ? "Home location"
+              : "Last known visit";
 
           return {
             id: `${source.toLowerCase()}-${loc.employeeId}`,
@@ -344,7 +422,7 @@ function DashboardPageContent() {
             storeName: loc.lastVisitStoreName ?? undefined,
             description,
             variant,
-            employeeColor: generateEmployeeColor(loc.employeeId), 
+            employeeColor: generateEmployeeColor(loc.employeeId),
           } satisfies MapMarker;
         })
         .filter(Boolean) as MapMarker[],
@@ -354,16 +432,22 @@ function DashboardPageContent() {
   const buildStoreMarkers = useCallback(
     (stores: StoreSummary[]): MapMarker[] =>
       stores
-        .filter((store) => store.latitude != null && store.longitude != null)
-        .map((store) => ({
-          id: `store-${store.storeId}`,
-          lat: store.latitude,
-          lng: store.longitude,
-          label: store.storeName,
-          description: `${store.storeName}, ${store.city}, ${store.state}`,
-          variant: "store" as const,
-        }) satisfies MapMarker,
-        ),
+        .map((store) => {
+          const coordinate = getValidIndianCoordinate(store.latitude, store.longitude);
+          if (!coordinate) {
+            return null;
+          }
+          const [lat, lng] = coordinate;
+          return {
+            id: `store-${store.storeId}`,
+            lat,
+            lng,
+            label: store.storeName,
+            description: `${store.storeName}, ${store.city}, ${store.state}`,
+            variant: "store" as const,
+          } satisfies MapMarker;
+        })
+        .filter(Boolean) as MapMarker[],
     []
   );
 
@@ -375,43 +459,67 @@ function DashboardPageContent() {
         if (!a.timestamp && !b.timestamp) return 0;
         if (!a.timestamp) return 1; // HOME goes to end
         if (!b.timestamp) return -1; // HOME goes to end
-        
+
         return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
       });
 
       // Separate visit points from special points (HOME, CURRENT)
-      const visitPoints = sortedTrail.filter(point => point.type === "VISIT" || point.type === "CHECKIN" || point.type === "CHECKOUT");
-      const specialPoints = sortedTrail.filter(point => point.type === "HOME" || point.type === "CURRENT");
+      const visitPoints = sortedTrail.filter(
+        (point) => point.type === "VISIT" || point.type === "CHECKIN" || point.type === "CHECKOUT"
+      );
+      const specialPoints = sortedTrail.filter(
+        (point) => point.type === "HOME" || point.type === "CURRENT"
+      );
 
       // Create markers with numbers for visit points
-      const visitMarkers = visitPoints.map((point, index) => ({
-        id: `${point.type.toLowerCase()}-${point.visitId ?? index}`,
-        lat: point.latitude,
-        lng: point.longitude,
-        label: `${index + 1}. ${point.label ?? point.type}`, // Add number prefix
-        timestamp: point.timestamp ?? null,
-        storeName: point.storeName ?? undefined,
-        description: `${index + 1}. ${point.type === "VISIT" ? "Visit" : point.type === "CHECKOUT" ? "Checkout" : "Check-in"}`,
-        variant: visitPointVariantMap[point.type],
-        number: index + 1, // Add number for numbered marker
-      }));
+      const visitMarkers = visitPoints
+        .map((point, index) => {
+          const coordinate = getValidIndianCoordinate(point.latitude, point.longitude);
+          if (!coordinate) {
+            return null;
+          }
+          const [lat, lng] = coordinate;
+          return {
+            id: `${point.type.toLowerCase()}-${point.visitId ?? index}`,
+            lat,
+            lng,
+            label: `${index + 1}. ${point.label ?? point.type}`, // Add number prefix
+            timestamp: point.timestamp ?? null,
+            storeName: point.storeName ?? undefined,
+            description: `${index + 1}. ${
+              point.type === "VISIT" ? "Visit" : point.type === "CHECKOUT" ? "Checkout" : "Check-in"
+            }`,
+            variant: visitPointVariantMap[point.type],
+            number: index + 1, // Add number for numbered marker
+          } satisfies MapMarker;
+        })
+        .filter(Boolean) as MapMarker[];
 
       // Create markers for special points (HOME, CURRENT) without numbers
-      const specialMarkers = specialPoints.map((point, index) => ({
-        id: `${point.type.toLowerCase()}-${point.visitId ?? index}`,
-        lat: point.latitude,
-        lng: point.longitude,
-        label: point.label ?? point.type,
-        timestamp: point.timestamp ?? null,
-        storeName: point.storeName ?? undefined,
-        description:
-          point.type === "HOME"
-            ? "Home Location"
-            : point.type === "CURRENT"
-            ? "Current Location"
-            : point.type,
-        variant: visitPointVariantMap[point.type],
-      }));
+      const specialMarkers = specialPoints
+        .map((point, index) => {
+          const coordinate = getValidIndianCoordinate(point.latitude, point.longitude);
+          if (!coordinate) {
+            return null;
+          }
+          const [lat, lng] = coordinate;
+          return {
+            id: `${point.type.toLowerCase()}-${point.visitId ?? index}`,
+            lat,
+            lng,
+            label: point.label ?? point.type,
+            timestamp: point.timestamp ?? null,
+            storeName: point.storeName ?? undefined,
+            description:
+              point.type === "HOME"
+                ? "Home Location"
+                : point.type === "CURRENT"
+                ? "Current Location"
+                : point.type,
+            variant: visitPointVariantMap[point.type],
+          } satisfies MapMarker;
+        })
+        .filter(Boolean) as MapMarker[];
 
       // Combine all markers
       return [...visitMarkers, ...specialMarkers];
@@ -1080,13 +1188,13 @@ function DashboardPageContent() {
 
         setMapMarkers(markersToDisplay);
 
-        const markerCoordinates = markersToDisplay.filter(
-          (marker) => typeof marker.lat === "number" && typeof marker.lng === "number"
-        );
+        const markerCoordinates = markersToDisplay
+          .map((marker) => getValidIndianCoordinate(marker.lat, marker.lng))
+          .filter((coords): coords is [number, number] => coords !== null);
 
         if (markerCoordinates.length > 0) {
-          const lats = markerCoordinates.map((marker) => marker.lat);
-          const lngs = markerCoordinates.map((marker) => marker.lng);
+          const lats = markerCoordinates.map(([lat]) => lat);
+          const lngs = markerCoordinates.map(([, lng]) => lng);
           const minLat = Math.min(...lats);
           const maxLat = Math.max(...lats);
           const minLng = Math.min(...lngs);
@@ -1126,27 +1234,22 @@ function DashboardPageContent() {
             }
           }
 
-          setMapCenter([centerLat, centerLng]);
+          setMapCenter(ensureIndianCenter([centerLat, centerLng]));
           setMapZoom(zoomLevel);
         } else {
-          const fallbackLat =
-            liveLocation?.latitude ??
-            liveLocation?.lastVisitLatitude ??
-            liveLocation?.fallbackLatitude ??
-            summary?.homeLatitude ??
-            null;
-          const fallbackLng =
-            liveLocation?.longitude ??
-            liveLocation?.lastVisitLongitude ??
-            liveLocation?.fallbackLongitude ??
-            summary?.homeLongitude ??
-            null;
+          const fallbackCoordinate =
+            pickFirstValidIndianCoordinate(
+              liveLocation ? [liveLocation.latitude, liveLocation.longitude] : null,
+              liveLocation ? [liveLocation.lastVisitLatitude, liveLocation.lastVisitLongitude] : null,
+              liveLocation ? [liveLocation.fallbackLatitude, liveLocation.fallbackLongitude] : null,
+              summary ? [summary.homeLatitude, summary.homeLongitude] : null
+            ) ?? null;
 
-          if (fallbackLat != null && fallbackLng != null) {
-            setMapCenter([fallbackLat, fallbackLng]);
+          if (fallbackCoordinate) {
+            setMapCenter(fallbackCoordinate);
             setMapZoom(14);
           } else {
-            setMapCenter(resolveCoordinates(employee.location));
+            setMapCenter(ensureIndianCenter(resolveCoordinates(employee.location)));
             setMapZoom(12);
           }
         }
