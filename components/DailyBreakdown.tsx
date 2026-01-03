@@ -11,6 +11,12 @@ import { format } from "date-fns";
 import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "sonner";
+import { authService } from "@/lib/auth";
+import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
 
 interface DailyBreakdownData {
     date: string;
@@ -39,9 +45,27 @@ interface Employee {
     role: string;
 }
 
+type AttendanceStatus = "full day" | "half day" | "absent";
+const ATTENDANCE_STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string }> = [
+    { value: "full day", label: "Full day" },
+    { value: "half day", label: "Half day" },
+    { value: "absent", label: "Absent" },
+];
+
+const getRowKey = (row: Pick<DailyBreakdownData, "employeeId" | "date">) => `${row.employeeId}::${row.date}`;
+
+const normalizeAttendanceStatus = (raw?: string | null): AttendanceStatus | null => {
+    if (!raw) return null;
+    const value = raw.trim().toLowerCase();
+    if (value === "full day (activity)") return "full day";
+    if (value === "full day") return "full day";
+    if (value === "half day") return "half day";
+    if (value === "absent") return "absent";
+    return null;
+};
+
 const DailyBreakdown: React.FC = () => {
     const [dailyBreakdownData, setDailyBreakdownData] = useState<DailyBreakdownData[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dailyLoading, setDailyLoading] = useState(false);
     const [startDate, setStartDate] = useState<Date>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -50,17 +74,52 @@ const DailyBreakdown: React.FC = () => {
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
     const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
+    const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
+    const [rowUpdateKey, setRowUpdateKey] = useState<string | null>(null);
+    const [pendingStatus, setPendingStatus] = useState<AttendanceStatus | null>(null);
+    const [pendingRows, setPendingRows] = useState<DailyBreakdownData[]>([]);
+    const [pendingSkippedCount, setPendingSkippedCount] = useState(0);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmTitle, setConfirmTitle] = useState("");
+    const [confirmDescription, setConfirmDescription] = useState("");
+    const [isApplying, setIsApplying] = useState(false);
 
     // Get auth data from localStorage instead of props
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    const normalizedRole = typeof window !== "undefined" ? normalizeRoleValue(localStorage.getItem("userRole")) : null;
+    const authorityRoles = extractAuthorityRoles(authService.getCurrentUser()?.authorities ?? null);
+    const isAdmin = hasAnyRole(normalizedRole, authorityRoles, ["ADMIN"]);
+    const todayStr = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+    const isEditableDate = useCallback(
+        (dateStr: string) => {
+            // Only allow editing past dates. Disallow today and future dates.
+            // Works with YYYY-MM-DD lexicographic compare.
+            return dateStr < todayStr;
+        },
+        [todayStr]
+    );
 
-    const fetchDailyBreakdown = useCallback(async () => {
+    const editableRowKeys = useMemo(() => {
+        return dailyBreakdownData
+            .filter((row) => !row.isSunday && isEditableDate(row.date))
+            .map(getRowKey);
+    }, [dailyBreakdownData, isEditableDate]);
+
+    // "Select all" should only appear when the whole range is completed (no today/future dates in the grid)
+    const allowSelectAll = useMemo(() => {
+        if (!isAdmin || dailyBreakdownData.length === 0) return false;
+        return dailyBreakdownData.every((row) => row.date < todayStr);
+    }, [isAdmin, dailyBreakdownData, todayStr]);
+
+    const fetchDailyBreakdown = useCallback(async (options?: { silent?: boolean }) => {
         if (!token) {
             setError('Authentication token not found. Please log in.');
             return;
         }
 
-        setDailyLoading(true);
+        if (!options?.silent) {
+            setDailyLoading(true);
+        }
         setError(null);
         try {
             if (!startDate || !endDate) {
@@ -92,10 +151,13 @@ const DailyBreakdown: React.FC = () => {
             }
 
             setDailyBreakdownData(data);
+            setSelectedRowKeys(new Set());
         } catch (error) {
             setError(error instanceof Error ? error.message : 'Failed to fetch daily breakdown data');
         } finally {
-            setDailyLoading(false);
+            if (!options?.silent) {
+                setDailyLoading(false);
+            }
         }
     }, [token, startDate, endDate, selectedEmployee]);
 
@@ -110,7 +172,20 @@ const DailyBreakdown: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to fetch employees');
+                const contentType = response.headers.get("content-type") || "";
+                let details = "";
+                try {
+                    if (contentType.includes("application/json")) {
+                        const json = await response.json();
+                        details = typeof json === "string" ? json : JSON.stringify(json);
+                    } else {
+                        details = await response.text();
+                    }
+                } catch {
+                    // ignore parse errors
+                }
+                const preview = details ? ` - ${details.slice(0, 200)}` : "";
+                throw new Error(`Failed to fetch employees (${response.status} ${response.statusText})${preview}`);
             }
 
             const data = await response.json();
@@ -127,6 +202,7 @@ const DailyBreakdown: React.FC = () => {
             }
         } catch (error) {
             console.error('Error fetching employees:', error);
+            toast.error(error instanceof Error ? error.message : "Failed to fetch employees");
         }
     }, [token]);
 
@@ -143,6 +219,19 @@ const DailyBreakdown: React.FC = () => {
             fetchEmployees();
         }
     }, [token, fetchEmployees]);
+
+    // Prune any selected keys that are no longer editable (e.g., when month progresses)
+    useEffect(() => {
+        setSelectedRowKeys((prev) => {
+            if (prev.size === 0) return prev;
+            const allowed = new Set(editableRowKeys);
+            const next = new Set<string>();
+            prev.forEach((key) => {
+                if (allowed.has(key)) next.add(key);
+            });
+            return next.size === prev.size ? prev : next;
+        });
+    }, [editableRowKeys]);
 
     const getDayTypeColor = (dayType: string, isSunday: boolean = false) => {
         if (isSunday) return 'bg-purple-100 text-purple-800 border-purple-200';
@@ -166,6 +255,113 @@ const DailyBreakdown: React.FC = () => {
         if (dayType.toLowerCase() === 'full day (activity)') return 'full day (activity)';
         return dayType;
     };
+
+    const applyAttendanceStatus = useCallback(async (rows: DailyBreakdownData[], status: AttendanceStatus) => {
+        if (!token) {
+            toast.error("Authentication token not found. Please log in.");
+            return;
+        }
+        if (!rows.length) return;
+
+        setIsApplying(true);
+        // If single-row, show row-level loading state on that row
+        if (rows.length === 1) {
+            setRowUpdateKey(getRowKey(rows[0]));
+        }
+
+        try {
+            const results = await Promise.allSettled(
+                rows.map((row) =>
+                    fetch(
+                        `/api/proxy/attendance-log/updateStatus?employeeId=${row.employeeId}&date=${row.date}&status=${encodeURIComponent(status)}`,
+                        { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
+                    ).then(async (res) => {
+                        if (!res.ok) {
+                            const text = await res.text().catch(() => "");
+                            throw new Error(text || `Failed (${res.status}) for ${row.date}`);
+                        }
+                    })
+                )
+            );
+
+            const failures = results.filter((r) => r.status === "rejected").length;
+            const successes = results.length - failures;
+
+            if (successes > 0) {
+                // Optimistic UI update for the rows we attempted
+                const keys = new Set(rows.map(getRowKey));
+                setDailyBreakdownData((prev) =>
+                    prev.map((item) => (keys.has(getRowKey(item)) ? { ...item, dayType: status, hasAttendance: true } : item))
+                );
+            }
+
+            if (successes > 0 && failures === 0) {
+                toast.success(
+                    rows.length === 1
+                        ? `Marked as "${status}"`
+                        : `Marked ${successes} day(s) as "${status}"${pendingSkippedCount ? ` (skipped ${pendingSkippedCount} Sunday)` : ""}`
+                );
+            } else {
+                if (successes > 0) {
+                    toast.success(`Updated ${successes} day(s) to "${status}"`);
+                }
+                if (failures > 0) {
+                    toast.error(`Failed to update ${failures} day(s).`);
+                }
+            }
+
+            await fetchDailyBreakdown({ silent: true });
+            setSelectedRowKeys(new Set());
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to update day type");
+        } finally {
+            setIsApplying(false);
+            setRowUpdateKey(null);
+        }
+    }, [token, fetchDailyBreakdown, pendingSkippedCount]);
+
+    const toggleRowSelected = useCallback((key: string, selected: boolean) => {
+        setSelectedRowKeys((prev) => {
+            const next = new Set(prev);
+            if (selected) next.add(key);
+            else next.delete(key);
+            return next;
+        });
+    }, []);
+
+    const selectedCount = selectedRowKeys.size;
+    const allSelected = editableRowKeys.length > 0 && selectedCount === editableRowKeys.length;
+
+    const setAllSelected = useCallback((selected: boolean) => {
+        setSelectedRowKeys(() => (selected ? new Set(editableRowKeys) : new Set()));
+    }, [editableRowKeys]);
+
+    const clearSelection = useCallback(() => setSelectedRowKeys(new Set()), []);
+
+    const openConfirmForRows = useCallback((status: AttendanceStatus, rows: DailyBreakdownData[]) => {
+        // Skip Sundays and non-editable dates (today/future)
+        const editableRows = rows.filter((row) => !row.isSunday && isEditableDate(row.date));
+        const skipped = rows.length - editableRows.length;
+
+        if (editableRows.length === 0) {
+            toast.error("Selected days are not editable (Sundays and today/future dates cannot be changed).");
+            return;
+        }
+
+        setPendingStatus(status);
+        setPendingRows(editableRows);
+        setPendingSkippedCount(skipped);
+
+        const isBulk = editableRows.length > 1;
+        const title = isBulk ? "Confirm bulk update" : "Confirm update";
+        const description = isBulk
+            ? `Mark ${editableRows.length} selected day(s) as "${status}"${skipped ? ` (skipping ${skipped} non-editable day(s))` : ""}?`
+            : `Mark ${format(new Date(editableRows[0].date), "d MMM yyyy")} as "${status}"?`;
+
+        setConfirmTitle(title);
+        setConfirmDescription(description);
+        setConfirmOpen(true);
+    }, []);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('en-IN', {
@@ -197,8 +393,15 @@ const DailyBreakdown: React.FC = () => {
         return selected ? selected.label : 'Selected Employee';
     };
 
+    const selectedRows = useMemo(() => {
+        if (!selectedRowKeys.size) return [];
+        return dailyBreakdownData.filter((row) => selectedRowKeys.has(getRowKey(row)));
+    }, [dailyBreakdownData, selectedRowKeys]);
+
+    const showActionBar = isAdmin && selectedCount > 0;
+
     return (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${showActionBar ? "pb-24" : ""}`}>
             <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-4">
                     <CardTitle className="text-xl font-semibold text-foreground">Daily Breakdown</CardTitle>
@@ -206,7 +409,8 @@ const DailyBreakdown: React.FC = () => {
                 </CardHeader>
                 <CardContent className="space-y-6">
                     {/* Filters Section */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-muted/30 rounded-lg">
+                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="employee" className="text-sm font-medium text-foreground">Employee</Label>
                             <SearchableSelect<Employee>
@@ -225,6 +429,8 @@ const DailyBreakdown: React.FC = () => {
                                 searchPlaceholder="Search employees..."
                                 allowClear={!!selectedEmployee}
                                 disabled={employeeOptions.length === 0}
+                                triggerClassName="w-full"
+                                contentClassName="w-[--radix-popover-trigger-width]"
                             />
                         </div>
                         <div className="space-y-2">
@@ -285,8 +491,9 @@ const DailyBreakdown: React.FC = () => {
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        <div className="space-y-2 flex items-end">
-                            <Button onClick={fetchAllData} className="w-full" disabled={dailyLoading || !selectedEmployee}>
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium text-foreground">&nbsp;</Label>
+                            <Button onClick={fetchAllData} className="w-full" size="sm" disabled={dailyLoading || !selectedEmployee}>
                                 {dailyLoading ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -297,11 +504,9 @@ const DailyBreakdown: React.FC = () => {
                                 )}
                             </Button>
                         </div>
-                        <div className="space-y-2 flex items-end">
-                            <div className="text-sm text-muted-foreground">
-                                <div className="font-medium">{getSelectedEmployeeDisplay()}</div>
-                                <div>{getDateRangeDisplay()}</div>
-                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-muted-foreground">
+                            <div>{getDateRangeDisplay()}</div>
                         </div>
                     </div>
 
@@ -359,6 +564,15 @@ const DailyBreakdown: React.FC = () => {
                                                         <CardContent className="pt-4">
                                                             <div className="flex items-center justify-between mb-3">
                                                                 <div className="flex items-center space-x-2">
+                                                                    {isAdmin && !day.isSunday && isEditableDate(day.date) && (
+                                                                        <Checkbox
+                                                                            checked={selectedRowKeys.has(getRowKey(day))}
+                                                                            onCheckedChange={(checked) =>
+                                                                                toggleRowSelected(getRowKey(day), Boolean(checked))
+                                                                            }
+                                                                            aria-label={`Select ${day.date}`}
+                                                                        />
+                                                                    )}
                                                                     <User className="h-5 w-5 text-primary" />
                                                                     <div>
                                                                         <div className="font-medium text-lg text-foreground">{day.employeeName}</div>
@@ -368,9 +582,43 @@ const DailyBreakdown: React.FC = () => {
                                                                     </div>
                                                                 </div>
                                                                 <div className="text-right">
-                                                                    <Badge className={`${getDayTypeColor(day.dayType, day.isSunday)} mb-1`}>
-                                                                        {getDayTypeDisplay(day.dayType, day.isSunday)}
-                                                                    </Badge>
+                                                                    {!isAdmin || day.isSunday || !isEditableDate(day.date) ? (
+                                                                        <Badge className={`${getDayTypeColor(day.dayType, day.isSunday)} mb-1`}>
+                                                                            {getDayTypeDisplay(day.dayType, day.isSunday)}
+                                                                        </Badge>
+                                                                    ) : (
+                                                                        <DropdownMenu>
+                                                                            <DropdownMenuTrigger asChild>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="mb-1 inline-flex items-center gap-2 disabled:opacity-60"
+                                                                                    disabled={rowUpdateKey === getRowKey(day) || isApplying}
+                                                                                    aria-label="Change day type"
+                                                                                >
+                                                                                    <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>
+                                                                                        {rowUpdateKey === getRowKey(day) ? (
+                                                                                            <span className="inline-flex items-center gap-2">
+                                                                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                                                Updating...
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            getDayTypeDisplay(day.dayType, day.isSunday)
+                                                                                        )}
+                                                                                    </Badge>
+                                                                                </button>
+                                                                            </DropdownMenuTrigger>
+                                                                            <DropdownMenuContent align="end">
+                                                                                {ATTENDANCE_STATUS_OPTIONS.map((opt) => (
+                                                                                    <DropdownMenuItem
+                                                                                        key={opt.value}
+                                                                                        onSelect={() => openConfirmForRows(opt.value, [day])}
+                                                                                    >
+                                                                                        {opt.label}
+                                                                                    </DropdownMenuItem>
+                                                                                ))}
+                                                                            </DropdownMenuContent>
+                                                                        </DropdownMenu>
+                                                                    )}
                                                                     <div className="font-bold text-lg text-foreground">{formatCurrency(day.totalDailySalary)}</div>
                                                                 </div>
                                                             </div>
@@ -440,32 +688,94 @@ const DailyBreakdown: React.FC = () => {
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
-                                                        <TableHead>Day</TableHead>
-                                                        <TableHead>Day Type</TableHead>
-                                                        <TableHead>Completed Visits</TableHead>
-                                                        <TableHead>Base Earned</TableHead>
-                                                        <TableHead>Travel Allowance</TableHead>
-                                                        <TableHead>DA Earned</TableHead>
-                                                        {/* <TableHead>Car Distance (Km)</TableHead> */}
-                                                        <TableHead>Bike Distance (Km)</TableHead>
-                                                        <TableHead>Total Daily</TableHead>
+                                                        {isAdmin && (
+                                                            <TableHead className="w-[44px]">
+                                                                {allowSelectAll && (
+                                                                    <Checkbox
+                                                                        checked={allSelected}
+                                                                        onCheckedChange={(checked) => setAllSelected(Boolean(checked))}
+                                                                        aria-label="Select all days"
+                                                                    />
+                                                                )}
+                                                            </TableHead>
+                                                        )}
+                                                        <TableHead>Employee</TableHead>
+                                                        <TableHead>Date</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead>Visits</TableHead>
+                                                        <TableHead>Base</TableHead>
+                                                        <TableHead>Travel</TableHead>
+                                                        <TableHead>DA</TableHead>
+                                                        <TableHead>Dist (km)</TableHead>
+                                                        <TableHead>Total</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
                                                     {dailyBreakdownData.map((day, index) => (
                                                         <TableRow key={index}>
-                                                            <TableCell>{formatDayName(day.dayOfWeek)}</TableCell>
+                                                            {isAdmin && (
+                                                                <TableCell>
+                                                                    {!day.isSunday && isEditableDate(day.date) && (
+                                                                        <Checkbox
+                                                                            checked={selectedRowKeys.has(getRowKey(day))}
+                                                                            onCheckedChange={(checked) =>
+                                                                                toggleRowSelected(getRowKey(day), Boolean(checked))
+                                                                            }
+                                                                            disabled={isApplying}
+                                                                            aria-label={`Select ${day.date}`}
+                                                                        />
+                                                                    )}
+                                                                </TableCell>
+                                                            )}
+                                                            <TableCell className="font-medium">{day.employeeName}</TableCell>
                                                             <TableCell>
-                                                                <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>
-                                                                    {getDayTypeDisplay(day.dayType, day.isSunday)}
-                                                                </Badge>
+                                                                {format(new Date(day.date), 'dd/MM/yyyy')}{" "}
+                                                                <span className="text-muted-foreground">({formatDayName(day.dayOfWeek).slice(0, 3).toUpperCase()})</span>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                {!isAdmin || day.isSunday || !isEditableDate(day.date) ? (
+                                                                    <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>
+                                                                        {getDayTypeDisplay(day.dayType, day.isSunday)}
+                                                                    </Badge>
+                                                                ) : (
+                                                                    <DropdownMenu>
+                                                                        <DropdownMenuTrigger asChild>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="inline-flex items-center gap-2 disabled:opacity-60"
+                                                                                disabled={rowUpdateKey === getRowKey(day) || isApplying}
+                                                                                aria-label="Change day type"
+                                                                            >
+                                                                                <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>
+                                                                                    {rowUpdateKey === getRowKey(day) ? (
+                                                                                        <span className="inline-flex items-center gap-2">
+                                                                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                                            Updating...
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        getDayTypeDisplay(day.dayType, day.isSunday)
+                                                                                    )}
+                                                                                </Badge>
+                                                                            </button>
+                                                                        </DropdownMenuTrigger>
+                                                                        <DropdownMenuContent align="start">
+                                                                            {ATTENDANCE_STATUS_OPTIONS.map((opt) => (
+                                                                                <DropdownMenuItem
+                                                                                    key={opt.value}
+                                                                                    onSelect={() => openConfirmForRows(opt.value, [day])}
+                                                                                >
+                                                                                    {opt.label}
+                                                                                </DropdownMenuItem>
+                                                                            ))}
+                                                                        </DropdownMenuContent>
+                                                                    </DropdownMenu>
+                                                                )}
                                                             </TableCell>
                                                             <TableCell>{day.completedVisits}</TableCell>
                                                             <TableCell>{formatCurrency(day.baseEarned)}</TableCell>
                                                             <TableCell>{formatCurrency(day.travelAllowance)}</TableCell>
                                                             <TableCell>{formatCurrency(day.daEarned)}</TableCell>
-                                                            {/* <TableCell>{day.carDistanceKm.toFixed(2)}</TableCell> */}
-                                                            <TableCell>{day.bikeDistanceKm.toFixed(2)}</TableCell>
+                                                            <TableCell>{day.bikeDistanceKm.toFixed(1)}</TableCell>
                                                             <TableCell className="font-bold">{formatCurrency(day.totalDailySalary)}</TableCell>
                                                         </TableRow>
                                                     ))}
@@ -498,6 +808,65 @@ const DailyBreakdown: React.FC = () => {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Floating bulk action bar (Admin) */}
+            {showActionBar && (
+                <div className="fixed bottom-6 left-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2">
+                    <div className="rounded-2xl border bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                        <div className="flex items-center justify-between gap-3 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                                <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-sm">
+                                    <span className="font-semibold">{selectedCount}</span>
+                                    <span className="text-muted-foreground">Selected</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="text-sm text-muted-foreground hover:text-foreground"
+                                    onClick={clearSelection}
+                                    disabled={isApplying}
+                                >
+                                    Clear
+                                </button>
+                            </div>
+
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button disabled={isApplying} className="rounded-full">
+                                        Mark As…
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    {ATTENDANCE_STATUS_OPTIONS.map((opt) => (
+                                        <DropdownMenuItem
+                                            key={opt.value}
+                                            onSelect={() => openConfirmForRows(opt.value, selectedRows)}
+                                        >
+                                            {opt.label}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation modal (bulk + single) */}
+            <ConfirmationDialog
+                open={confirmOpen}
+                onOpenChange={(open) => {
+                    if (!isApplying) setConfirmOpen(open);
+                }}
+                title={confirmTitle}
+                description={confirmDescription}
+                confirmText="Confirm"
+                cancelText="Cancel"
+                onConfirm={() => {
+                    if (!pendingStatus || pendingRows.length === 0) return;
+                    applyAttendanceStatus(pendingRows, pendingStatus);
+                }}
+                isLoading={isApplying}
+            />
         </div>
     );
 };

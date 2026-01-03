@@ -98,7 +98,7 @@ export function SearchableSelect<T = unknown>({
           variant="outline"
           disabled={disabled}
           className={cn(
-            "w-[280px] justify-between",
+            "w-full justify-between",
             !selectedOption && "text-muted-foreground",
             triggerClassName,
           )}
@@ -107,7 +107,10 @@ export function SearchableSelect<T = unknown>({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className={cn("w-[280px] p-2", contentClassName)} align="start">
+      <PopoverContent
+        className={cn("w-[--radix-popover-trigger-width] min-w-[14rem] p-2", contentClassName)}
+        align="start"
+      >
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />

@@ -633,6 +633,9 @@ const PricingPage = () => {
     }, []);
 
     const handleExport = useCallback(() => {
+        if (!(isAdmin || isDataManager)) {
+            return;
+        }
         if (filteredBrands.length === 0) {
             return;
         }
@@ -675,7 +678,7 @@ const PricingPage = () => {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-    }, [filteredBrands, selectedEndDate, selectedStartDate]);
+    }, [filteredBrands, selectedEndDate, selectedStartDate, isAdmin, isDataManager]);
 
 
     if (!roleResolved) {

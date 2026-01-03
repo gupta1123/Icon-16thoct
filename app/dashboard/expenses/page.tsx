@@ -153,7 +153,7 @@ export default function ExpensesPage() {
     return currentUser?.authorities?.some((auth) => auth.authority === role) ?? false;
   }, [currentUser, userRole]);
 
-  const canExport = hasAuthority('ROLE_ADMIN') || hasAuthority('ROLE_HR') || hasAuthority('ROLE_DATA_MANAGER');
+  const canExport = hasAuthority('ROLE_ADMIN') || hasAuthority('ROLE_DATA_MANAGER');
 
   // Transform API data to match component interface
   const transformExpenseData = (expenses: ExpenseDto[]): Employee[] => {

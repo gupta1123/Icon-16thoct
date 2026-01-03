@@ -142,6 +142,8 @@ type VisitDetail = {
   priority: string;
   outcome: string | null;
   brandsInUse: string[];
+  purchasedFrom?: string | null;
+  constructionStage?: string | null;
   brandProCons: {
     id: number;
     brandName: string;
@@ -485,6 +487,8 @@ export default function VisitDetailPage({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkinImages, setCheckinImages] = useState<string[]>([]);
+  const [giftImageUrl, setGiftImageUrl] = useState<string | null>(null);
+  const [upcomingSitesCount, setUpcomingSitesCount] = useState<number | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -559,6 +563,7 @@ export default function VisitDetailPage({
     city: string;
     address: string;
   } | null>(null);
+  const [storeClientType, setStoreClientType] = useState<string | null>(null);
   
   // Role-based state
   const [isManager, setIsManager] = useState(false);
@@ -722,6 +727,42 @@ export default function VisitDetailPage({
     }
   }, []);
 
+  const fetchGiftImage = useCallback(async (visitId: number, attachments: unknown[]) => {
+    try {
+      const checkoutAttachment = attachments.find(
+        (attachment: unknown) => (attachment as { tag?: string }).tag === 'check-out'
+      ) as { fileName?: string } | undefined;
+
+      const fileName = checkoutAttachment?.fileName;
+      if (!fileName) {
+        setGiftImageUrl(null);
+        return;
+      }
+
+      const response = await fetch(`/api/proxy/visit/downloadFile/${visitId}/check-out/${fileName}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch gift image');
+      }
+
+      const blob = await response.blob();
+      setGiftImageUrl(URL.createObjectURL(blob));
+    } catch (error) {
+      console.error('Error fetching gift image:', error);
+      setGiftImageUrl(null);
+    }
+  }, []);
+
+  const extractUpcomingSites = (value: unknown): number | null => {
+    if (value == null) return null;
+    const n = typeof value === 'number' ? value : Number(String(value).trim());
+    return Number.isFinite(n) ? n : null;
+  };
+
   const fetchVisitDetail = useCallback(async (visitId: string) => {
     if (isFetchingRef.current || !visitId) {
       return;
@@ -747,11 +788,16 @@ export default function VisitDetailPage({
         outcome: visitData.outcome || null,
         brandsInUse: (visitData.brandsInUse as string[]) || [],
         brandProCons: (visitData.brandProCons as BrandProCon[]) || [],
+        purchasedFrom: (visitData as unknown as { purchasedFrom?: string | null }).purchasedFrom ?? null,
+        constructionStage: (visitData as unknown as { constructionStage?: string | null }).constructionStage ?? null,
         createdAt: visitData.createdAt || '',
         updatedAt: visitData.updatedAt || '',
         storeId: visitData.storeId || 0,
         employeeId: visitData.employeeId || 0,
       });
+      setStoreClientType(null);
+      setGiftImageUrl(null);
+      setUpcomingSitesCount(null);
 
       if (isInitialFetch) {
         hasPerformedInitialFetch.current = true;
@@ -767,6 +813,53 @@ export default function VisitDetailPage({
       (async () => {
         try {
           console.log('🔄 Loading auxiliary data for visit:', visitId);
+          // Determine client type so we can hide tabs for Site Visit
+          let resolvedClientType: string | null = null;
+          let resolvedUpcomingSites: number | null = null;
+          try {
+            if (visitData.storeId) {
+              const store = await api.getStoreById(visitData.storeId);
+              resolvedClientType = store?.clientType ?? null;
+              const storeAny = store as unknown as Record<string, unknown> | null;
+              if (storeAny) {
+                resolvedUpcomingSites =
+                  extractUpcomingSites(storeAny.upcomingSites) ??
+                  extractUpcomingSites(storeAny.upcoming_sites) ??
+                  extractUpcomingSites(storeAny.upcomingSite) ??
+                  extractUpcomingSites(storeAny.upcomingSiteCount) ??
+                  extractUpcomingSites(storeAny.upcomingSitesCount);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to fetch store client type:', e);
+          } finally {
+            setStoreClientType(resolvedClientType);
+            setUpcomingSitesCount(resolvedUpcomingSites);
+          }
+
+          const normalizedClientType = (resolvedClientType ?? '')
+            .toString()
+            .trim()
+            .toLowerCase()
+            .replace(/[\/,]+/g, ' ')
+            .replace(/_/g, ' ')
+            .replace(/\s+/g, ' ');
+          const isSiteVisitClient = normalizedClientType === 'site visit';
+          const isProfessionalClient =
+            normalizedClientType.includes('engineer') ||
+            normalizedClientType.includes('architect') ||
+            normalizedClientType.includes('contractor');
+          if (isSiteVisitClient) {
+            setActiveTab((prev) =>
+              prev === 'site' || prev === 'brands' || prev === 'metrics' || prev === 'visits'
+                ? 'site'
+                : prev
+            );
+          }
+          if (isProfessionalClient) {
+            setActiveTab((prev) => (prev === 'discussion' || prev === 'metrics' || prev === 'visits' ? prev : 'discussion'));
+          }
+
           const [
             proConsData,
             intentAuditData,
@@ -779,8 +872,8 @@ export default function VisitDetailPage({
             api.getVisitProCons(Number(visitId)),
             api.getIntentAuditByVisit(Number(visitId)),
             api.getMonthlySaleByVisit(Number(visitId)),
-            api.getTasksByVisit('requirement', Number(visitId)),
-            api.getTasksByVisit('complaint', Number(visitId)),
+            Promise.resolve([]),
+            Promise.resolve([]),
             api.getNotesByVisit(Number(visitId)),
             api.getVisitsByStore(visitData.storeId || 0),
           ]);
@@ -860,6 +953,10 @@ export default function VisitDetailPage({
           if (visitData.attachmentResponse && visitData.attachmentResponse.length > 0) {
             fetchCheckinImages(Number(visitId), visitData.attachmentResponse);
           }
+          // Gift image for Engineer/Architect/Contractor
+          if (isProfessionalClient && visitData.attachmentResponse && visitData.attachmentResponse.length > 0) {
+            fetchGiftImage(Number(visitId), visitData.attachmentResponse);
+          }
 
           // Store details
           if (storeVisitsData && storeVisitsData.length > 0) {
@@ -886,6 +983,44 @@ export default function VisitDetailPage({
       isFetchingRef.current = false;
     }
   }, [fetchCheckinImages]);
+
+  const isSiteVisitClient = useMemo(() => {
+    const normalized = (storeClientType ?? '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ');
+    return normalized === 'site visit';
+  }, [storeClientType]);
+
+  const isProfessionalClient = useMemo(() => {
+    const normalized = (storeClientType ?? '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[\/,]+/g, ' ')
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ');
+    return (
+      normalized.includes('engineer') ||
+      normalized.includes('architect') ||
+      normalized.includes('contractor')
+    );
+  }, [storeClientType]);
+
+  useEffect(() => {
+    if (isProfessionalClient) {
+      if (activeTab !== 'discussion' && activeTab !== 'metrics' && activeTab !== 'visits') {
+        setActiveTab('discussion');
+      }
+      return;
+    }
+    if (!isSiteVisitClient) return;
+    if (activeTab !== 'site' && activeTab !== 'brands' && activeTab !== 'metrics' && activeTab !== 'visits') {
+      setActiveTab('site');
+    }
+  }, [isSiteVisitClient, isProfessionalClient, activeTab]);
 
 
 
@@ -1601,14 +1736,7 @@ export default function VisitDetailPage({
                     {isNavigatingToStore ? 'Opening Store…' : 'View Store'}
                   </span>
                 </Button>
-                <Button className="w-full justify-start px-3 py-2 h-auto" variant="outline" onClick={() => setIsRequirementModalOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span className="text-sm">Add Requirement</span>
-                </Button>
-                <Button className="w-full justify-start px-3 py-2 h-auto" variant="outline" onClick={() => setIsComplaintModalOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span className="text-sm">Add Complaint</span>
-                </Button>
+                {/* Requirement/Complaint actions removed */}
               </div>
             </CardContent>
           </Card>
@@ -1799,28 +1927,169 @@ export default function VisitDetailPage({
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <div className="overflow-x-auto mb-3">
               <TabsList className="inline-flex gap-2 w-max min-w-full">
-                <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                  <TrendingUp className="w-4 h-4" />
-                  Metrics
-                </TabsTrigger>
-                <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                  <Calendar className="w-4 h-4" />
-                  Visits
-                </TabsTrigger>
-                <TabsTrigger value="brands" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                  <Building className="w-4 h-4" />
-                  Brands
-                </TabsTrigger>
-                <TabsTrigger value="requirements" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                  <FileText className="w-4 h-4" />
-                  Requirements
-                </TabsTrigger>
-                <TabsTrigger value="complaints" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                  <AlertCircle className="w-4 h-4" />
-                  Complaints
-                </TabsTrigger>
+                {isProfessionalClient ? (
+                  <>
+                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <TrendingUp className="w-4 h-4" />
+                      Metrics
+                    </TabsTrigger>
+                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <Calendar className="w-4 h-4" />
+                      Visits
+                    </TabsTrigger>
+                    <TabsTrigger value="discussion" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <MessageSquare className="w-4 h-4" />
+                      Discussion
+                    </TabsTrigger>
+                  </>
+                ) : isSiteVisitClient ? (
+                  <>
+                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <TrendingUp className="w-4 h-4" />
+                      Metrics
+                    </TabsTrigger>
+                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <Calendar className="w-4 h-4" />
+                      Visits
+                    </TabsTrigger>
+                    <TabsTrigger value="site" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <ClipboardList className="w-4 h-4" />
+                      Site Details
+                    </TabsTrigger>
+                    <TabsTrigger value="brands" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <Building className="w-4 h-4" />
+                      Brands
+                    </TabsTrigger>
+                  </>
+                ) : (
+                  <>
+                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <TrendingUp className="w-4 h-4" />
+                      Metrics
+                    </TabsTrigger>
+                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <Calendar className="w-4 h-4" />
+                      Visits
+                    </TabsTrigger>
+                    <TabsTrigger value="brands" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <Building className="w-4 h-4" />
+                      Brands
+                    </TabsTrigger>
+                  </>
+                )}
               </TabsList>
             </div>
+
+            {isSiteVisitClient && (
+              <TabsContent value="site">
+                <Card className="border-0 shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-foreground">Site Visit Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-foreground mb-1">Brands used</p>
+                        {Array.isArray(visitDetail?.brandsInUse) && visitDetail!.brandsInUse.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {visitDetail!.brandsInUse.map((b) => (
+                              <Badge key={b} variant="secondary" className="font-normal">
+                                {b}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">—</p>
+                        )}
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-foreground mb-1">Purchased from</p>
+                        <p className="text-sm text-foreground">{visitDetail?.purchasedFrom || '—'}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                        <p className="text-xs font-medium text-foreground mb-1">Construction stage</p>
+                        <p className="text-sm text-foreground">{visitDetail?.constructionStage || '—'}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Notes are available on the right panel.
+                    </p>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+
+            {isProfessionalClient && (
+              <TabsContent value="discussion">
+                {/* Discussion card is rendered in-place of the usual tabs for professional client types */}
+                <Card className="border-0 shadow-sm">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-sm font-medium text-foreground">Discussion</CardTitle>
+                      <Button onClick={addNote} size="sm" className="text-xs">
+                        <i className="fas fa-plus mr-2"></i> Add Message
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="notes-list space-y-2">
+                      {notes.length === 0 ? (
+                        <div className="text-center py-6">
+                          <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                          <p className="text-sm text-muted-foreground">No discussion yet</p>
+                        </div>
+                      ) : (
+                        notes.map((note, index) => {
+                          const hasValidId = note.id != null && (
+                            (typeof note.id === 'number' && !isNaN(note.id)) ||
+                            (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
+                          );
+                          return (
+                            <div key={note.id ?? `note-${index}`} className="rounded-lg border bg-card p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {note.createdDate ? format(new Date(note.createdDate), "MMM d, yyyy") : 'Unknown date'}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  {hasValidId && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => editNote(note)}
+                                      >
+                                        <Edit className="h-3 w-3 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => {
+                                          const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
+                                          if (!isNaN(idToDelete)) {
+                                            deleteNote(idToDelete);
+                                          }
+                                        }}
+                                      >
+                                        <Trash2 className="h-3 w-3 mr-1" />
+                                        Delete
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-xs text-foreground">{note.content || 'No content'}</div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             <TabsContent value="metrics">
               <Card className="border-0 shadow-sm">
@@ -1903,6 +2172,7 @@ export default function VisitDetailPage({
               )}
             </TabsContent>
 
+            {!isProfessionalClient && (
             <TabsContent value="brands">
               <BrandTab
                 brands={brandProCons}
@@ -1916,121 +2186,66 @@ export default function VisitDetailPage({
                 }}
               />
             </TabsContent>
+            )}
 
-            <TabsContent value="requirements" className="space-y-2">
-              <div className="filter-bar">
-                <Select value={priorityFilter} onValueChange={handlePriorityChange}>
-                  <SelectTrigger className="w-48 text-sm">
-                    <SelectValue placeholder="Filter by Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="requirements-list space-y-2">
-                {filteredRequirements.length === 0 ? (
-                  <div className="text-center py-6">
-                    <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">No requirements found for this visit</p>
-                  </div>
-                ) : (
-                  filteredRequirements.map((req, index) => (
-                    <Card key={index} className="border-0 shadow-sm">
-                      <CardContent className="p-3">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-medium text-foreground">{req.title}</span>
-                          <div className="flex gap-2">
-                            {getPriorityBadge(req.priority as Priority)}
-                            {getStatusBadge(req.status)}
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground space-y-1">
-                          <p>Due: {format(new Date(req.dueDate), 'MMM d, yyyy')}</p>
-                          <div className="flex items-center">
-                            <div className="avatar w-5 h-5 rounded-full bg-muted flex items-center justify-center mr-2">
-                              <span className="text-xs">{getInitials(req.assignedTo || 'Unknown')}</span>
-                            </div>
-                            <span>Assigned to {req.assignedTo || 'Unknown'}</span>
-                          </div>
-                          <p>{req.description}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="complaints" className="space-y-2">
-              <div className="filter-bar">
-                <Select value={priorityFilter} onValueChange={handlePriorityChange}>
-                  <SelectTrigger className="w-48 text-sm">
-                    <SelectValue placeholder="Filter by Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="complaints-list space-y-2">
-                {filteredComplaints.length === 0 ? (
-                  <div className="text-center py-6">
-                    <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">No complaints found for this visit</p>
-                  </div>
-                ) : (
-                  filteredComplaints.map((complaint, index) => (
-                    <Card key={index} className="border-0 shadow-sm">
-                      <CardContent className="p-3">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-foreground">{complaint.title}</span>
-                            {Array.isArray(complaint.attachmentResponse) && complaint.attachmentResponse.length > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => fetchTaskImages(complaint.id)}
-                                title="View Images"
-                              >
-                                <ImageIcon className="h-4 w-4 text-blue-500" />
-                              </Button>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            {getPriorityBadge(complaint.priority as Priority)}
-                            {getStatusBadge(complaint.status)}
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground space-y-1">
-                          <p>Reported: {format(new Date(complaint.dueDate), 'MMM d, yyyy')}</p>
-                          <div className="flex items-center">
-                            <div className="avatar w-5 h-5 rounded-full bg-muted flex items-center justify-center mr-2">
-                              <span className="text-xs">{getInitials(complaint.assignedTo || 'Unknown')}</span>
-                            </div>
-                            <span>Handled by {complaint.assignedTo || 'Unknown'}</span>
-                          </div>
-                          <p>{complaint.description}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
-            </TabsContent>
+            {/* Requirements/Complaints tabs removed */}
           </Tabs>
         </section>
 
 
         {/* Right Panel */}
         <aside className="lg:col-span-3 space-y-4">
+              {isProfessionalClient && (
+                <>
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-sm font-medium text-foreground">Upcoming Sites</CardTitle>
+                        <Badge variant="secondary">{upcomingSitesCount ?? '—'}</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xs text-muted-foreground">
+                        Total upcoming sites (as per customer record).
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-0 shadow-sm">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-sm font-medium text-foreground">Gift Image</CardTitle>
+                        <Badge variant={giftImageUrl ? "secondary" : "destructive"}>
+                          {giftImageUrl ? "Available" : "Missing"}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {giftImageUrl ? (
+                        <div className="rounded-lg border overflow-hidden">
+                          <div className="relative w-full h-40 bg-muted">
+                            <NextImage
+                              src={giftImageUrl}
+                              alt="Gift image"
+                              width={420}
+                              height={280}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => handleImageClick(giftImageUrl)}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-6">
+                          <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                          <p className="text-xs text-muted-foreground">No gift image available for this visit</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
+              {!isProfessionalClient && (
               <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-foreground">
@@ -2076,7 +2291,9 @@ export default function VisitDetailPage({
                   )}
                 </CardContent>
               </Card>
+              )}
 
+              {!isProfessionalClient && (
               <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-3">
               <div className="flex justify-between items-center">
@@ -2140,6 +2357,7 @@ export default function VisitDetailPage({
                     </div>
                 </CardContent>
               </Card>
+              )}
         </aside>
       </div>
 

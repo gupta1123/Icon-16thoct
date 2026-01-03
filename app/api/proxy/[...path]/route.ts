@@ -4,11 +4,13 @@ import { cookies } from 'next/headers';
 const UPSTREAM_BASE = process.env.API_URL || 'http://localhost:8081';
 
 async function handle(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  let targetUrl = '';
+  let resolvedPath = '';
   try {
     const { path: pathArray } = await params;
-    const path = (pathArray || []).join('/');
+    resolvedPath = (pathArray || []).join('/');
     const search = request.nextUrl.search || '';
-    const targetUrl = `${UPSTREAM_BASE}/${path}${search}`;
+    targetUrl = `${UPSTREAM_BASE}/${resolvedPath}${search}`;
 
     // Read cookie token and prefer it for Authorization
     const cookieStore = await cookies();
@@ -78,8 +80,23 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     }
     return new NextResponse(bodyStream, { status: upstreamResponse.status, headers: resHeaders });
   } catch (err) {
-    console.error('Proxy error:', err);
-    return NextResponse.json({ error: 'Proxy error' }, { status: 502 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Proxy error:', {
+      message,
+      targetUrl,
+      path: resolvedPath,
+      upstreamBase: UPSTREAM_BASE,
+    });
+    return NextResponse.json(
+      {
+        error: 'Proxy error',
+        message,
+        targetUrl,
+        upstreamBase: UPSTREAM_BASE,
+        path: resolvedPath,
+      },
+      { status: 502 }
+    );
   }
 }
 

@@ -653,6 +653,9 @@ function CustomerListContent() {
     };
 
     const handleExport = useCallback(async () => {
+        if (!(isAdmin || isDataManager)) {
+            return;
+        }
         setIsExporting(true);
         setExportMessage('Please wait, downloading...');
         try {
@@ -699,7 +702,7 @@ function CustomerListContent() {
                 setExportMessage('Please wait, downloading...');
             }, 2000);
         }
-    }, [token]);
+    }, [token, isAdmin, isDataManager]);
 
     const openModal = () => {
         setIsModalOpen(true);
@@ -840,7 +843,7 @@ function CustomerListContent() {
                                 ))}
                             </DropdownMenuContent>
                         </DropdownMenu>
-                        {(isAdmin || isDataManager || isCoordinator) && (
+                        {(isAdmin || isDataManager) && (
                         <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
                             {isExporting ? (
                                 <>

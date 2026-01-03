@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit, Trash, CheckCircle, XCircle, Loader2, ShoppingCart, Package } from "lucide-react";
+import { Plus, Edit, Trash, CheckCircle, XCircle, Loader2, ShoppingCart, Package, Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 type Brand = {
@@ -54,11 +54,15 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                 },
             });
             const data = await response.json();
-            const brandsData: Brand[] = data?.map((brand: { id: number; brandName: string; pros?: string[]; cons?: string[] }) => ({
-                id: brand.id,
-                brandName: brand.brandName,
-                pros: brand.pros,
-                cons: brand.cons,
+            const brandsData: Brand[] = (Array.isArray(data) ? data : [])?.map((brand: Partial<Brand>) => ({
+                id: Number(brand.id ?? 0),
+                brandName: String(brand.brandName ?? '').trim(),
+                pros: Array.isArray(brand.pros) ? brand.pros.filter(Boolean) : [],
+                cons: Array.isArray(brand.cons) ? brand.cons.filter(Boolean) : [],
+                category: brand.category ?? null,
+                purchasedFrom: brand.purchasedFrom ?? null,
+                steelQuantitySold: brand.steelQuantitySold ?? null,
+                cementQuantitySold: brand.cementQuantitySold ?? null,
             })) || [];
             setBrands(brandsData);
         } catch (error) {
@@ -121,9 +125,10 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                 });
 
                 if (response.ok) {
-                    setBrands([...brands, { ...brand, id: new Date().getTime() }]); // Assign a temporary id
                     setNewBrand({ brandName: "", pros: [], cons: [] });
                     setIsAdding(false);
+                    await fetchVisitDetail();
+                    await fetchBrands();
                 } else {
                     console.error("Error adding brand:", response.statusText);
                 }
@@ -180,10 +185,11 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                 });
 
                 if (response.ok) {
-                    setBrands(updatedBrands);
                     setNewBrand({ brandName: "", pros: [], cons: [] });
                     setIsEditing(false);
                     setEditingBrandId(null);
+                    await fetchVisitDetail();
+                    await fetchBrands();
                 } else {
                     console.error("Error updating brand:", response.statusText);
                 }
@@ -218,8 +224,9 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                 });
 
                 if (response.ok) {
-                    setBrands(updatedBrands);
                     console.log("Pros Cons Deleted Successfully!");
+                    await fetchVisitDetail();
+                    await fetchBrands();
                 } else {
                     console.error("Error deleting brand:", response.statusText);
                 }
@@ -233,14 +240,43 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
 
     return (
         <div className="w-full">
-            {!isAdding && !isEditing && brands && brands.length === 0 && (
-                <div className="text-center">
-                    <p className="text-gray-500">No brands available.</p>
-                    <Button onClick={() => setIsAdding(true)} className="mt-4">
-                        <Plus className="mr-2" />
-                        Add Brand
-                    </Button>
+            {/* Header */}
+            {!isAdding && !isEditing && (
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-base font-semibold text-foreground">Brands</h3>
+                            <Badge variant="secondary">{brands?.length ?? 0}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Pros/cons and purchase details captured for this visit.
+                        </p>
+                    </div>
+                    {brands.length > 0 && (
+                        <Button onClick={() => setIsAdding(true)} className="sm:w-auto">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Brand
+                        </Button>
+                    )}
                 </div>
+            )}
+
+            {!isAdding && !isEditing && brands && brands.length === 0 && (
+                <Card className="border-dashed">
+                    <CardContent className="py-10 text-center">
+                        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-muted">
+                            <Tag className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <p className="text-sm font-medium text-foreground">No brands added yet</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Add brands in use at this store and capture quick pros/cons.
+                        </p>
+                        <Button onClick={() => setIsAdding(true)} className="mt-4">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Brand
+                        </Button>
+                    </CardContent>
+                </Card>
             )}
 
             {(isAdding || isEditing) && (
@@ -345,7 +381,9 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                             <CardContent className="w-full space-y-4 p-0">
                                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                                     <div className="space-y-1">
-                                        <h3 className="text-base font-semibold text-foreground">{brand.brandName}</h3>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <h3 className="text-base font-semibold text-foreground">{brand.brandName}</h3>
+                                        </div>
                                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                             {brand.category && (
                                                 <Badge variant="secondary" className="uppercase tracking-wide">
@@ -375,13 +413,16 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                                         <div className="flex items-center gap-2 font-semibold text-foreground">
                                             <CheckCircle className="h-4 w-4 text-green-600" />
                                             Pros
+                                            <Badge variant="outline" className="ml-auto text-[11px]">{brand.pros.length}</Badge>
                                         </div>
                                         {brand.pros.length > 0 ? (
-                                            <ul className="list-disc space-y-1 text-muted-foreground pl-5">
+                                            <div className="flex flex-wrap gap-2">
                                                 {brand.pros.map((pro, index) => (
-                                                    <li key={index}>{pro}</li>
+                                                    <Badge key={index} variant="secondary" className="font-normal">
+                                                        {pro}
+                                                    </Badge>
                                                 ))}
-                                            </ul>
+                                            </div>
                                         ) : (
                                             <p className="text-xs italic text-muted-foreground">No pros recorded.</p>
                                         )}
@@ -390,13 +431,16 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                                         <div className="flex items-center gap-2 font-semibold text-foreground">
                                             <XCircle className="h-4 w-4 text-red-600" />
                                             Cons
+                                            <Badge variant="outline" className="ml-auto text-[11px]">{brand.cons.length}</Badge>
                                         </div>
                                         {brand.cons.length > 0 ? (
-                                            <ul className="list-disc space-y-1 text-muted-foreground pl-5">
+                                            <div className="flex flex-wrap gap-2">
                                                 {brand.cons.map((con, index) => (
-                                                    <li key={index}>{con}</li>
+                                                    <Badge key={index} variant="secondary" className="font-normal">
+                                                        {con}
+                                                    </Badge>
                                                 ))}
-                                            </ul>
+                                            </div>
                                         ) : (
                                             <p className="text-xs italic text-muted-foreground">No cons recorded.</p>
                                         )}
@@ -425,12 +469,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
                 </div>
             )}
 
-            {!isAdding && !isEditing && brands.length > 0 && (
-                <Button onClick={() => setIsAdding(true)} className="mt-4">
-                    <Plus className="mr-2" />
-                    Add Brand
-                </Button>
-            )}
+            {/* Add button is in the header when not editing/adding */}
 
             {/* Delete Confirmation Modal */}
             {showDeleteModal && (

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus, ChevronDown, Check, ChevronsUpDown } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import {
   Popover,
@@ -888,9 +889,37 @@ export default function VisitsTable() {
     URL.revokeObjectURL(url);
   };
 
+  const TruncatedWithTooltip = ({
+    value,
+    className,
+    emptyFallback = "—",
+  }: {
+    value?: string | null;
+    className?: string;
+    emptyFallback?: string;
+  }) => {
+    const text = (value ?? "").trim();
+    if (!text) {
+      return <span className={className}>{emptyFallback}</span>;
+    }
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={cn("block truncate", className)}>{text}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={8} className="max-w-[520px] break-words">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   const handleExport = async () => {
     try {
       setIsExporting(true);
+      if (!(isAdmin || isDataManager)) {
+        return;
+      }
       if (!startDate || !endDate) return;
       const startStr = formatDate(startDate, 'yyyy-MM-dd');
       const endStr = formatDate(endDate, 'yyyy-MM-dd');
@@ -1432,29 +1461,37 @@ export default function VisitsTable() {
                     if (row.type === 'ACTIVITY') {
                       const activity = row.data;
                       return (
-                        <TableRow key={`activity-${activity.id}-${index}`} className="bg-purple-50/50 hover:bg-purple-50">
+                        <TableRow
+                          key={`activity-${activity.id}-${index}`}
+                          className="bg-purple-50/50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/35"
+                        >
                           <TableCell className="w-16">
                             <div className="flex items-center justify-center">
-                              <div className="p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors" title="Activity">
+                              <div
+                                className="p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors"
+                                title="Activity"
+                              >
                                 <ClipboardList className="h-4 w-4" />
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium w-48 truncate" title={activity.title}>
-                            {activity.title}
+                          <TableCell className="font-medium w-48">
+                            <TruncatedWithTooltip value={activity.title} />
                           </TableCell>
-                          <TableCell className="w-24 truncate" title={activity.executive}>{activity.executive}</TableCell>
-                          <TableCell className="w-24">{activity.date || '—'}</TableCell>
+                          <TableCell className="w-24">
+                            <TruncatedWithTooltip value={activity.executive} />
+                          </TableCell>
+                          <TableCell className="w-24">{activity.date || "—"}</TableCell>
                           <TableCell className="w-20">
-                            <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-black hover:text-white cursor-pointer transition-colors">
+                            <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors">
                               Activity
                             </span>
                           </TableCell>
-                          <TableCell className="w-40 truncate" title={activity.description}>
-                            {activity.description || '—'}
+                          <TableCell className="w-40">
+                            <TruncatedWithTooltip value={activity.description} emptyFallback="—" />
                           </TableCell>
-                          <TableCell className="w-20">{activity.startTime || '—'}</TableCell>
-                          <TableCell className="w-20">{activity.endTime || '—'}</TableCell>
+                          <TableCell className="w-20">{activity.startTime || "—"}</TableCell>
+                          <TableCell className="w-20">{activity.endTime || "—"}</TableCell>
                           <TableCell className="w-32">—</TableCell>
                           <TableCell className="w-24">
                             <span className="text-xs text-muted-foreground">No action</span>
@@ -1468,33 +1505,42 @@ export default function VisitsTable() {
                       <TableRow key={`visit-${visit.id}`} className="hover:bg-muted/40">
                         <TableCell className="w-16">
                           <div className="flex items-center justify-center">
-                            <div className="p-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors" title="Visit">
+                            <div
+                              className="p-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60 transition-colors"
+                              title="Visit"
+                            >
                               <Building2 className="h-4 w-4" />
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium w-48 truncate" title={visit.customerName}>
-                          {visit.customerName}
+                        <TableCell className="font-medium w-48">
+                          <TruncatedWithTooltip value={visit.customerName} />
                         </TableCell>
-                        <TableCell className="w-24 truncate" title={visit.executive}>{visit.executive}</TableCell>
+                        <TableCell className="w-24">
+                          <TruncatedWithTooltip value={visit.executive} />
+                        </TableCell>
                         <TableCell className="w-24">{visit.date}</TableCell>
                         <TableCell className="w-20">
                           <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap cursor-pointer transition-colors ${
                             visit.status === "Completed" 
-                              ? "bg-green-100 text-green-800 hover:bg-black hover:text-white" 
+                              ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-950/40 dark:text-green-200 dark:hover:bg-green-950/60" 
                               : visit.status === "Scheduled" 
-                                ? "bg-blue-100 text-blue-800 hover:bg-black hover:text-white" 
+                                ? "bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60" 
                                 : visit.status === "In Progress" 
-                                  ? "bg-yellow-100 text-yellow-800 hover:bg-black hover:text-white" 
-                                  : "bg-red-100 text-red-800 hover:bg-black hover:text-white"
+                                  ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:hover:bg-yellow-950/60" 
+                                  : "bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
                           }`}>
                             {visit.status ?? '—'}
                           </span>
                         </TableCell>
-                        <TableCell className="w-40 truncate" title={visit.purpose}>{visit.purpose ?? '—'}</TableCell>
+                        <TableCell className="w-40">
+                          <TruncatedWithTooltip value={visit.purpose} emptyFallback="—" />
+                        </TableCell>
                         <TableCell className="w-20">{visit.visitStart ?? '—'}</TableCell>
                         <TableCell className="w-20">{visit.visitEnd ?? '—'}</TableCell>
-                        <TableCell className="w-32 truncate" title={visit.lastUpdated}>{visit.lastUpdated ?? '—'}</TableCell>
+                        <TableCell className="w-32">
+                          <TruncatedWithTooltip value={visit.lastUpdated} emptyFallback="—" />
+                        </TableCell>
                         <TableCell className="w-16">
                           <Button variant="outline" size="sm" className="p-2" onClick={() => viewDetails(visit.id)} title="View Details">
                             <Eye className="h-4 w-4" />

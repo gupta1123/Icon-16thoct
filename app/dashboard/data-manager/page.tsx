@@ -48,12 +48,14 @@ export default function DataManagerDashboard() {
   });
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Check if user is Data Manager
+  // Check if user can access Data Manager downloads
+  const isAdmin = userRole === 'ADMIN' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_ADMIN');
   const isDataManager = userRole === 'DATA_MANAGER' || currentUser?.authorities?.some((auth: { authority: string }) => auth.authority === 'ROLE_DATA_MANAGER');
+  const canDownload = isAdmin || isDataManager;
 
   useEffect(() => {
     const loadDataManagerData = async () => {
-      if (!isDataManager || !token) return;
+      if (!canDownload || !token) return;
 
       try {
         setIsLoading(true);
@@ -91,9 +93,9 @@ export default function DataManagerDashboard() {
     };
 
     loadDataManagerData();
-  }, [isDataManager, token]);
+  }, [canDownload, token]);
 
-  if (!isDataManager) {
+  if (!canDownload) {
     return (
       <div className="flex items-center justify-center h-64">
         <Card className="p-8 text-center">
@@ -102,7 +104,7 @@ export default function DataManagerDashboard() {
             Access Denied
           </Heading>
           <Text tone="muted">
-            You don&apos;t have permission to access Data Manager features.
+            You don&apos;t have permission to access download/export features.
           </Text>
         </Card>
       </div>

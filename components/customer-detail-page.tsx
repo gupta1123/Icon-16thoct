@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -187,6 +187,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const [deletingNoteContent, setDeletingNoteContent] = useState<string>('');
     const [isDeletingNote, setIsDeletingNote] = useState(false);
   const [activeActivityTab, setActiveActivityTab] = useState('visits');
+    const [openingVisitId, setOpeningVisitId] = useState<number | null>(null);
+    const openVisitTimeoutRef = useRef<number | null>(null);
 
   const getActivityTabClasses = (tab: string) =>
     `px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
@@ -237,6 +239,26 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const [isVisitModalVisible, setIsVisitModalVisible] = useState(false);
     const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false);
     const [isComplaintModalOpen, setIsComplaintModalOpen] = useState(false);
+    
+    const handleOpenVisit = useCallback((id: number) => {
+        setOpeningVisitId(id);
+        if (openVisitTimeoutRef.current != null) {
+            window.clearTimeout(openVisitTimeoutRef.current);
+        }
+        // Fallback: if navigation fails for some reason, clear the overlay.
+        openVisitTimeoutRef.current = window.setTimeout(() => {
+            setOpeningVisitId(null);
+        }, 12000);
+        router.push(`/dashboard/visits/${id}`);
+    }, [router]);
+
+    useEffect(() => {
+        return () => {
+            if (openVisitTimeoutRef.current != null) {
+                window.clearTimeout(openVisitTimeoutRef.current);
+            }
+        };
+    }, []);
     const [requirementTask, setRequirementTask] = useState({
         taskTitle: '',
         taskDesciption: '',
@@ -1666,6 +1688,25 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
   }
 
   return (
+        <>
+        {openingVisitId != null && (
+            <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
+                <div className="w-full max-w-md rounded-lg border bg-card p-4 shadow-lg">
+                    <div className="flex items-center gap-3">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <div>
+                            <p className="text-sm font-medium text-foreground">Opening visit…</p>
+                            <p className="text-xs text-muted-foreground">Loading visit details</p>
+                        </div>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-20 w-full" />
+                    </div>
+                </div>
+            </div>
+        )}
         <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
@@ -2018,15 +2059,25 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                             <Button 
                                                                 variant="outline" 
                                                                 size="sm"
-                                                                onClick={() => router.push(`/dashboard/visits/${v.id}`)}
+                                                                onClick={() => handleOpenVisit(v.id)}
                                                                 className="text-xs"
+                                                                disabled={openingVisitId !== null}
                                                             >
-                                                                <i className="fas fa-eye mr-1"></i>
-                                                                View Visit
+                                                                {openingVisitId === v.id ? (
+                                                                    <>
+                                                                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                                                        Opening…
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <i className="fas fa-eye mr-1"></i>
+                                                                        View Visit
+                                                                    </>
+                                                                )}
                                                             </Button>
                                                         </div>
-                                                    </div>
-                  );
+        </div>
+    );
                 })}
               </div>
                                         {showMore.visits && visitsData.length > ITEMS_PER_PAGE && (
@@ -3417,5 +3468,6 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 </Dialog>
             )}
     </div>
+        </>
   );
 }
