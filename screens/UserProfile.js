@@ -146,6 +146,7 @@ const UserProfile = ({ authToken, onLogout }) => {
             <FeatureCard title="Complaints" icon="warning-outline" color="#FFA07A" onPress={() => navigation.navigate('ComplaintsScreen', { authToken })} />
             <FeatureCard title="Pricing" icon="pricetag-outline" color="#98D8C8" onPress={() => navigation.navigate('PricingScreen', { authToken })} />
             <FeatureCard title="Home Location" icon="location-outline" color="#C1E189" onPress={() => navigation.navigate('HomeLocationScreen', { authToken })} />
+            <FeatureCard title="Download Report" icon="download-outline" color="#9B59B6" onPress={() => navigation.navigate('DailyReportScreen', { authToken })} />
           </View>
         )}
       </ScrollView>

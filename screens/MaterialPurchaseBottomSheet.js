@@ -174,7 +174,7 @@ const MaterialPurchaseBottomSheet = ({
             {/* Construction Stage (for site visits) */}
             {isSiteRelatedClient && (
               <View style={styles.stageSection}>
-                <Text style={styles.sectionTitle}>Construction Stage</Text>
+                <Text style={styles.sectionTitle}>Construction Stage *</Text>
                 <View style={styles.stageGrid}>
                   {constructionStageOptions.map((stage) => {
                     const isSelected = constructionStage === stage.value;

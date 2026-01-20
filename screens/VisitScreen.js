@@ -19,6 +19,7 @@ import Complaints from './Complaints';
 import Requirements from './Requirements';
 import CheckInImages from './CheckInImages';
 import Notes from './Notes';
+import GiftImage from './GiftImage';
 import Sites from './Sites';
 import IntentLevel from './IntentLevel';
 import { format, addDays, subDays, startOfWeek, endOfWeek, isSameDay, isToday, isYesterday } from 'date-fns';
@@ -90,6 +91,8 @@ const VisitScreen = ({ route }) => {
 
   const [constructionStage, setConstructionStage] = useState('');
   const [isSavingMaterialDetails, setIsSavingMaterialDetails] = useState(false);
+  const [upcomingSiteCount, setUpcomingSiteCount] = useState('');
+  const [isGiftImageUploaded, setIsGiftImageUploaded] = useState(false);
 
   const shouldLogVisitApi = checkedIn && isCheckInImageUploaded;
 
@@ -282,6 +285,15 @@ const VisitScreen = ({ route }) => {
         }));
 
         setConstructionStage(visitData.constructionStage || '');
+        
+        // Check if gift image is already uploaded (for Engineer/Architect/Contractor)
+        const hasGiftImage = visitData.attachmentResponse?.some(
+          (attachment) => attachment.tag === 'check-out'
+        );
+        setIsGiftImageUploaded(hasGiftImage);
+        
+        // Set upcoming site count if available
+        setUpcomingSiteCount(visitData.upcomingSiteCount?.toString() || '');
 
 
         // Only fetch client type if we have storeId
@@ -333,8 +345,42 @@ const VisitScreen = ({ route }) => {
   };
 
   const normalizedClientType = (clientType || '').toLowerCase();
-  const isSiteRelatedClient = ['site visit', 'engineer', 'architect', 'contractor'].includes(normalizedClientType);
-  const isDealerClient = normalizedClientType.includes('dealer');
+
+  // Treat "professional" (our canonical value from create-store flow) the same
+  // as engineer/architect/contractor for all visit-flow decisions.
+  const isSiteRelatedClient =
+    ['site visit', 'engineer', 'architect', 'contractor', 'professional'].includes(
+      normalizedClientType
+    ) ||
+    normalizedClientType.includes('engineer') ||
+    normalizedClientType.includes('architect') ||
+    normalizedClientType.includes('contractor') ||
+    normalizedClientType.includes('professional');
+
+  const isSiteVisitClient = normalizedClientType === 'site visit';
+
+  // Check for Engineer/Architect/Contractor/Professional - handle both individual values
+  // and combined formats like "engineer/architect/contractor"
+  const isEngineerArchitectContractor =
+    normalizedClientType === 'engineer' ||
+    normalizedClientType === 'architect' ||
+    normalizedClientType === 'contractor' ||
+    normalizedClientType === 'professional' ||
+    normalizedClientType.includes('engineer') ||
+    normalizedClientType.includes('architect') ||
+    normalizedClientType.includes('contractor') ||
+    normalizedClientType.includes('professional');
+
+  
+  // Debug logging
+  if (normalizedClientType) {
+    console.log('🔍 [CLIENT TYPE CHECK]', {
+      normalizedClientType,
+      isEngineerArchitectContractor,
+      isSiteVisitClient,
+      isSiteRelatedClient
+    });
+  }
   
   useEffect(() => {
     const loadInitialData = async () => {
@@ -1086,7 +1132,18 @@ const VisitScreen = ({ route }) => {
 
   const handleCheckOut = async () => {
     if (!isCheckoutEnabled) {
-      Alert.alert('Cannot Checkout', 'Please ensure you have added brands, set rating, and entered monthly sales.');
+      const currentNormalizedClientType = (clientType || '').toLowerCase();
+      const currentIsDealerClient = currentNormalizedClientType === 'dealer' || currentNormalizedClientType === 'shop' || currentNormalizedClientType === 'dealer/shop';
+      
+      let errorMessage = 'Please ensure you have added brands and notes';
+      if (isSiteRelatedClient && !isEngineerArchitectContractor) {
+        errorMessage += ', selected construction stage, and added sites';
+      } else if (currentIsDealerClient) {
+        errorMessage += ', set rating, and entered monthly sales';
+      } else {
+        errorMessage += ', and entered monthly sales';
+      }
+      Alert.alert('Cannot Checkout', errorMessage);
       return;
     }
 
@@ -1145,8 +1202,58 @@ const VisitScreen = ({ route }) => {
         checkoutPayload.rating = ratingValue;
       }
 
-      if (isSiteRelatedClient && constructionStage) {
+      // Add feedback if available (from notes)
+      if (visitData.notes && visitData.notes.length > 0) {
+        const notesText = visitData.notes.map(note => note.note || note.text || note).join('; ');
+        checkoutPayload.feedback = notesText;
+      }
+
+      // For Site Visit clients, add construction stage and brand purchases
+      if (isSiteRelatedClient && !isEngineerArchitectContractor) {
+        // Construction stage is required for Site Visit clients
+        if (!constructionStage || !constructionStage.trim()) {
+          Alert.alert('Construction Stage Required', 'Please select a construction stage before checking out.');
+          setIsCheckingOut(false);
+          setCheckOutStep(null);
+          return;
+        }
         checkoutPayload.constructionStage = constructionStage;
+
+        // Build brandPurchases array from brandsInUse
+        if (visitData.brandsInUse && visitData.brandsInUse.length > 0) {
+          checkoutPayload.brandPurchases = visitData.brandsInUse.map(brand => ({
+            brandName: brand.brandName || brand.brand || '',
+            category: brand.category || 'STEEL',
+            purchasedFrom: brand.purchasedFrom || null,
+            steelQuantitySold: brand.steelQuantitySold || (brand.category === 'STEEL' ? brand.quantity : null),
+            cementQuantitySold: brand.cementQuantitySold || (brand.category === 'CEMENT' ? brand.quantity : null),
+          }));
+
+          // If there's a purchasedFrom at the brand level, also set it at checkout level
+          const firstBrandWithPurchase = visitData.brandsInUse.find(b => b.purchasedFrom);
+          if (firstBrandWithPurchase && firstBrandWithPurchase.purchasedFrom) {
+            checkoutPayload.purchasedFrom = firstBrandWithPurchase.purchasedFrom;
+          }
+        }
+      }
+
+      // For Engineer/Architect/Contractor visits, add upcoming site count
+      const currentNormalizedClientType = (clientType || '').toLowerCase();
+      const currentIsEngineerArchitectContractor =
+        currentNormalizedClientType === 'engineer' ||
+        currentNormalizedClientType === 'architect' ||
+        currentNormalizedClientType === 'contractor' ||
+        currentNormalizedClientType === 'professional' ||
+        currentNormalizedClientType.includes('engineer') ||
+        currentNormalizedClientType.includes('architect') ||
+        currentNormalizedClientType.includes('contractor') ||
+        currentNormalizedClientType.includes('professional');
+      
+      if (currentIsEngineerArchitectContractor && upcomingSiteCount) {
+        const count = parseInt(upcomingSiteCount, 10);
+        if (!isNaN(count) && count > 0) {
+          checkoutPayload.upcomingSiteCount = count;
+        }
       }
 
       const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/checkout?id=${visitId}`;
@@ -1366,9 +1473,124 @@ const VisitScreen = ({ route }) => {
     );
 
     const renderOngoingActions = () => {
+      // Calculate client type check here to ensure it's up to date
+      const currentNormalizedClientType = (clientType || '').toLowerCase();
+      const currentIsEngineerArchitectContractor =
+        currentNormalizedClientType === 'engineer' ||
+        currentNormalizedClientType === 'architect' ||
+        currentNormalizedClientType === 'contractor' ||
+        currentNormalizedClientType === 'professional' ||
+        currentNormalizedClientType.includes('engineer') ||
+        currentNormalizedClientType.includes('architect') ||
+        currentNormalizedClientType.includes('contractor') ||
+        currentNormalizedClientType.includes('professional');
+      
+      console.log('🔍 [RENDER ONGOING]', {
+        clientType,
+        currentNormalizedClientType,
+        currentIsEngineerArchitectContractor,
+        isEngineerArchitectContractor
+      });
+      
+      // For Engineer/Architect/Contractor visits, show only Gift Image, Upcoming Site Count, and Discussion
+      if (currentIsEngineerArchitectContractor) {
+        return (
+          <View>
+            {/* Gift Image Card */}
+            <View style={styles.fieldCard}>
+              <View style={styles.fieldCardHeader}>
+                <Ionicons name="image-outline" size={24} color="#4F46E5" />
+                <Text style={styles.fieldCardTitle}>Gift Image *</Text>
+              </View>
+              <View style={styles.fieldCardContent}>
+                <GiftImage
+                  visitId={visitId}
+                  authToken={authToken}
+                  onImageAdded={async () => {
+                    setIsGiftImageUploaded(true);
+                    await fetchVisitDetails();
+                  }}
+                  isDisabled={visitStatus === 'Completed'}
+                />
+              </View>
+            </View>
+
+            {/* Upcoming Site Count Card */}
+            <View style={styles.fieldCard}>
+              <View style={styles.fieldCardHeader}>
+                <Ionicons name="business-outline" size={24} color="#4F46E5" />
+                <Text style={styles.fieldCardTitle}>Upcoming Site Count</Text>
+              </View>
+              <View style={styles.fieldCardContent}>
+                <TextInput
+                  style={styles.numericInput}
+                  placeholder="Enter upcoming site count"
+                  value={upcomingSiteCount}
+                  onChangeText={setUpcomingSiteCount}
+                  keyboardType="numeric"
+                  editable={visitStatus !== 'Completed'}
+                />
+              </View>
+            </View>
+
+            {/* Discussion Card */}
+            <View style={styles.fieldCard}>
+              <View style={styles.fieldCardHeader}>
+                <Ionicons name="document-text-outline" size={24} color="#4F46E5" />
+                <Text style={styles.fieldCardTitle}>Discussion *</Text>
+              </View>
+              <View style={styles.fieldCardContent}>
+                <TouchableOpacity
+                  style={styles.discussionButton}
+                  onPress={() => openBottomSheet('Discussion', Notes, {
+                    visitId,
+                    storeId: visit.storeId,
+                    authToken,
+                    readOnly: visitStatus === 'Completed',
+                    onNotesUpdated: handleNotesUpdated
+                  })}
+                >
+                  <Icon name="sticky-note" size={20} color="#4F46E5" />
+                  <Text style={styles.discussionButtonText}>
+                    {notesCount > 0 ? `Discussion (${notesCount})` : 'Add Discussion'}
+                  </Text>
+                  {notesCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{notesCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.checkoutButton, !isCheckoutEnabled && styles.disabledCheckoutButton]}
+              onPress={handleCheckOut}
+              disabled={!isCheckoutEnabled || isCheckingOut}
+            >
+              {isCheckingOut ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.checkoutButtonText}>{checkOutStep || 'Checking out...'}</Text>
+                </>
+              ) : (
+                <Text style={styles.checkoutButtonText}>Complete Visit</Text>
+              )}
+            </TouchableOpacity>
+
+            {!isCheckoutEnabled && (
+              <Text style={styles.warningText}>
+                {getCheckoutRequirementsText()}
+              </Text>
+            )}
+          </View>
+        );
+      }
+
+      // For other client types, show the regular fields
       const actionButtons = [];
 
-      // Always add Brands and Notes for all client types
+      // Always add Brands and Notes for all client types (except Engineer/Architect/Contractor)
       actionButtons.push(
         <ActionButton
           key="brands"
@@ -1406,11 +1628,12 @@ const VisitScreen = ({ route }) => {
           />,
           <ActionButton
             key="contacts"
-            icon="people"
+            icon="users"
             text="Contacts"
             onPress={() => openModal('Contacts', ContactsManager, {
               storeId: visit.storeId,
               authToken,
+              clientType: clientType,
             })}
             badge={contactsCount}
           />
@@ -1434,41 +1657,44 @@ const VisitScreen = ({ route }) => {
         );
       }
 
-      actionButtons.push(
-        <ActionButton
-          key="requirements"
-          icon="list"
-          text="Requirements"
-          onPress={() => openBottomSheet('Requirements', Requirements, {
-            visitId,
-            storeId: visit.storeId,
-            authToken,
-            readOnly: false
-          })}
-          badge={visitData.requirements?.length || 0}
-        />,
-        <ActionButton
-          key="complaints"
-          icon="exclamation-triangle"
-          text="Complaints"
-          onPress={() => openBottomSheet('Complaints', Complaints, {
-            visitId,
-            storeId: visit.storeId,
-            authToken,
-            readOnly: false,
-            onComplaintAdded: handleComplaintAdded
-          })}
-          badge={visitData.complaints?.length || 0}
-        />
-      );
+      // Hide Requirements and Complaints for Site Visit
+      if (!isSiteVisitClient) {
+        actionButtons.push(
+          <ActionButton
+            key="requirements"
+            icon="list"
+            text="Requirements"
+            onPress={() => openBottomSheet('Requirements', Requirements, {
+              visitId,
+              storeId: visit.storeId,
+              authToken,
+              readOnly: false
+            })}
+            badge={visitData.requirements?.length || 0}
+          />,
+          <ActionButton
+            key="complaints"
+            icon="exclamation-triangle"
+            text="Complaints"
+            onPress={() => openBottomSheet('Complaints', Complaints, {
+              visitId,
+              storeId: visit.storeId,
+              authToken,
+              readOnly: false,
+              onComplaintAdded: handleComplaintAdded
+            })}
+            badge={visitData.complaints?.length || 0}
+          />
+        );
+      }
 
-      // Add Notes button for all client types
+      // Add Discussion button for all client types (renamed from Notes)
       actionButtons.push(
         <ActionButton
           key="notes"
           icon="sticky-note"
-          text="Notes"
-          onPress={() => openBottomSheet('Notes', Notes, {
+          text="Discussion"
+          onPress={() => openBottomSheet('Discussion', Notes, {
             visitId,
             storeId: visit.storeId,
             authToken,
@@ -1540,6 +1766,74 @@ const VisitScreen = ({ route }) => {
     };
 
     const renderCompletedActions = () => {
+      // Calculate client type check here to ensure it's up to date
+      const currentNormalizedClientType = (clientType || '').toLowerCase();
+      const currentIsEngineerArchitectContractor =
+        currentNormalizedClientType === 'engineer' ||
+        currentNormalizedClientType === 'architect' ||
+        currentNormalizedClientType === 'contractor' ||
+        currentNormalizedClientType === 'professional' ||
+        currentNormalizedClientType.includes('engineer') ||
+        currentNormalizedClientType.includes('architect') ||
+        currentNormalizedClientType.includes('contractor') ||
+        currentNormalizedClientType.includes('professional');
+      
+      // For Engineer/Architect/Contractor visits, show only Gift Image, Upcoming Site Count, and Discussion
+      if (currentIsEngineerArchitectContractor) {
+        return (
+          <View style={styles.completedContainer}>
+            <View style={styles.summaryCardsContainer}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryValue}>{visitData.visitDuration || '0 minutes'}</Text>
+                <Text style={styles.summaryLabel}>Duration</Text>
+              </View>
+              {upcomingSiteCount && (
+                <View style={styles.summaryCard}>
+                  <Text style={styles.summaryValue}>{upcomingSiteCount}</Text>
+                  <Text style={styles.summaryLabel}>Upcoming Sites</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.completedItemsContainer}>
+              {isGiftImageUploaded && (
+                <View style={styles.completedItem}>
+                  <View style={styles.completedItemHeader}>
+                    <Ionicons name="image-outline" size={24} color="#4F46E5" />
+                    <Text style={styles.completedItemTitle}>Gift Image</Text>
+                  </View>
+                  <View style={styles.viewButtonContainer}>
+                    <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity 
+                style={styles.completedItem}
+                onPress={() => openBottomSheet('Discussion', Notes, {
+                  visitId,
+                  storeId: visit.storeId,
+                  authToken,
+                  readOnly: true
+                })}
+              >
+                <View style={styles.completedItemHeader}>
+                  <Ionicons name="document-text-outline" size={24} color="#4F46E5" />
+                  <Text style={styles.completedItemTitle}>Discussion ({visitData.notes?.length || 0})</Text>
+                </View>
+                <View style={styles.viewButtonContainer}>
+                  <Text style={styles.viewButtonText}>View</Text>
+                </View>
+              </TouchableOpacity>
+              {visitData.notes?.length === 0 && (
+                <Text style={styles.noDataText}>No discussion added</Text>
+              )}
+            </View>
+          </View>
+        );
+      }
+
+      // For other client types, show the regular fields
       const durationText = visitData.visitDuration;
       const isDealerClient =
         clientType === 'dealer' ||
@@ -1610,6 +1904,7 @@ const VisitScreen = ({ route }) => {
                   onPress={() => openModal('Contacts', ContactsManager, {
                     storeId: visit.storeId,
                     authToken,
+                    clientType: clientType,
                     readOnly: true
                   })}
                 >
@@ -1627,45 +1922,50 @@ const VisitScreen = ({ route }) => {
               </>
             )}
 
-            <TouchableOpacity 
-              style={styles.completedItem}
-              onPress={() => openBottomSheet('Complaints', Complaints, {
-                visitId,
-                authToken,
-                readOnly: true,
-                onComplaintAdded: () => {} // No-op for read-only
-              })}
-            >
-              <View style={styles.completedItemHeader}>
-                <Ionicons name="warning-outline" size={24} color="#4F46E5" />
-                <Text style={styles.completedItemTitle}>Complaints ({visitData.complaints?.length || 0})</Text>
-              </View>
-              <View style={styles.viewButtonContainer}>
-                <Text style={styles.viewButtonText}>View</Text>
-              </View>
-            </TouchableOpacity>
-            {visitData.complaints?.length === 0 && (
-              <Text style={styles.noDataText}>No complaints received</Text>
-            )}
+            {/* Hide Requirements and Complaints for Site Visit */}
+            {!isSiteVisitClient && (
+              <>
+                <TouchableOpacity 
+                  style={styles.completedItem}
+                  onPress={() => openBottomSheet('Complaints', Complaints, {
+                    visitId,
+                    authToken,
+                    readOnly: true,
+                    onComplaintAdded: () => {} // No-op for read-only
+                  })}
+                >
+                  <View style={styles.completedItemHeader}>
+                    <Ionicons name="warning-outline" size={24} color="#4F46E5" />
+                    <Text style={styles.completedItemTitle}>Complaints ({visitData.complaints?.length || 0})</Text>
+                  </View>
+                  <View style={styles.viewButtonContainer}>
+                    <Text style={styles.viewButtonText}>View</Text>
+                  </View>
+                </TouchableOpacity>
+                {visitData.complaints?.length === 0 && (
+                  <Text style={styles.noDataText}>No complaints received</Text>
+                )}
 
-            <TouchableOpacity 
-              style={styles.completedItem}
-              onPress={() => openBottomSheet('Requirements', Requirements, {
-                visitId,
-                authToken,
-                readOnly: true
-              })}
-            >
-              <View style={styles.completedItemHeader}>
-                <Ionicons name="list-outline" size={24} color="#4F46E5" />
-                <Text style={styles.completedItemTitle}>Requirements ({visitData.requirements?.length || 0})</Text>
-              </View>
-              <View style={styles.viewButtonContainer}>
-                <Text style={styles.viewButtonText}>View</Text>
-              </View>
-            </TouchableOpacity>
-            {visitData.requirements?.length === 0 && (
-              <Text style={styles.noDataText}>No requirements collected</Text>
+                <TouchableOpacity 
+                  style={styles.completedItem}
+                  onPress={() => openBottomSheet('Requirements', Requirements, {
+                    visitId,
+                    authToken,
+                    readOnly: true
+                  })}
+                >
+                  <View style={styles.completedItemHeader}>
+                    <Ionicons name="list-outline" size={24} color="#4F46E5" />
+                    <Text style={styles.completedItemTitle}>Requirements ({visitData.requirements?.length || 0})</Text>
+                  </View>
+                  <View style={styles.viewButtonContainer}>
+                    <Text style={styles.viewButtonText}>View</Text>
+                  </View>
+                </TouchableOpacity>
+                {visitData.requirements?.length === 0 && (
+                  <Text style={styles.noDataText}>No requirements collected</Text>
+                )}
+              </>
             )}
 
             <TouchableOpacity 
@@ -1694,7 +1994,7 @@ const VisitScreen = ({ route }) => {
 
             <TouchableOpacity 
               style={styles.completedItem}
-              onPress={() => openBottomSheet('Notes', Notes, {
+              onPress={() => openBottomSheet('Discussion', Notes, {
                 visitId,
                 storeId: visit.storeId,
                 authToken,
@@ -1703,14 +2003,14 @@ const VisitScreen = ({ route }) => {
             >
               <View style={styles.completedItemHeader}>
                 <Ionicons name="document-text-outline" size={24} color="#4F46E5" />
-                <Text style={styles.completedItemTitle}>Notes ({visitData.notes?.length || 0})</Text>
+                <Text style={styles.completedItemTitle}>Discussion ({visitData.notes?.length || 0})</Text>
               </View>
               <View style={styles.viewButtonContainer}>
                 <Text style={styles.viewButtonText}>View</Text>
               </View>
             </TouchableOpacity>
             {visitData.notes?.length === 0 && (
-              <Text style={styles.noDataText}>No notes added</Text>
+              <Text style={styles.noDataText}>No discussion added</Text>
             )}
           </View>
         </View>
@@ -1728,25 +2028,45 @@ const VisitScreen = ({ route }) => {
 
   const getCheckoutRequirementsText = () => {
     const missingRequirements = [];
+    
+    // Calculate client type check here to ensure it's up to date
+    const currentNormalizedClientType = (clientType || '').toLowerCase();
+    const currentIsEngineerArchitectContractor = currentNormalizedClientType === 'engineer' || 
+      currentNormalizedClientType === 'architect' || 
+      currentNormalizedClientType === 'contractor' ||
+      currentNormalizedClientType.includes('engineer') || 
+      currentNormalizedClientType.includes('architect') || 
+      currentNormalizedClientType.includes('contractor');
 
-    if (!visitData.brandsInUse || visitData.brandsInUse.length === 0) {
-      missingRequirements.push('add brands');
-    }
-    // Only require rating for Dealer clients
-    if (intentLevel === 0 && (clientType === 'dealer' || clientType === 'shop' || clientType === 'dealer/shop')) {
-      missingRequirements.push('set rating');
-    }
-    if (!visitData.notes || visitData.notes.length === 0) {
-      missingRequirements.push('add notes');
-    }
-
-    if (isSiteRelatedClient) {
-      if (sitesCount === 0) {
-        missingRequirements.push('add at least one site');
+    // For Engineer/Architect/Contractor visits
+    if (currentIsEngineerArchitectContractor) {
+      if (!isGiftImageUploaded) {
+        missingRequirements.push('upload gift image');
+      }
+      if (!visitData.notes || visitData.notes.length === 0) {
+        missingRequirements.push('add discussion');
       }
     } else {
-      if (!visitData.monthlySales || visitData.monthlySales <= 0) {
-        missingRequirements.push('enter monthly sales');
+      // For other client types
+      if (!visitData.brandsInUse || visitData.brandsInUse.length === 0) {
+        missingRequirements.push('add brands');
+      }
+      // Only require rating for Dealer clients (not for Site Visit)
+      if (intentLevel === 0 && (clientType === 'dealer' || clientType === 'shop' || clientType === 'dealer/shop')) {
+        missingRequirements.push('set rating');
+      }
+      if (!visitData.notes || visitData.notes.length === 0) {
+        missingRequirements.push('add discussion');
+      }
+
+      if (isSiteRelatedClient) {
+        if (sitesCount === 0) {
+          missingRequirements.push('add at least one site');
+        }
+      } else {
+        if (!visitData.monthlySales || visitData.monthlySales <= 0) {
+          missingRequirements.push('enter monthly sales');
+        }
       }
     }
 
@@ -1812,6 +2132,37 @@ const VisitScreen = ({ route }) => {
   // Add this useEffect after other useEffects
   useEffect(() => {
     const checkRequiredFields = () => {
+      // Calculate client type check here to ensure it's up to date
+      const currentNormalizedClientType = (clientType || '').toLowerCase();
+      const currentIsEngineerArchitectContractor =
+        currentNormalizedClientType === 'engineer' ||
+        currentNormalizedClientType === 'architect' ||
+        currentNormalizedClientType === 'contractor' ||
+        currentNormalizedClientType === 'professional' ||
+        currentNormalizedClientType.includes('engineer') ||
+        currentNormalizedClientType.includes('architect') ||
+        currentNormalizedClientType.includes('contractor') ||
+        currentNormalizedClientType.includes('professional');
+      
+      // For Engineer/Architect/Contractor visits
+      if (currentIsEngineerArchitectContractor) {
+        const checks = {
+          hasGiftImage: isGiftImageUploaded,
+          hasDiscussion: visitData.notes?.length > 0
+        };
+        const shouldEnable = Object.values(checks).every(Boolean);
+        
+        console.log('Checkout requirements check (Engineer/Architect/Contractor):', {
+          clientType,
+          ...checks,
+          shouldEnable
+        });
+        
+        setIsCheckoutEnabled(shouldEnable);
+        return;
+      }
+
+      // For other client types
       const commonChecks = {
         hasBrands: visitData.brandsInUse?.length > 0,
         hasNotes: visitData.notes?.length > 0
@@ -1824,7 +2175,10 @@ const VisitScreen = ({ route }) => {
       }
 
       const specificCheck = isSiteRelatedClient
-        ? { hasSites: sitesCount > 0 }
+        ? { 
+            hasSites: sitesCount > 0,
+            hasConstructionStage: constructionStage && constructionStage.trim() !== ''
+          }
         : { hasMonthlySales: visitData.monthlySales > 0 };
 
       const allChecks = { ...commonChecks, ...specificCheck };
@@ -1843,7 +2197,7 @@ const VisitScreen = ({ route }) => {
     };
 
     checkRequiredFields();
-  }, [visitData, intentLevel, sitesCount, isSiteRelatedClient, clientType]);
+  }, [visitData, intentLevel, sitesCount, isSiteRelatedClient, clientType, isEngineerArchitectContractor, isGiftImageUploaded, constructionStage]);
 
   useEffect(() => {
     if (visit?.storeId) {
@@ -3053,6 +3407,80 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  giftImageSection: {
+    marginBottom: 20,
+  },
+  upcomingSiteCountSection: {
+    marginBottom: 20,
+  },
+  discussionSection: {
+    marginBottom: 20,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  fieldCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  fieldCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  fieldCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginLeft: 8,
+  },
+  fieldCardContent: {
+    marginTop: 8,
+  },
+  numericInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  discussionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'space-between',
+  },
+  discussionButtonText: {
+    marginLeft: 12,
+    fontSize: 16,
+    color: '#1F2937',
+    fontWeight: '500',
+    flex: 1,
+  },
+  warningText: {
+    fontSize: 14,
+    color: '#EF4444',
+    textAlign: 'center',
+    marginTop: 12,
+    paddingHorizontal: 16,
   },
 });
 

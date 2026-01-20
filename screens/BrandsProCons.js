@@ -50,6 +50,16 @@ const BrandsProCons = ({
   };
 
   const addProCons = async () => {
+    // Check if construction stage is required for Site Visit clients
+    if (isSiteRelatedClient && (!constructionStage || !constructionStage.trim())) {
+      Alert.alert(
+        'Construction Stage Required',
+        'Please select a construction stage. This field is mandatory for Site Visit clients.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     if (!brandName.trim()) {
       Alert.alert('Error', 'Please enter a brand name');
       return;
@@ -178,7 +188,7 @@ const BrandsProCons = ({
       {/* NEW: Construction Stage Selector for Site Visits */}
       {isSiteRelatedClient && !readOnly && (
         <View style={styles.constructionStageSection}>
-          <Text style={styles.sectionTitle}>Construction Stage</Text>
+          <Text style={styles.sectionTitle}>Construction Stage *</Text>
           <View style={styles.stageOptionsContainer}>
             {CONSTRUCTION_STAGE_OPTIONS.map((option) => (
               <TouchableOpacity

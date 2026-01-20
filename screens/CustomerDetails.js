@@ -370,9 +370,7 @@ function CustomerDetails({ route, navigation }) {
     return (
         <View style={styles.card}>
             <View style={styles.cardHeader}>
-                <TouchableOpacity style={[styles.iconBtn, styles.editBtn]} onPress={() => setModalVisible(true)}>
-                    <Ionicons name="create-outline" size={24} color="#fff" />
-                </TouchableOpacity>
+                {/* Edit button removed/disabled */}
                 <View style={styles.avatar}>
                     <Text style={styles.avatarText}>
                         {getInitials(`${customerDetails.clientFirstName} ${customerDetails.clientLastName}`)}
@@ -1055,27 +1053,7 @@ function CustomerDetails({ route, navigation }) {
       <ScrollView style={styles.scrollContainer}>
         {renderCustomerCard()}
         {renderContent()}
-      <EditCustomerModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        customerDetails={customerDetails}
-        onSave={(updatedDetails) => {
-          setCustomerDetails(updatedDetails);
-          axios.put(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/edit?id=${customerId}`, updatedDetails, {
-            headers: {
-              'Authorization': `Bearer ${authToken}`
-            }
-          })
-            .then((response) => {
-              console.log('Store Updated Successfully');
-              setModalVisible(false);
-            })
-            .catch((error) => {
-              console.error('Error updating store:', error);
-              Alert.alert('Error', 'Failed to update customer details');
-            });
-        }}
-      />
+      {/* EditCustomerModal removed - edit functionality disabled */}
       <Modal
         visible={visitModalVisible}
         animationType="slide"

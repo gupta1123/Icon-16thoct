@@ -5,6 +5,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import axios from 'axios';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
+import * as ScreenCapture from 'expo-screen-capture';
 import React, { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
@@ -32,6 +33,7 @@ import UpdateRequiredScreen from './screens/UpdateRequiredScreen';
 import UserProfile from './screens/UserProfile';
 import VisitScreen from './screens/VisitScreen';
 import VisitsList from './screens/VisitsList';
+import DailyReportScreen from './screens/DailyReportScreen';
 import VisitsTimeline from './screens/VisitsTimeline';
 
 const Tab = createBottomTabNavigator();
@@ -98,6 +100,9 @@ function HomeStackScreen({ authToken, handleLogout }) {
       </HomeStack.Screen>
       <HomeStack.Screen name="DashboardScreen">
         {(props) => <DashboardScreen {...props} authToken={authToken} />}
+      </HomeStack.Screen>
+      <HomeStack.Screen name="DailyReportScreen">
+        {(props) => <DailyReportScreen {...props} authToken={authToken} />}
       </HomeStack.Screen>
     </HomeStack.Navigator>
   );
@@ -245,15 +250,32 @@ const App = () => {
   useEffect(() => {
     const initializeApp = async () => {
       if (authToken) {
+        // Disable screenshots across the app
+        await ScreenCapture.preventScreenCaptureAsync();
+        
         let { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           let location = await Location.getCurrentPositionAsync({});
           await LocationService.updateLocation(location);
         }
+      } else {
+        // Re-enable screenshots on logout/login screen
+        await ScreenCapture.allowScreenCaptureAsync();
       }
     };
 
     initializeApp();
+  }, [authToken]);
+
+  // Prevent screenshots when app is active
+  useEffect(() => {
+    if (authToken) {
+      ScreenCapture.preventScreenCaptureAsync();
+    }
+    return () => {
+      // Cleanup - re-enable when component unmounts (optional)
+      // ScreenCapture.allowScreenCaptureAsync();
+    };
   }, [authToken]);
 
   if (isInitializing) {
