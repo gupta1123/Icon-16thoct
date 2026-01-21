@@ -166,6 +166,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   const existingDataRef = useRef<CustomerData | undefined>(existingData);
   existingDataRef.current = existingData;
   const originalCategoriesRef = useRef<string[]>(initialAdditionalSelections);
+  // Track full name input separately so we don't lose user spacing while typing
+  const [clientNameInput, setClientNameInput] = useState('');
 
   const [customerData, setCustomerData] = useState<CustomerData>(
     existingData
@@ -221,6 +223,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         additionalInfo: currentExisting.additionalInfo ?? '',
         productCategories: selections,
       });
+      const fullName = `${currentExisting.clientFirstName ?? ''} ${currentExisting.clientLastName ?? ''}`.trim();
+      setClientNameInput(fullName);
       setAdditionalInfoOptions(() => {
         const base = Array.from(ADDITIONAL_INFO_DEFAULT_OPTIONS);
         return Array.from(new Set([...base, ...selections]));
@@ -236,6 +240,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         additionalInfo: '',
         productCategories: [],
       });
+      setClientNameInput('');
       setAdditionalInfoOptions(Array.from(ADDITIONAL_INFO_DEFAULT_OPTIONS));
       applyAdditionalSelections([]);
       originalCategoriesRef.current = [];
@@ -409,9 +414,14 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
 
   const handleInputChange = (field: keyof CustomerData, value: string | number) => {
     if (field === 'clientType') {
+      const newClientType = typeof value === 'string' ? value : String(value);
+      // Clear additional info selections if switching away from Dealer
+      if (newClientType !== 'Dealer' && customerData.clientType === 'Dealer') {
+        applyAdditionalSelections([]);
+      }
       setCustomerData((prevData) => ({
         ...prevData,
-        clientType: typeof value === 'string' ? value : String(value),
+        clientType: newClientType,
       }));
       return;
     }
@@ -510,7 +520,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       // Basic validation for required fields expected by backend
       const requiredFields: Array<[keyof CustomerData, string]> = [
         ['storeName', 'Store Name'],
-        ['clientFirstName', 'First Name'],
+        ['clientFirstName', 'Name'],
         ['primaryContact', 'Primary Contact'],
         ['city', 'City'],
         ['state', 'State'],
@@ -543,14 +553,20 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       };
 
       const additionalInfoValue = (() => {
+        // Only include additional info for Dealer type
+        if (customerData.clientType !== 'Dealer') {
+          return undefined;
+        }
         if (additionalInfoSelections.length > 0) {
           return additionalInfoSelections.join(', ');
         }
         const fallback = customerData.additionalInfo?.toString().trim() ?? '';
-        return fallback;
+        return fallback || undefined;
       })();
 
-      const apiCategories = additionalInfoSelections.map(toApiCategory);
+      const apiCategories = customerData.clientType === 'Dealer' 
+        ? additionalInfoSelections.map(toApiCategory)
+        : [];
 
       const isEditing = Boolean(existingData && existingData.id);
       const method = isEditing ? 'PUT' : 'POST';
@@ -561,7 +577,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       const requestBody = {
         ...customerData,
         clientType: customerData.clientType,
-        additionalInfo: additionalInfoValue || undefined,
+        additionalInfo: additionalInfoValue,
         primaryContact: cleanDigits(customerData.primaryContact),
         secondaryContact: cleanDigits(customerData.secondaryContact),
         pincode: cleanDigits(customerData.pincode),
@@ -574,7 +590,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       };
 
       (requestBody as Record<string, unknown>).productCategories =
-        !isEditing && apiCategories.length > 0 ? apiCategories : undefined;
+        customerData.clientType === 'Dealer' && !isEditing && apiCategories.length > 0 ? apiCategories : undefined;
       (requestBody as Record<string, unknown>).productCategory = undefined;
 
       console.log('requestBody', requestBody)
@@ -598,7 +614,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
           console.log('No JSON response body for customer create/edit.', jsonError);
         }
 
-        if (existingData && existingData.id) {
+        // Only update categories for Dealer type
+        if (existingData && existingData.id && customerData.clientType === 'Dealer') {
           const previousCategories = originalCategoriesRef.current.map(toApiCategory);
           const currentCategories = apiCategories;
           const categoriesToAdd = currentCategories.filter(
@@ -737,125 +754,127 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 </Select>
               </div>
 
-              {/* Additional Information Section */}
-              <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Additional Information</p>
-                  <p className="text-xs text-muted-foreground">Tag the product mix or notes that will help follow-ups.</p>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {additionalInfoOptions.map((option) => {
-                    const normalized = formatAdditionalCategory(option);
-                    const isChecked = additionalInfoSelections.includes(normalized);
-                    const inputId = `additional-info-option-${normalized.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
-                    return (
-                      <label
-                        key={option}
-                        htmlFor={inputId}
-                        className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-all cursor-pointer ${
-                          isChecked
-                            ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                            : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5'
-                        }`}
-                      >
-                        <Checkbox
-                          id={inputId}
-                          checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            const next = checked
-                              ? [...additionalInfoSelections, normalized]
-                              : additionalInfoSelections.filter((item) => item !== normalized);
-                            applyAdditionalSelections(next);
-                          }}
-                        />
-                        <span className="select-none">{option}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {additionalInfoSelections.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    <span className="text-xs text-muted-foreground mr-1">Selected:</span>
-                    {additionalInfoSelections.map((selection) => (
-                      <Badge key={selection} variant="secondary" className="text-xs font-medium">
-                        {selection}
-                      </Badge>
-                    ))}
+              {/* Additional Information Section - Only for Dealer type */}
+              {customerData.clientType === 'Dealer' && (
+                <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Additional Information</p>
+                    <p className="text-xs text-muted-foreground">Tag the product mix or notes that will help follow-ups.</p>
                   </div>
-                )}
-                <div className="space-y-2 pt-1">
-                  {isAddingAdditionalInfo ? (
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Input
-                        value={additionalInfoInput}
-                        onChange={(e) => setAdditionalInfoInput(e.target.value)}
-                        placeholder="Add another category"
-                        className="sm:flex-1 h-9"
-                        autoFocus
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => {
-                            const formatted = formatAdditionalCategory(additionalInfoInput);
-                            if (!formatted) {
-                              setAdditionalInfoValidationError('Enter a category before adding.');
-                              return;
-                            }
-                            const exists = additionalInfoOptions.some(
-                              (option) => formatAdditionalCategory(option).toLowerCase() === formatted.toLowerCase()
-                            );
-                            if (exists) {
-                              setAdditionalInfoValidationError(`${formatted} is already in the list.`);
-                              return;
-                            }
-                            setAdditionalInfoOptions((prev) => [...prev, formatted]);
-                            applyAdditionalSelections([...additionalInfoSelections, formatted]);
-                            setAdditionalInfoInput('');
-                            setIsAddingAdditionalInfo(false);
-                          }}
-                          className="h-9"
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {additionalInfoOptions.map((option) => {
+                      const normalized = formatAdditionalCategory(option);
+                      const isChecked = additionalInfoSelections.includes(normalized);
+                      const inputId = `additional-info-option-${normalized.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
+                      return (
+                        <label
+                          key={option}
+                          htmlFor={inputId}
+                          className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm font-medium transition-all cursor-pointer ${
+                            isChecked
+                              ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                              : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5'
+                          }`}
                         >
-                          Add
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setIsAddingAdditionalInfo(false);
-                            setAdditionalInfoInput('');
-                            setAdditionalInfoValidationError(null);
-                          }}
-                          className="h-9"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
+                          <Checkbox
+                            id={inputId}
+                            checked={isChecked}
+                            onCheckedChange={(checked) => {
+                              const next = checked
+                                ? [...additionalInfoSelections, normalized]
+                                : additionalInfoSelections.filter((item) => item !== normalized);
+                              applyAdditionalSelections(next);
+                            }}
+                          />
+                          <span className="select-none">{option}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {additionalInfoSelections.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <span className="text-xs text-muted-foreground mr-1">Selected:</span>
+                      {additionalInfoSelections.map((selection) => (
+                        <Badge key={selection} variant="secondary" className="text-xs font-medium">
+                          {selection}
+                        </Badge>
+                      ))}
                     </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto px-0 py-1 text-xs font-medium"
-                      onClick={() => {
-                        setIsAddingAdditionalInfo(true);
-                        setAdditionalInfoInput('');
-                      }}
-                    >
-                      + Add another category
-                    </Button>
                   )}
-                  {additionalInfoValidationError && (
-                    <p className="text-xs font-medium text-destructive flex items-center gap-1">
-                      <span className="inline-block w-1 h-1 rounded-full bg-destructive"></span>
-                      {additionalInfoValidationError}
-                    </p>
-                  )}
+                  <div className="space-y-2 pt-1">
+                    {isAddingAdditionalInfo ? (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          value={additionalInfoInput}
+                          onChange={(e) => setAdditionalInfoInput(e.target.value)}
+                          placeholder="Add another category"
+                          className="sm:flex-1 h-9"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const formatted = formatAdditionalCategory(additionalInfoInput);
+                              if (!formatted) {
+                                setAdditionalInfoValidationError('Enter a category before adding.');
+                                return;
+                              }
+                              const exists = additionalInfoOptions.some(
+                                (option) => formatAdditionalCategory(option).toLowerCase() === formatted.toLowerCase()
+                              );
+                              if (exists) {
+                                setAdditionalInfoValidationError(`${formatted} is already in the list.`);
+                                return;
+                              }
+                              setAdditionalInfoOptions((prev) => [...prev, formatted]);
+                              applyAdditionalSelections([...additionalInfoSelections, formatted]);
+                              setAdditionalInfoInput('');
+                              setIsAddingAdditionalInfo(false);
+                            }}
+                            className="h-9"
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsAddingAdditionalInfo(false);
+                              setAdditionalInfoInput('');
+                              setAdditionalInfoValidationError(null);
+                            }}
+                            className="h-9"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0 py-1 text-xs font-medium"
+                        onClick={() => {
+                          setIsAddingAdditionalInfo(true);
+                          setAdditionalInfoInput('');
+                        }}
+                      >
+                        + Add another category
+                      </Button>
+                    )}
+                    {additionalInfoValidationError && (
+                      <p className="text-xs font-medium text-destructive flex items-center gap-1">
+                        <span className="inline-block w-1 h-1 rounded-full bg-destructive"></span>
+                        {additionalInfoValidationError}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
               {/* Dynamic Store Name Label */}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="storeName" className="text-right">
@@ -864,18 +883,38 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 <Input id="storeName" value={customerData.storeName || ''} className="col-span-3" onChange={(e) => handleInputChange('storeName', e.target.value)} />
               </div>
 
-              {/* Dynamic Owner Name Label */}
+              {/* Customer Name */}
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="clientFirstName" className="text-right">
-                  {getLabelForOwner(customerData.clientType || 'Dealer')} First Name *
+                <Label htmlFor="clientName" className="text-right">
+                  Customer Name *
                 </Label>
-                <Input id="clientFirstName" value={customerData.clientFirstName || ''} className="col-span-3" onChange={(e) => handleInputChange('clientFirstName', e.target.value)} />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="clientLastName" className="text-right">
-                  {getLabelForOwner(customerData.clientType || 'Dealer')} Last Name
-                </Label>
-                <Input id="clientLastName" value={customerData.clientLastName || ''} className="col-span-3" onChange={(e) => handleInputChange('clientLastName', e.target.value)} />
+                <Input 
+                  id="clientName" 
+                  value={clientNameInput}
+                  className="col-span-3" 
+                  onChange={(e) => {
+                    const fullName = e.target.value;
+                    setClientNameInput(fullName);
+                    const trimmed = fullName.trim();
+                    if (!trimmed) {
+                      setCustomerData((prevData) => ({
+                        ...prevData,
+                        clientFirstName: '',
+                        clientLastName: '',
+                      }));
+                      return;
+                    }
+                    // Split name: first word = firstName, rest = lastName
+                    const nameParts = trimmed.split(/\s+/);
+                    const firstName = nameParts[0] || '';
+                    const lastName = nameParts.slice(1).join(' ');
+                    setCustomerData((prevData) => ({
+                      ...prevData,
+                      clientFirstName: firstName,
+                      clientLastName: lastName,
+                    }));
+                  }} 
+                />
               </div>
             </div>
           </TabsContent>
