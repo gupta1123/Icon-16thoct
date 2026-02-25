@@ -9,7 +9,6 @@ import {
   Alert,
   Platform,
   Dimensions,
-  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -18,7 +17,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import { format, subDays, isAfter, setHours, setMinutes, startOfDay } from 'date-fns';
-import { Linking } from 'react-native';
+import CustomDropdown from './CustomDropdown';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const REPORT_WIDTH = SCREEN_WIDTH - 40; // Padding
@@ -574,8 +573,7 @@ const DailyReportScreen = ({ navigation, authToken }) => {
   const [isAvailable, setIsAvailable] = useState(false);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [showSelectionModal, setShowSelectionModal] = useState(false);
-  const [selectedDealers, setSelectedDealers] = useState([]);
+  const [selectedDealer, setSelectedDealer] = useState(null);
 
   useEffect(() => {
     checkReportAvailability();
@@ -703,41 +701,34 @@ const DailyReportScreen = ({ navigation, authToken }) => {
     }
   };
 
-  // Get unique dealer names from report data
-  const getUniqueDealers = (data) => {
-    if (!data || !data.dealerVisits || data.dealerVisits.length === 0) {
-      return [];
-    }
-    const dealerNames = data.dealerVisits
-      .map(visit => visit.dealerName)
-      .filter(name => name && name.trim() !== '');
-    return [...new Set(dealerNames)];
-  };
-
   // Filter report data based on selections
-  const filterReportData = (data, dealers, visitTypes) => {
+  const filterReportData = (data, options = {}) => {
     const filtered = { ...data };
     
     // Filter dealer visits
-    if (data.dealerVisits && data.dealerVisits.length > 0) {
-      if (visitTypes.dealers && dealers.length > 0) {
-        filtered.dealerVisits = data.dealerVisits.filter(visit => 
-          dealers.includes(visit.dealerName)
-        );
-      } else {
-        filtered.dealerVisits = [];
-      }
-    } else {
+    if (options.dealerNames && options.dealerNames.length > 0) {
+      filtered.dealerVisits = (data.dealerVisits || []).filter(visit => 
+        options.dealerNames.includes(visit.dealerName)
+      );
+    } else if (options.includeDealers === false) {
       filtered.dealerVisits = [];
     }
     
     // Filter site visits
-    if (!visitTypes.siteVisits) {
+    if (options.siteVisitIndices && options.siteVisitIndices.length > 0) {
+      filtered.siteVisits = (data.siteVisits || []).filter((visit, index) => 
+        options.siteVisitIndices.includes(index)
+      );
+    } else if (options.includeSiteVisits === false) {
       filtered.siteVisits = [];
     }
     
     // Filter professional visits
-    if (!visitTypes.professionals) {
+    if (options.professionalIndices && options.professionalIndices.length > 0) {
+      filtered.professionalVisits = (data.professionalVisits || []).filter((visit, index) => 
+        options.professionalIndices.includes(index)
+      );
+    } else if (options.includeProfessionals === false) {
       filtered.professionalVisits = [];
     }
     
@@ -816,9 +807,16 @@ const DailyReportScreen = ({ navigation, authToken }) => {
     }
   };
 
-  const generatePDFReport = async () => {
+  // Master download - filtered by selected dealer
+  const generateMasterPDF = async () => {
     if (!isAvailable) {
       Alert.alert('Not Available', availabilityMessage);
+      return;
+    }
+
+    // Check if dealer is selected
+    if (!selectedDealer) {
+      Alert.alert('Select Dealer', 'Please select a dealer from the dropdown to generate the report.');
       return;
     }
 
@@ -827,135 +825,44 @@ const DailyReportScreen = ({ navigation, authToken }) => {
     if (!dataToUse) {
       dataToUse = await fetchReportData();
       
-      // Check if we got data
       if (!dataToUse) {
         Alert.alert('No Data', 'No report data available for this date.');
         return;
       }
     }
 
-    // Get unique dealers (report is only for Dealer/Shop)
-    const uniqueDealers = getUniqueDealers(dataToUse);
+    // Filter data to include only selected dealer
+    const filteredData = filterReportData(dataToUse, {
+      dealerNames: [selectedDealer],
+      includeSiteVisits: true, // Keep site visits and professionals
+      includeProfessionals: true,
+    });
 
-    if (uniqueDealers.length === 0) {
-      Alert.alert('No Data', 'No Dealer/Shop visits available for this date.');
-      return;
-    }
-
-    // If more than one dealer, show selector; otherwise generate directly for the single dealer
-    if (uniqueDealers.length > 1) {
-      // Initialize selections: all dealers selected by default
-      setSelectedDealers(uniqueDealers);
-      setShowSelectionModal(true);
-    } else {
-      const filteredData = filterReportData(
-        dataToUse,
-        uniqueDealers, // single dealer
-        {
-          dealers: true,
-          siteVisits: false,
-          professionals: false,
-        }
-      );
-      handleGeneratePDF(filteredData);
-    }
+    const dateStr = format(new Date(reportDate), 'dd-MMM-yyyy');
+    const sanitizedDealerName = selectedDealer.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `Daily_Report_${sanitizedDealerName}_${dateStr}.pdf`;
+    
+    await handleGeneratePDF(filteredData, fileName);
   };
 
-  const handleConfirmSelection = async () => {
-    // Validate that at least one dealer is selected
-    if (!selectedDealers || selectedDealers.length === 0) {
-      Alert.alert('Selection Required', 'Please select at least one dealer to include in the report.');
-      return;
-    }
-
-    // Fetch data if not already loaded
-    let dataToUse = reportData;
-    if (!dataToUse) {
-      // This shouldn't happen, but handle it
-      Alert.alert('Error', 'Report data not available. Please try again.');
-      return;
-    }
-
-    // Close modal first
-    setShowSelectionModal(false);
-    setIsGeneratingImage(true);
-
-    try {
-      const generatedFiles = [];
-      const dateStr = format(new Date(reportDate), 'dd-MMM-yyyy');
-
-      // Generate one PDF for each selected dealer
-      for (const dealerName of selectedDealers) {
-        const dealerFilteredData = filterReportData(
-          dataToUse,
-          [dealerName], // Only this dealer
-          { dealers: true, siteVisits: false, professionals: false }
-        );
-        
-        // Sanitize dealer name for filename
-        const sanitizedDealerName = dealerName.replace(/[^a-zA-Z0-9]/g, '_');
-        const fileName = `Daily_Report_${sanitizedDealerName}_${dateStr}.pdf`;
-        
-        const savedUri = await generateSinglePDF(dealerFilteredData, fileName);
-        generatedFiles.push({ name: fileName, uri: savedUri, type: 'Dealer', dealerName });
-      }
-
-      setIsGeneratingImage(false);
-
-      // Share all generated PDFs
-      if (generatedFiles.length > 0) {
-        const sharingAvailable = await Sharing.isAvailableAsync();
-        
-        if (sharingAvailable) {
-          // Share files one by one (React Native Sharing doesn't support multiple files at once)
-          const fileNames = generatedFiles.map(f => f.name).join('\n• ');
-          Alert.alert(
-            `✅ ${generatedFiles.length} PDF${generatedFiles.length > 1 ? 's' : ''} Generated`,
-            `The following PDF${generatedFiles.length > 1 ? 's have' : ' has'} been generated:\n\n• ${fileNames}\n\nYou will be prompted to save each PDF. Please save them one by one.`,
-            [
-              {
-                text: 'Start Saving',
-                onPress: async () => {
-                  for (let i = 0; i < generatedFiles.length; i++) {
-                    const file = generatedFiles[i];
-                    try {
-                      await Sharing.shareAsync(file.uri, {
-                        mimeType: 'application/pdf',
-                        dialogTitle: `Save ${file.type} Report`,
-                        UTI: 'com.adobe.pdf',
-                      });
-                      // Small delay between shares
-                      if (i < generatedFiles.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                      }
-                    } catch (error) {
-                      console.error(`Error sharing ${file.name}:`, error);
-                    }
-                  }
-                }
-              }
-            ]
-          );
-        } else {
-          Alert.alert(
-            `✅ ${generatedFiles.length} PDF${generatedFiles.length > 1 ? 's' : ''} Saved`,
-            `PDF${generatedFiles.length > 1 ? 's have' : ' has'} been saved to app storage:\n\n${generatedFiles.map(f => `• ${f.name}`).join('\n')}`,
-            [{ text: 'OK' }]
-          );
-        }
-      }
-    } catch (error) {
-      console.error('Error generating multiple PDFs:', error);
-      Alert.alert('Error', 'Failed to generate PDFs. Please try again.');
-      setIsGeneratingImage(false);
-    }
-  };
 
   useEffect(() => {
     if (isAvailable && reportDate) {
       fetchReportData();
     }
   }, [isAvailable, reportDate]);
+
+  // Reset selected dealer when report data changes
+  useEffect(() => {
+    if (reportData && reportData.dealerVisits && reportData.dealerVisits.length > 0) {
+      // Auto-select first dealer if none selected
+      if (!selectedDealer) {
+        setSelectedDealer(reportData.dealerVisits[0].dealerName);
+      }
+    } else {
+      setSelectedDealer(null);
+    }
+  }, [reportData]);
 
   return (
     <View style={styles.container}>
@@ -1006,6 +913,31 @@ const DailyReportScreen = ({ navigation, authToken }) => {
           <>
             {isAvailable && reportData && (
               <>
+                {/* Dealer Selection Dropdown */}
+                {reportData.dealerVisits && reportData.dealerVisits.length > 0 && (
+                  <View style={styles.dealerSelectorContainer}>
+                    <Text style={styles.dealerSelectorLabel}>Select Dealer*</Text>
+                    <CustomDropdown
+                      options={reportData.dealerVisits.map(visit => ({
+                        label: visit.dealerName || 'N/A',
+                        value: visit.dealerName || 'N/A',
+                      }))}
+                      placeholder="Select a dealer"
+                      onSelect={(option) => {
+                        if (option && option.value) {
+                          setSelectedDealer(option.value);
+                        } else {
+                          setSelectedDealer(null);
+                        }
+                      }}
+                      selectedOption={selectedDealer ? {
+                        label: selectedDealer,
+                        value: selectedDealer,
+                      } : null}
+                    />
+                  </View>
+                )}
+
                 {/* Preview version (visible on screen) */}
                 <View style={styles.dataPreview}>
                   <Text style={styles.previewTitle}>Report Summary</Text>
@@ -1027,7 +959,7 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                   {reportData.dealerVisits && reportData.dealerVisits.length > 0 && (
                     <View style={styles.summarySection}>
                       <Text style={styles.sectionTitle}>Dealer Visits ({reportData.dealerVisits.length})</Text>
-                      {reportData.dealerVisits.slice(0, 3).map((visit, index) => (
+                      {reportData.dealerVisits.map((visit, index) => (
                         <View key={index} style={styles.visitPreviewCard}>
                           <Text style={styles.visitPreviewName}>{visit.dealerName || 'N/A'}</Text>
                           <Text style={styles.visitPreviewDetail}>Location: {visit.location || 'N/A'}</Text>
@@ -1042,11 +974,6 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                           )}
                         </View>
                       ))}
-                      {reportData.dealerVisits.length > 3 && (
-                        <Text style={styles.moreItemsText}>
-                          ... and {reportData.dealerVisits.length - 3} more dealer visits
-                        </Text>
-                      )}
                     </View>
                   )}
                   
@@ -1054,7 +981,7 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                   {reportData.siteVisits && reportData.siteVisits.length > 0 && (
                     <View style={styles.summarySection}>
                       <Text style={styles.sectionTitle}>Site Visits ({reportData.siteVisits.length})</Text>
-                      {reportData.siteVisits.slice(0, 3).map((visit, index) => (
+                      {reportData.siteVisits.map((visit, index) => (
                         <View key={index} style={styles.visitPreviewCard}>
                           <Text style={styles.visitPreviewName}>{visit.ownerName || 'N/A'}</Text>
                           <Text style={styles.visitPreviewDetail}>Mobile: {visit.ownerMobile || 'N/A'}</Text>
@@ -1063,11 +990,6 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                           )}
                         </View>
                       ))}
-                      {reportData.siteVisits.length > 3 && (
-                        <Text style={styles.moreItemsText}>
-                          ... and {reportData.siteVisits.length - 3} more site visits
-                        </Text>
-                      )}
                     </View>
                   )}
                   
@@ -1075,7 +997,7 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                   {reportData.professionalVisits && reportData.professionalVisits.length > 0 && (
                     <View style={styles.summarySection}>
                       <Text style={styles.sectionTitle}>Engineer/Architect/Contractor Visits ({reportData.professionalVisits.length})</Text>
-                      {reportData.professionalVisits.slice(0, 3).map((visit, index) => (
+                      {reportData.professionalVisits.map((visit, index) => (
                         <View key={index} style={styles.visitPreviewCard}>
                           <Text style={styles.visitPreviewName}>{visit.name || 'N/A'}</Text>
                           <Text style={styles.visitPreviewDetail}>Mobile: {visit.mobile || 'N/A'}</Text>
@@ -1084,11 +1006,6 @@ const DailyReportScreen = ({ navigation, authToken }) => {
                           )}
                         </View>
                       ))}
-                      {reportData.professionalVisits.length > 3 && (
-                        <Text style={styles.moreItemsText}>
-                          ... and {reportData.professionalVisits.length - 3} more Engineer/Architect/Contractor visits
-                        </Text>
-                      )}
                     </View>
                   )}
                 </View>
@@ -1106,9 +1023,9 @@ const DailyReportScreen = ({ navigation, authToken }) => {
         )}
 
         <TouchableOpacity
-          style={[styles.downloadButton, (!isAvailable || isGeneratingImage) && styles.downloadButtonDisabled]}
-          onPress={generatePDFReport}
-          disabled={!isAvailable || loading || isGeneratingImage}
+          style={[styles.downloadButton, (!isAvailable || isGeneratingImage || !selectedDealer) && styles.downloadButtonDisabled]}
+          onPress={generateMasterPDF}
+          disabled={!isAvailable || loading || isGeneratingImage || !selectedDealer}
         >
           {isGeneratingImage ? (
             <>
@@ -1118,91 +1035,11 @@ const DailyReportScreen = ({ navigation, authToken }) => {
           ) : (
             <>
               <Ionicons name="document-text-outline" size={24} color="#FFFFFF" />
-              <Text style={styles.downloadButtonText}>Download PDF</Text>
+              <Text style={styles.downloadButtonText}>Download Report</Text>
             </>
           )}
         </TouchableOpacity>
       </ScrollView>
-
-      {/* Selection Modal for PDF Generation */}
-      <Modal
-        visible={showSelectionModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowSelectionModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-            <View style={styles.selectionModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Dealers for Report</Text>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setShowSelectionModal(false)}
-              >
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.selectionContent}>
-              {/* Dealer Selection - Only show if multiple dealers */}
-              {reportData && reportData.dealerVisits && reportData.dealerVisits.length > 0 && getUniqueDealers(reportData).length > 1 && (
-                <View style={styles.selectionSection}>
-                  <Text style={styles.selectionSectionTitle}>Select Dealers ({getUniqueDealers(reportData).length})</Text>
-                  {getUniqueDealers(reportData).map((dealerName) => (
-                    <TouchableOpacity
-                      key={dealerName}
-                      style={styles.checkboxRow}
-                      onPress={() => {
-                        if (selectedDealers.includes(dealerName)) {
-                          setSelectedDealers(selectedDealers.filter(d => d !== dealerName));
-                        } else {
-                          setSelectedDealers([...selectedDealers, dealerName]);
-                        }
-                      }}
-                    >
-                      <View style={[
-                        styles.checkbox,
-                        selectedDealers.includes(dealerName) && styles.checkboxChecked
-                      ]}>
-                        {selectedDealers.includes(dealerName) && (
-                          <Ionicons name="checkmark" size={16} color="#fff" />
-                        )}
-                      </View>
-                      <Text style={styles.checkboxLabel}>{dealerName}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {/* Visit Type Selection */}
-              <View style={styles.selectionSection}>
-                <Text style={styles.selectionSectionTitle}>Visit Types</Text>
-                
-              {/* No visit-type selection needed; report is only for Dealer/Shop */}
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setShowSelectionModal(false)}
-              >
-                <Text style={styles.modalButtonCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handleConfirmSelection}
-              >
-                <Text style={styles.modalButtonConfirmText}>
-                  {selectedDealers.length > 1
-                    ? `Generate ${selectedDealers.length} PDFs`
-                    : 'Generate PDF'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -1401,17 +1238,51 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
+  dealerSelectorContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  dealerSelectorLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
   summarySection: {
     marginBottom: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 12,
+    flex: 1,
+  },
+  sectionDownloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#EEF2FF',
+  },
+  sectionDownloadText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6C63FF',
+    marginLeft: 4,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -1436,114 +1307,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  visitCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   visitPreviewName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    flex: 1,
+  },
+  downloadIcon: {
+    padding: 4,
+    marginLeft: 8,
   },
   visitPreviewDetail: {
     fontSize: 12,
     color: '#6B7280',
     marginTop: 2,
-  },
-  // Selection Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  selectionModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  modalCloseButton: {
-    padding: 5,
-  },
-  selectionContent: {
-    maxHeight: 400,
-  },
-  selectionSection: {
-    marginBottom: 24,
-  },
-  selectionSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: '#6C63FF',
-    borderRadius: 4,
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-  checkboxChecked: {
-    backgroundColor: '#6C63FF',
-    borderColor: '#6C63FF',
-  },
-  checkboxLabel: {
-    fontSize: 16,
-    color: '#1F2937',
-    flex: 1,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  modalButtonCancel: {
-    backgroundColor: '#F3F4F6',
-    marginRight: 10,
-  },
-  modalButtonCancelText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  modalButtonConfirm: {
-    backgroundColor: '#6C63FF',
-    marginLeft: 10,
-  },
-  modalButtonConfirmText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
   },
 });
 

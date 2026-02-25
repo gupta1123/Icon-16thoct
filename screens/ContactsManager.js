@@ -29,7 +29,13 @@ const ContactsManager = ({ storeId, authToken, onClose, clientType }) => {
 
     const contactTypes = ['Architect', 'Engineer', 'Builder'];
 
-    const isSiteVisit = clientType === 'Site Visit' || clientType === 'site visit';
+    // Helper function to check if client type is Site Visit (handles both old and new formats)
+    const isSiteVisitType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'site visit';
+    };
+    const isSiteVisit = isSiteVisitType(clientType);
 
     useEffect(() => {
         fetchContacts();

@@ -10,10 +10,34 @@ import CustomDropdown from './CustomDropdown';
 import DobPicker from './DobPicker';
 
 const clientTypeOptions = [
-  { label: 'Engineer/Architect/Contractor', value: 'Professional' },
-  { label: 'Dealer/Shop', value: 'Dealer' },
+  { label: 'Engineer/Architect/Contractor', value: 'Engineer/Architect/Contractor' },
+  { label: 'Dealer/Shop', value: 'Dealer/Shop' },
   { label: 'Site Visit', value: 'Site Visit' },
 ];
+
+// Helper functions to check client types (accepting both old and new formats)
+const isDealerType = (clientType) => {
+  if (!clientType) return false;
+  const normalized = clientType.toLowerCase();
+  return normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop');
+};
+
+const isProfessionalType = (clientType) => {
+  if (!clientType) return false;
+  const normalized = clientType.toLowerCase();
+  return normalized === 'professional' || 
+         normalized === 'engineer/architect/contractor' ||
+         normalized.includes('engineer') || 
+         normalized.includes('architect') || 
+         normalized.includes('contractor') ||
+         normalized.includes('professional');
+};
+
+const isSiteVisitType = (clientType) => {
+  if (!clientType) return false;
+  const normalized = clientType.toLowerCase();
+  return normalized === 'site visit';
+};
 
 const dealerTypeOptions = [
   { label: 'ICON', value: 'ICON' },
@@ -155,12 +179,19 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         // Fetch current location and nearby stores
         fetchLocationAndNearbyStores();
         
-        // Set default client type if provided
+        // Set default client type if provided (map old values to new format)
         if (defaultClientType) {
-          const clientTypeOption = clientTypeOptions.find(opt => opt.value === defaultClientType);
+          // Map old backend values to new display format
+          const clientTypeMapping = {
+            'Professional': 'Engineer/Architect/Contractor',
+            'Dealer': 'Dealer/Shop',
+            'Site Visit': 'Site Visit',
+          };
+          const mappedClientType = clientTypeMapping[defaultClientType] || defaultClientType;
+          const clientTypeOption = clientTypeOptions.find(opt => opt.value === mappedClientType);
           if (clientTypeOption) {
-            setSelectedClientType(defaultClientType);
-            setNewCustomerDetails(prev => ({ ...prev, clientType: defaultClientType }));
+            setSelectedClientType(mappedClientType);
+            setNewCustomerDetails(prev => ({ ...prev, clientType: mappedClientType }));
           }
         }
       }
@@ -480,7 +511,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       const newErrors = {};
 
       // Required fields for all client types
-      const requiredFields = ['storeName', 'clientName', 'primaryContact', 'state', 'district', 'taluka', 'city', 'clientType'];
+      const requiredFields = ['storeName', 'clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
       
       requiredFields.forEach(field => {
         if (!newCustomerDetails[field]) {
@@ -491,7 +522,8 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         }
       });
   
-      if (!/^\d{10}$/.test(newCustomerDetails.primaryContact)) {
+      // Validate phone number only if provided (optional field)
+      if (newCustomerDetails.primaryContact && !/^\d{10}$/.test(newCustomerDetails.primaryContact)) {
         newErrors.primaryContact = 'Invalid phone number (must be 10 digits)';
       }
   
@@ -501,7 +533,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       }
 
       // Additional validation for Engineer/Architect/Contractor
-      if (newCustomerDetails.clientType === 'Professional') {
+      if (isProfessionalType(newCustomerDetails.clientType)) {
         if (!newCustomerDetails.dateOfBirth) {
           newErrors.dateOfBirth = 'Date of birth is required';
         }
@@ -511,7 +543,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       }
 
       // Additional validation for Dealer/Shop
-      if (newCustomerDetails.clientType === 'Dealer') {
+      if (isDealerType(newCustomerDetails.clientType)) {
         if (!newCustomerDetails.shopAgeYears) {
           newErrors.shopAgeYears = 'Shop age is required for Dealer/Shop';
         }
@@ -534,26 +566,28 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
   
       setIsCreating(true);
       try {
-        // Check if customer already exists
-        try {
-          const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
-            headers: {
-              Authorization: `Bearer ${authToken}`,
-            },
-          });
-  
-          if (response.data && response.data.storeId) {
-            setExistingCustomer(response.data);
-            showBottomSheet();
-            setIsCreating(false);
-            return;
-          }
-        } catch (error) {
-          // If error is not network error, proceed with creation
-          if (error.response && error.response.status !== 406) {
-            console.error('Error checking existing customer:', error);
-            setIsCreating(false);
-            return;
+        // Check if customer already exists (only if phone number is provided)
+        if (newCustomerDetails.primaryContact) {
+          try {
+            const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            });
+    
+            if (response.data && response.data.storeId) {
+              setExistingCustomer(response.data);
+              showBottomSheet();
+              setIsCreating(false);
+              return;
+            }
+          } catch (error) {
+            // If error is not network error, proceed with creation
+            if (error.response && error.response.status !== 406) {
+              console.error('Error checking existing customer:', error);
+              setIsCreating(false);
+              return;
+            }
           }
         }
 
@@ -701,7 +735,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           storeName: newCustomerDetails.storeName,
           clientFirstName: firstName,
           clientLastName: lastName,
-          primaryContact: parseInt(newCustomerDetails.primaryContact),
+          primaryContact: newCustomerDetails.primaryContact ? parseInt(newCustomerDetails.primaryContact) : null,
           secondaryContact: newCustomerDetails.secondaryContact || null,
           email: newCustomerDetails.email || null,
           industry: newCustomerDetails.industry || null,
@@ -722,13 +756,13 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           employeeId: parseInt(employeeId),
           brandProCons: [],
           productCategories:
-            selectedMaterials.length > 0
+            isDealerType(newCustomerDetails.clientType) && selectedMaterials.length > 0
               ? Array.from(new Set(selectedMaterials.map(c => c?.toString().toLowerCase())))
               : null,
         };
         
         // Add Dealer/Shop specific fields
-        if (newCustomerDetails.clientType === 'Dealer') {
+        if (isDealerType(newCustomerDetails.clientType)) {
           if (newCustomerDetails.shopAgeYears) {
             payload.shopAgeYears = parseInt(newCustomerDetails.shopAgeYears);
           }
@@ -744,7 +778,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         }
 
         // Add Site Visit specific fields
-        if (newCustomerDetails.clientType === 'Site Visit') {
+        if (isSiteVisitType(newCustomerDetails.clientType)) {
           if (newCustomerDetails.contractorName) {
             payload.contractorName = newCustomerDetails.contractorName;
           }
@@ -780,11 +814,11 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         console.log('✅ [CUSTOMER] Store created with ID:', newCustomerId);
 
         // For Professional customers, create professional record
-        if (newCustomerDetails.clientType === 'Professional') {
+        if (isProfessionalType(newCustomerDetails.clientType)) {
           try {
             const professionalPayload = {
               name: newCustomerDetails.clientName.trim(),
-              contact: newCustomerDetails.primaryContact,
+              contact: newCustomerDetails.primaryContact || null,
               role: 'Professional',
               email: newCustomerDetails.email || null,
               experience: newCustomerDetails.yearsOfExperience ? `${newCustomerDetails.yearsOfExperience} years` : null,
@@ -984,7 +1018,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       const newErrors = {};
 
       // Required fields for all client types
-      const requiredFields = ['storeName', 'clientName', 'primaryContact', 'state', 'district', 'taluka', 'city', 'clientType'];
+      const requiredFields = ['storeName', 'clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
       
       requiredFields.forEach(field => {
         if (!newCustomerDetails[field]) {
@@ -995,7 +1029,8 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         }
       });
   
-      if (!/^\d{10}$/.test(newCustomerDetails.primaryContact)) {
+      // Validate phone number only if provided (optional field)
+      if (newCustomerDetails.primaryContact && !/^\d{10}$/.test(newCustomerDetails.primaryContact)) {
         newErrors.primaryContact = 'Invalid phone number (must be 10 digits)';
       }
   
@@ -1005,7 +1040,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       }
 
       // Additional validation for Engineer/Architect/Contractor
-      if (newCustomerDetails.clientType === 'Professional') {
+      if (isProfessionalType(newCustomerDetails.clientType)) {
         if (!newCustomerDetails.dateOfBirth) {
           newErrors.dateOfBirth = 'Date of birth is required';
         }
@@ -1015,7 +1050,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       }
 
       // Additional validation for Dealer/Shop
-      if (newCustomerDetails.clientType === 'Dealer') {
+      if (isDealerType(newCustomerDetails.clientType)) {
         if (!newCustomerDetails.shopAgeYears) {
           newErrors.shopAgeYears = 'Shop age is required for Dealer/Shop';
         }
@@ -1047,28 +1082,40 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
   
       setIsCreating(true);
       try {
-        const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-        });
-  
-        if (response.data && response.data.storeId) {
-          setExistingCustomer(response.data);
-          showBottomSheet();
-        } else {
-          await createNewCustomer();
+        // Check if customer already exists (only if phone number is provided)
+        if (newCustomerDetails.primaryContact) {
+          try {
+            const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            });
+    
+            if (response.data && response.data.storeId) {
+              setExistingCustomer(response.data);
+              showBottomSheet();
+              setIsCreating(false);
+              return;
+            }
+          } catch (error) {
+            // If error is not network error, proceed with creation
+            if (error.response && error.response.status !== 406) {
+              console.error('Error checking existing customer:', error);
+              setIsCreating(false);
+              return;
+            }
+          }
         }
+        
+        // Proceed with creating new customer
+        await createNewCustomer();
       } catch (error) {
-        console.error('Error checking existing customer:', error);
+        console.error('Error creating customer:', error);
         // Handle network errors by storing locally
         if (!error.response || error.message === 'Network Error') {
           await handleOfflineStorage();
         } else {
-          // For any other error (including 406 Store Not Found and other errors),
-          // proceed with creating new customer since we couldn't definitively confirm existence
-          console.log('Could not confirm existing customer, proceeding with creation');
-          await createNewCustomer();
+          Alert.alert('Error', error.response?.data || 'An error occurred while creating the customer. Please try again.');
         }
       } finally {
         setIsCreating(false);
@@ -1087,11 +1134,14 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           }}]
         );
       } else {
-        // Check pending customers to see if it failed due to duplicate
-        const pendingCustomers = await getPendingCustomers();
-        const isDuplicate = pendingCustomers.some(
-          customer => customer.primaryContact === newCustomerDetails.primaryContact
-        );
+        // Check pending customers to see if it failed due to duplicate (only if phone number is provided)
+        let isDuplicate = false;
+        if (newCustomerDetails.primaryContact) {
+          const pendingCustomers = await getPendingCustomers();
+          isDuplicate = pendingCustomers.some(
+            customer => customer.primaryContact === newCustomerDetails.primaryContact
+          );
+        }
 
         if (isDuplicate) {
           Alert.alert(
@@ -1114,7 +1164,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         storeName: newCustomerDetails.storeName,
         clientFirstName: firstName,
         clientLastName: lastName,
-        primaryContact: parseInt(newCustomerDetails.primaryContact),
+        primaryContact: newCustomerDetails.primaryContact ? parseInt(newCustomerDetails.primaryContact) : null,
         secondaryContact: newCustomerDetails.secondaryContact || null,
         email: newCustomerDetails.email || null,
         industry: newCustomerDetails.industry || null,
@@ -1134,15 +1184,15 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         clientType: newCustomerDetails.clientType,
         employeeId: parseInt(employeeId),
         brandProCons: [], // Empty array for now, can be added later
-        // Product categories for store creation
+        // Product categories for store creation (only for Dealers)
         productCategories:
-          selectedMaterials.length > 0
+          isDealerType(newCustomerDetails.clientType) && selectedMaterials.length > 0
             ? Array.from(new Set(selectedMaterials.map(c => c?.toString().toLowerCase())))
             : null,
       };
       
       // Add Dealer/Shop specific fields
-      if (newCustomerDetails.clientType === 'Dealer') {
+      if (isDealerType(newCustomerDetails.clientType)) {
         if (newCustomerDetails.shopAgeYears) {
           payload.shopAgeYears = parseInt(newCustomerDetails.shopAgeYears);
         }
@@ -1192,11 +1242,11 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       console.log('✅ [CUSTOMER] Store created with ID:', newCustomerId);
 
       // Step 2: For Professional customers, create professional record
-      if (newCustomerDetails.clientType === 'Professional') {
+      if (isProfessionalType(newCustomerDetails.clientType)) {
         try {
           const professionalPayload = {
             name: newCustomerDetails.clientName.trim(),
-            contact: newCustomerDetails.primaryContact,
+            contact: newCustomerDetails.primaryContact || null,
             role: 'Professional', // or determine from sub-type if needed
             email: newCustomerDetails.email || null,
             experience: newCustomerDetails.yearsOfExperience ? `${newCustomerDetails.yearsOfExperience} years` : null,
@@ -1478,15 +1528,15 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                   <View style={styles.storeItemFooter}>
                     <View style={[
                       styles.storeTypeBadge,
-                      store.clientType === 'Dealer' && styles.storeTypeBadgeDealer,
-                      store.clientType === 'Professional' && styles.storeTypeBadgeProfessional,
-                      store.clientType === 'Site Visit' && styles.storeTypeBadgeSiteVisit,
+                      isDealerType(store.clientType) && styles.storeTypeBadgeDealer,
+                      isProfessionalType(store.clientType) && styles.storeTypeBadgeProfessional,
+                      isSiteVisitType(store.clientType) && styles.storeTypeBadgeSiteVisit,
                     ]}>
                       <Text style={[
                         styles.storeTypeText,
-                        store.clientType === 'Dealer' && styles.storeTypeTextDealer,
-                        store.clientType === 'Professional' && styles.storeTypeTextProfessional,
-                        store.clientType === 'Site Visit' && styles.storeTypeTextSiteVisit,
+                        isDealerType(store.clientType) && styles.storeTypeTextDealer,
+                        isProfessionalType(store.clientType) && styles.storeTypeTextProfessional,
+                        isSiteVisitType(store.clientType) && styles.storeTypeTextSiteVisit,
                       ]}>
                         {store.clientType || 'N/A'}
                       </Text>
@@ -1585,7 +1635,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
               <Text style={styles.sectionTitle}>Basic Information</Text>
               {renderInput('storeName', 'Store Name*')}
               {renderInput('clientName', 'Client Name*')}
-              {renderInput('primaryContact', 'Primary Contact*', 'phone-pad')}
+              {renderInput('primaryContact', 'Primary Contact (Optional)', 'phone-pad')}
              
               
               {/* Location Fields */}
@@ -1780,7 +1830,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
               )}
 
               {/* Engineer/Architect/Contractor Specific Fields */}
-              {selectedClientType === 'Professional' && (
+              {isProfessionalType(selectedClientType) && (
                 <>
                   <View style={styles.professionalSection}>
                     <Text style={styles.sectionTitle}>Professional Details</Text>
@@ -1809,7 +1859,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
               )}
 
               {/* Dealer/Shop Specific Fields */}
-              {selectedClientType === 'Dealer' && (
+              {isDealerType(selectedClientType) && (
                 <>
                   <View style={styles.dealerShopSection}>
                     <Text style={styles.sectionTitle}>Dealer/Shop Details</Text>
@@ -1861,110 +1911,112 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                 </>
               )}
 
-              {/* Product Categories Section - Appears last for all client types */}
-              <View style={styles.materialsSection}>
-                <Text style={styles.sectionTitle}>Product Categories</Text>
-                <Text style={styles.sectionSubtitle}>Select all relevant categories. This helps tailor future follow-ups.</Text>
-                
-                <View style={styles.materialsGrid}>
-                  {materialOptions.map((material) => (
-                    <TouchableOpacity
-                      key={material.value}
-                      style={[
-                        styles.materialCheckbox,
-                        selectedMaterials.includes(material.value) && styles.materialCheckboxSelected
-                      ]}
-                      onPress={() => handleMaterialToggle(material.value)}
-                    >
-                      <View style={[
-                        styles.checkbox,
-                        selectedMaterials.includes(material.value) && styles.checkboxSelected
-                      ]}>
-                        {selectedMaterials.includes(material.value) && (
-                          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                        )}
-                      </View>
-                      <Text style={[
-                        styles.materialLabel,
-                        selectedMaterials.includes(material.value) && styles.materialLabelSelected
-                      ]}>
-                        {material.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Custom Categories */}
-                {customMaterials.length > 0 && (
-                  <View style={styles.customMaterialsList}>
-                    {customMaterials.map((material) => (
-                      <View key={material} style={styles.customMaterialItem}>
-                        <TouchableOpacity
-                          style={styles.customMaterialCheckbox}
-                          onPress={() => handleMaterialToggle(material)}
-                        >
-                          <View style={[
-                            styles.checkbox,
-                            selectedMaterials.includes(material) && styles.checkboxSelected
-                          ]}>
-                            {selectedMaterials.includes(material) && (
-                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                            )}
-                          </View>
-                          <Text style={[
-                            styles.materialLabel,
-                            selectedMaterials.includes(material) && styles.materialLabelSelected
-                          ]}>
-                            {material}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleRemoveCustomMaterial(material)}
-                          style={styles.removeButton}
-                        >
-                          <Ionicons name="close-circle" size={20} color="#EF4444" />
-                        </TouchableOpacity>
-                      </View>
+              {/* Product Categories Section - Only for Dealer/Shop */}
+              {isDealerType(selectedClientType) && (
+                <View style={styles.materialsSection}>
+                  <Text style={styles.sectionTitle}>Product Categories</Text>
+                  <Text style={styles.sectionSubtitle}>Select all relevant categories. This helps tailor future follow-ups.</Text>
+                  
+                  <View style={styles.materialsGrid}>
+                    {materialOptions.map((material) => (
+                      <TouchableOpacity
+                        key={material.value}
+                        style={[
+                          styles.materialCheckbox,
+                          selectedMaterials.includes(material.value) && styles.materialCheckboxSelected
+                        ]}
+                        onPress={() => handleMaterialToggle(material.value)}
+                      >
+                        <View style={[
+                          styles.checkbox,
+                          selectedMaterials.includes(material.value) && styles.checkboxSelected
+                        ]}>
+                          {selectedMaterials.includes(material.value) && (
+                            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                          )}
+                        </View>
+                        <Text style={[
+                          styles.materialLabel,
+                          selectedMaterials.includes(material.value) && styles.materialLabelSelected
+                        ]}>
+                          {material.label}
+                        </Text>
+                      </TouchableOpacity>
                     ))}
                   </View>
-                )}
 
-              {/* Add Custom Category on demand */}
-              {showAddMaterialInput ? (
-                <View style={styles.addMaterialContainer}>
-                  <TextInput
-                    style={styles.addMaterialInput}
-                    value={customMaterial}
-                    onChangeText={setCustomMaterial}
-                    placeholder="Add another"
-                    placeholderTextColor="#9CA3AF"
-                  />
+                  {/* Custom Categories */}
+                  {customMaterials.length > 0 && (
+                    <View style={styles.customMaterialsList}>
+                      {customMaterials.map((material) => (
+                        <View key={material} style={styles.customMaterialItem}>
+                          <TouchableOpacity
+                            style={styles.customMaterialCheckbox}
+                            onPress={() => handleMaterialToggle(material)}
+                          >
+                            <View style={[
+                              styles.checkbox,
+                              selectedMaterials.includes(material) && styles.checkboxSelected
+                            ]}>
+                              {selectedMaterials.includes(material) && (
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              )}
+                            </View>
+                            <Text style={[
+                              styles.materialLabel,
+                              selectedMaterials.includes(material) && styles.materialLabelSelected
+                            ]}>
+                              {material}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleRemoveCustomMaterial(material)}
+                            style={styles.removeButton}
+                          >
+                            <Ionicons name="close-circle" size={20} color="#EF4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                {/* Add Custom Category on demand */}
+                {showAddMaterialInput ? (
+                  <View style={styles.addMaterialContainer}>
+                    <TextInput
+                      style={styles.addMaterialInput}
+                      value={customMaterial}
+                      onChangeText={setCustomMaterial}
+                      placeholder="Add another"
+                      placeholderTextColor="#9CA3AF"
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.addMaterialButton,
+                        !customMaterial.trim() && styles.addMaterialButtonDisabled
+                      ]}
+                      onPress={handleAddCustomMaterial}
+                      disabled={!customMaterial.trim()}
+                    >
+                      <Text style={styles.addMaterialButtonText}>Add</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.cancelAddButton}
+                      onPress={() => setShowAddMaterialInput(false)}
+                    >
+                      <Text style={styles.cancelAddButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
                   <TouchableOpacity
-                    style={[
-                      styles.addMaterialButton,
-                      !customMaterial.trim() && styles.addMaterialButtonDisabled
-                    ]}
-                    onPress={handleAddCustomMaterial}
-                    disabled={!customMaterial.trim()}
+                    style={styles.addAnotherLink}
+                    onPress={() => setShowAddMaterialInput(true)}
                   >
-                    <Text style={styles.addMaterialButtonText}>Add</Text>
+                    <Text style={styles.addAnotherLinkText}>+ Add another category</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.cancelAddButton}
-                    onPress={() => setShowAddMaterialInput(false)}
-                  >
-                    <Text style={styles.cancelAddButtonText}>Cancel</Text>
-                  </TouchableOpacity>
+                )}
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.addAnotherLink}
-                  onPress={() => setShowAddMaterialInput(true)}
-                >
-                  <Text style={styles.addAnotherLinkText}>+ Add another category</Text>
-                </TouchableOpacity>
               )}
-              </View>
   
               <View style={styles.createButtonsContainer}>
               <TouchableOpacity 

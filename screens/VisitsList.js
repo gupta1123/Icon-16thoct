@@ -108,7 +108,25 @@ const VisitsList = ({ authToken }) => {
     const [radiusInMeters, setRadiusInMeters] = useState(1000); // Default 1km
     const [currentLocation, setCurrentLocation] = useState(null);
     const [locationError, setLocationError] = useState(null);
-    const [customerTypeFilter, setCustomerTypeFilter] = useState('ALL'); // ALL | Dealer | Professional | Site Visit
+    const [customerTypeFilter, setCustomerTypeFilter] = useState('ALL'); // ALL | Dealer/Shop | Engineer/Architect/Contractor | Site Visit
+
+    // Helper functions to check client types (accepting both old and new formats)
+    const isDealerType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop');
+    };
+
+    const isProfessionalType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'professional' || 
+               normalized === 'engineer/architect/contractor' ||
+               normalized.includes('engineer') || 
+               normalized.includes('architect') || 
+               normalized.includes('contractor') ||
+               normalized.includes('professional');
+    };
 
     const purposeOptions = [
         { label: 'First Visit', value: 'First Visit' },
@@ -220,6 +238,13 @@ const VisitsList = ({ authToken }) => {
             };
         }, [selectedDate, authToken])
     );
+
+    // Auto-set customer type filter to Dealer/Shop when it's the first visit of the day
+    useEffect(() => {
+        if (!hasVisitsForDate) {
+            setCustomerTypeFilter('Dealer/Shop');
+        }
+    }, [hasVisitsForDate]);
 
     const handleDateChange = (date) => {
         const newDate = new Date(date);
@@ -706,8 +731,14 @@ const VisitsList = ({ authToken }) => {
         }
     };
 
-    // Map backend values to display labels
+    // Map backend values to display labels (handles both old and new formats)
     const getClientTypeDisplay = (clientType) => {
+        if (!clientType) return 'N/A';
+        // If already in new format, return as-is
+        if (clientType === 'Engineer/Architect/Contractor' || clientType === 'Dealer/Shop' || clientType === 'Site Visit') {
+            return clientType;
+        }
+        // Map old backend values to new display format
         const typeMapping = {
             'Professional': 'Engineer/Architect/Contractor',
             'Dealer': 'Dealer/Shop',
@@ -795,12 +826,21 @@ const VisitsList = ({ authToken }) => {
                     
                     // Apply customer type filter if not ALL
                     if (customerTypeFilter !== 'ALL') {
-                        filteredStores = filteredStores.filter(store => store.clientType === customerTypeFilter);
+                        filteredStores = filteredStores.filter(store => {
+                            // Handle both old and new formats
+                            if (customerTypeFilter === 'Dealer/Shop') {
+                                return isDealerType(store.clientType);
+                            } else if (customerTypeFilter === 'Engineer/Architect/Contractor') {
+                                return isProfessionalType(store.clientType);
+                            } else {
+                                return store.clientType === customerTypeFilter;
+                            }
+                        });
                     }
                     
                     // If no visits exist for this date and filter is ALL, force Dealer only
                     if (!hasVisitsForDate && customerTypeFilter === 'ALL') {
-                        filteredStores = filteredStores.filter(store => store.clientType === 'Dealer');
+                        filteredStores = filteredStores.filter(store => isDealerType(store.clientType));
                         console.log('🔵 [FETCH STORES] No visits exist for date, filtering for Dealer stores only');
                     }
                     
@@ -818,10 +858,11 @@ const VisitsList = ({ authToken }) => {
                 
                 // Apply customer type filter if not ALL
                 if (customerTypeFilter !== 'ALL') {
+                    // Send the new format value to backend
                     url += `&clientType=${encodeURIComponent(customerTypeFilter)}`;
                 } else if (!hasVisitsForDate) {
                     // If no visits exist for this date and filter is ALL, only show Dealer type stores
-                    url += `&clientType=Dealer`;
+                    url += `&clientType=Dealer/Shop`;
                     console.log('🔵 [FETCH STORES] No visits exist for date, filtering for Dealer stores only');
                 }
 
@@ -1199,30 +1240,37 @@ const VisitsList = ({ authToken }) => {
                                                         <Text style={styles.typeFilterLabel}>Customer Type:</Text>
                                                     </View>
                                                     <View style={styles.typeFilterChips}>
-                                                        {[
-                                                            { label: 'All', value: 'ALL' },
-                                                            { label: 'Dealer/Shop', value: 'Dealer' },
-                                                            { label: 'Engineer/Architect/Contractor', value: 'Professional' },
-                                                            { label: 'Site Visit', value: 'Site Visit' },
-                                                        ].map(type => (
-                                                            <TouchableOpacity
-                                                                key={type.value}
-                                                                style={[
-                                                                    styles.typeChip,
-                                                                    customerTypeFilter === type.value && styles.typeChipActive
-                                                                ]}
-                                                                onPress={() => setCustomerTypeFilter(type.value)}
-                                                            >
-                                                                <Text
+                                                        {(() => {
+                                                            // For first visit of the day, only show Dealer/Shop option
+                                                            const customerTypeOptions = !hasVisitsForDate
+                                                                ? [{ label: 'Dealer/Shop', value: 'Dealer/Shop' }]
+                                                                : [
+                                                                    { label: 'All', value: 'ALL' },
+                                                                    { label: 'Dealer/Shop', value: 'Dealer/Shop' },
+                                                                    { label: 'Engineer/Architect/Contractor', value: 'Engineer/Architect/Contractor' },
+                                                                    { label: 'Site Visit', value: 'Site Visit' },
+                                                                ];
+                                                            
+                                                            return customerTypeOptions.map(type => (
+                                                                <TouchableOpacity
+                                                                    key={type.value}
                                                                     style={[
-                                                                        styles.typeChipText,
-                                                                        customerTypeFilter === type.value && styles.typeChipTextActive
+                                                                        styles.typeChip,
+                                                                        customerTypeFilter === type.value && styles.typeChipActive
                                                                     ]}
+                                                                    onPress={() => setCustomerTypeFilter(type.value)}
                                                                 >
-                                                                    {type.label}
-                                                                </Text>
-                                                            </TouchableOpacity>
-                                                        ))}
+                                                                    <Text
+                                                                        style={[
+                                                                            styles.typeChipText,
+                                                                            customerTypeFilter === type.value && styles.typeChipTextActive
+                                                                        ]}
+                                                                    >
+                                                                        {type.label}
+                                                                    </Text>
+                                                                </TouchableOpacity>
+                                                            ));
+                                                        })()}
                                                     </View>
                                                 </View>
                                             </View>
