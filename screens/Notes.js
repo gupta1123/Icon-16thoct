@@ -82,13 +82,13 @@ const Notes = ({ visitId, storeId, authToken, readOnly, onNotesUpdated = () => {
           <>
             <TextInput
               style={styles.input}
-              placeholder="Add a new note"
+              placeholder="Add discussion"
               value={newNote}
               onChangeText={setNewNote}
               multiline
             />
             <TouchableOpacity style={styles.button} onPress={handleAddNote}>
-              <Text style={styles.buttonText}>Add Note</Text>
+              <Text style={styles.buttonText}>Add Discussion</Text>
             </TouchableOpacity>
           </>
         )}
@@ -98,7 +98,7 @@ const Notes = ({ visitId, storeId, authToken, readOnly, onNotesUpdated = () => {
           data={notes}
           renderItem={renderNoteItem}
           keyExtractor={item => item.id.toString()}
-          ListEmptyComponent={<Text style={styles.emptyText}>No notes available for this visit.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>No discussion available for this visit.</Text>}
           style={styles.notesList}
           contentContainerStyle={styles.notesListContent}
           showsVerticalScrollIndicator={true}

@@ -25,6 +25,9 @@ import CustomDatePicker from './CustomDatePicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import moment from 'moment';
 import debounce from 'lodash.debounce';
+import CreateCustomerComponent from './CreateCustomerComponent';
+import CustomDropdown from './CustomDropdown';
+import * as Location from 'expo-location';
 
 const VisitsList = ({ authToken }) => {
     const [timelineData, setTimelineData] = useState([]);
@@ -44,16 +47,16 @@ const VisitsList = ({ authToken }) => {
     const [existingVisit, setExistingVisit] = useState(null);
 
     const formatDate = (dateString) => {
-      const date = new Date(dateString);
+        const date = new Date(dateString);
 
-      if (isToday(date)) {
-        return 'today';
-      } else if (isYesterday(date)) {
-        return 'yesterday';
-      } else {
-        // Format as "8 Nov '25"
-        return format(date, "d MMM ''yy");
-      }
+        if (isToday(date)) {
+            return 'today';
+        } else if (isYesterday(date)) {
+            return 'yesterday';
+        } else {
+            // Format as "8 Nov '25"
+            return format(date, "d MMM ''yy");
+        }
     };
     const [existingVisits, setExistingVisits] = useState([]);
     const [isOngoingVisitVisible, setIsOngoingVisitVisible] = useState(false);
@@ -95,10 +98,35 @@ const VisitsList = ({ authToken }) => {
     const [isStoreLoading, setIsStoreLoading] = useState(false);
     const [newActivityDetails, setNewActivityDetails] = useState({
         title: '',
+        customTitle: '',
         description: '',
         activityDate: new Date(),
     });
+    const [selectedActivityTitle, setSelectedActivityTitle] = useState(null);
     const [hasVisitsForDate, setHasVisitsForDate] = useState(false);
+    const [useLocationFilter, setUseLocationFilter] = useState(true); // Default to true for nearby stores
+    const [radiusInMeters, setRadiusInMeters] = useState(1000); // Default 1km
+    const [currentLocation, setCurrentLocation] = useState(null);
+    const [locationError, setLocationError] = useState(null);
+    const [customerTypeFilter, setCustomerTypeFilter] = useState('ALL'); // ALL | Dealer/Shop | Engineer/Architect/Contractor | Site Visit
+
+    // Helper functions to check client types (accepting both old and new formats)
+    const isDealerType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop');
+    };
+
+    const isProfessionalType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'professional' ||
+            normalized === 'engineer/architect/contractor' ||
+            normalized.includes('engineer') ||
+            normalized.includes('architect') ||
+            normalized.includes('contractor') ||
+            normalized.includes('professional');
+    };
 
     const purposeOptions = [
         { label: 'First Visit', value: 'First Visit' },
@@ -114,19 +142,19 @@ const VisitsList = ({ authToken }) => {
 
     const fetchTimelineData = async () => {
         if (!authToken) return;
-        
+
         try {
             setLoading(true);
             setError(null);
-            
+
             const token = await AsyncStorage.getItem('userToken');
             const formattedDate = format(selectedDate, 'yyyy-MM-dd');
             const employeeId = await AsyncStorage.getItem('employeeId');
-            
+
             if (!employeeId) {
                 throw new Error('Employee ID not found');
             }
-            
+
             if (!token) {
                 throw new Error('Auth token not found');
             }
@@ -149,16 +177,16 @@ const VisitsList = ({ authToken }) => {
             }
 
             const data = await response.json();
-            
+
             // Check if response is HTML instead of JSON
             if (typeof data === 'string' && (data.includes('<!DOCTYPE html>') || data.includes('<html>'))) {
                 console.log('⚠️ [TIMELINE] Server returned HTML instead of JSON');
                 setTimelineData([]);
                 return;
             }
-            
+
             console.log('✅ [TIMELINE] Timeline data received:', data);
-            
+
             // Process visits with status
             const processedVisits = (data.visits || []).map((visit) => {
                 let visitStatus = 'Assigned';
@@ -211,6 +239,13 @@ const VisitsList = ({ authToken }) => {
         }, [selectedDate, authToken])
     );
 
+    // Auto-set customer type filter to Dealer/Shop when it's the first visit of the day
+    useEffect(() => {
+        if (!hasVisitsForDate) {
+            setCustomerTypeFilter('Dealer/Shop');
+        }
+    }, [hasVisitsForDate]);
+
     const handleDateChange = (date) => {
         const newDate = new Date(date);
         newDate.setHours(0, 0, 0, 0);
@@ -257,7 +292,30 @@ const VisitsList = ({ authToken }) => {
             })
         : [];
 
+    // Whether currently selected date is in the past (for disabling create actions)
+    const isPastSelectedDate = (() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const selected = new Date(selectedDate);
+        selected.setHours(0, 0, 0, 0);
+        return selected < today;
+    })();
+
     const openCreateOptions = () => {
+        // Allow viewing past/future dates, but creation only for today or future
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const selected = new Date(selectedDate);
+        selected.setHours(0, 0, 0, 0);
+
+        if (selected < today) {
+            Alert.alert(
+                'Cannot Create on Past Date',
+                'You can only create visits and activities for today or future dates. Please change the selected date.'
+            );
+            return;
+        }
+
         setShowCreateOptions(true);
     };
 
@@ -266,6 +324,19 @@ const VisitsList = ({ authToken }) => {
     };
 
     const openVisitModal = () => {
+        // Default visit date to the currently selected date (today or future)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const selected = new Date(selectedDate);
+        selected.setHours(0, 0, 0, 0);
+
+        const defaultVisitDate = selected >= today ? selected : today;
+
+        setNewVisitDetails(prev => ({
+            ...prev,
+            date: defaultVisitDate,
+        }));
+
         setShowCreateOptions(false);
         setIsModalVisible(true);
     };
@@ -291,9 +362,11 @@ const VisitsList = ({ authToken }) => {
         setIsActivityModalVisible(false);
         setNewActivityDetails({
             title: '',
+            customTitle: '',
             description: '',
             activityDate: new Date(),
         });
+        setSelectedActivityTitle(null);
     };
 
     const openCreateStoreModal = () => {
@@ -302,6 +375,7 @@ const VisitsList = ({ authToken }) => {
 
     const closeCreateStoreModal = () => {
         setIsCreateStoreModalVisible(false);
+        setShowCreateOptions(false);
         setNewStoreDetails({
             storeName: '',
             clientFirstName: '',
@@ -312,6 +386,15 @@ const VisitsList = ({ authToken }) => {
             village: '',
             taluka: '',
         });
+    };
+
+    const handleStoreCreated = () => {
+        fetchTimelineData();
+        // Reset all modal states to ensure clean state
+        setIsCreateStoreModalVisible(false);
+        setShowCreateOptions(false);
+        setIsModalVisible(false);
+        setIsActivityModalVisible(false);
     };
 
     const createVisit = async () => {
@@ -329,7 +412,7 @@ const VisitsList = ({ authToken }) => {
             const token = await AsyncStorage.getItem('userToken');
             const employeeId = await AsyncStorage.getItem('employeeId');
             const formattedDate = format(newVisitDetails.date, 'yyyy-MM-dd');
-            
+
             const response = await fetch(
                 `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${formattedDate}&end=${formattedDate}`,
                 {
@@ -371,7 +454,7 @@ const VisitsList = ({ authToken }) => {
             const token = await AsyncStorage.getItem('userToken');
             const employeeId = await AsyncStorage.getItem('employeeId');
             const purpose = newVisitDetails.purpose === 'Others' ? newVisitDetails.customPurpose : newVisitDetails.purpose;
-            
+
             const response = await axios.put('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/create', {
                 storeId: selectedStore.storeId,
                 employeeId: parseInt(employeeId),
@@ -386,10 +469,13 @@ const VisitsList = ({ authToken }) => {
             });
 
             const visitId = response.data;
-            navigation.navigate('VisitScreen', { visitId, authToken });
+            Alert.alert('Success', 'Visit created successfully!');
             closeModal();
+            // Refresh timeline data to show the new visit
+            fetchTimelineData();
         } catch (error) {
             console.error('Error creating visit:', error);
+            Alert.alert('Error', 'Failed to create visit. Please try again.');
         }
     };
 
@@ -397,22 +483,32 @@ const VisitsList = ({ authToken }) => {
         try {
             const token = await AsyncStorage.getItem('userToken');
             const employeeId = await AsyncStorage.getItem('employeeId');
-            
-            if (!newActivityDetails.title.trim()) {
-                Alert.alert('Error', 'Please enter an activity title');
+
+            // Determine the activity title
+            let activityTitle = '';
+            if (selectedActivityTitle?.value === 'Others') {
+                if (!newActivityDetails.customTitle.trim()) {
+                    Alert.alert('Error', 'Please enter a custom activity title');
+                    return;
+                }
+                activityTitle = newActivityDetails.customTitle.trim();
+            } else if (selectedActivityTitle) {
+                activityTitle = selectedActivityTitle.value;
+            } else {
+                Alert.alert('Error', 'Please select an activity title');
                 return;
             }
 
             console.log('🔵 [ACTIVITY] Creating activity:', {
                 employeeId: parseInt(employeeId),
-                title: newActivityDetails.title,
+                title: activityTitle,
                 description: newActivityDetails.description,
                 activityDate: format(newActivityDetails.activityDate, 'yyyy-MM-dd'),
             });
 
             const response = await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/activity/create', {
                 employeeId: parseInt(employeeId),
-                title: newActivityDetails.title,
+                title: activityTitle,
                 description: newActivityDetails.description,
                 activityDate: format(newActivityDetails.activityDate, 'yyyy-MM-dd'),
             }, {
@@ -424,10 +520,10 @@ const VisitsList = ({ authToken }) => {
             });
 
             console.log('✅ [ACTIVITY] Activity created successfully:', response.data);
-            
+
             Alert.alert('Success', 'Activity created successfully!');
             closeActivityModal();
-            
+
             // Refresh timeline data
             fetchTimelineData();
         } catch (error) {
@@ -562,12 +658,12 @@ const VisitsList = ({ authToken }) => {
         try {
             const token = await AsyncStorage.getItem('userToken');
             const employeeId = await AsyncStorage.getItem('employeeId');
-            
+
             if (!token) {
                 Alert.alert('Error', 'Authentication token not found');
                 return;
             }
-            
+
             const response = await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/create', {
                 ...newStoreDetails,
                 employeeId: parseInt(employeeId),
@@ -580,9 +676,9 @@ const VisitsList = ({ authToken }) => {
             });
 
             // Check if response is HTML instead of JSON
-            const isHtmlResponse = typeof response.data === 'string' && 
+            const isHtmlResponse = typeof response.data === 'string' &&
                 (response.data.includes('<!DOCTYPE html>') || response.data.includes('<html>'));
-            
+
             if (isHtmlResponse) {
                 console.log('⚠️ [CREATE STORE] Server returned HTML instead of JSON');
                 Alert.alert('Error', 'Authentication issue. Please try logging in again.');
@@ -635,6 +731,22 @@ const VisitsList = ({ authToken }) => {
         }
     };
 
+    // Map backend values to display labels (handles both old and new formats)
+    const getClientTypeDisplay = (clientType) => {
+        if (!clientType) return 'N/A';
+        // If already in new format, return as-is
+        if (clientType === 'Engineer/Architect/Contractor' || clientType === 'Dealer/Shop' || clientType === 'Site Visit') {
+            return clientType;
+        }
+        // Map old backend values to new display format
+        const typeMapping = {
+            'Professional': 'Engineer/Architect/Contractor',
+            'Dealer': 'Dealer/Shop',
+            'Site Visit': 'Site Visit',
+        };
+        return typeMapping[clientType] || clientType || 'N/A';
+    };
+
     const handleSelectDate = (date) => {
         setNewVisitDetails({ ...newVisitDetails, date });
         setPickerVisible(false);
@@ -643,57 +755,144 @@ const VisitsList = ({ authToken }) => {
     const fetchStores = async (searchText = '') => {
         try {
             setIsStoreLoading(true);
-            
+            setLocationError(null);
+
             const token = await AsyncStorage.getItem('userToken');
             const employeeId = await AsyncStorage.getItem('employeeId');
-            
+
             if (!employeeId) {
                 throw new Error('Employee ID not found');
             }
-            
+
             if (!token) {
                 throw new Error('Auth token not found');
             }
 
-            // Build URL with client type filter if no visits exist for this date
-            let url = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/filteredValues?page=0&size=20&sortBy=storeName&sortOrder=asc`;
-            
-            if (searchText.trim()) {
-                url += `&storeName=${encodeURIComponent(searchText.trim())}`;
-            }
-            
-            // If no visits exist for this date, only show Dealer type stores
-            if (!hasVisitsForDate) {
-                url += `&clientType=Dealer`;
-                console.log('🔵 [FETCH STORES] No visits exist for date, filtering for Dealer stores only');
-            }
+            let location = currentLocation;
 
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'ngrok-skip-browser-warning': 'true',
-                    'User-Agent': 'IconMobile',
+            // Get current location if using location filter
+            if (useLocationFilter) {
+                try {
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status !== 'granted') {
+                        setLocationError('Location permission denied. Showing all stores instead.');
+                        setUseLocationFilter(false);
+                    } else {
+                        const currentLoc = await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.High,
+                        });
+                        location = {
+                            latitude: currentLoc.coords.latitude,
+                            longitude: currentLoc.coords.longitude,
+                        };
+                        setCurrentLocation(location);
+                        setLocationError(null);
+                    }
+                } catch (locError) {
+                    console.error('Error getting location:', locError);
+                    setLocationError('Could not get location. Showing all stores instead.');
+                    setUseLocationFilter(false);
                 }
-            });
-
-            // Check if response is HTML instead of JSON
-            const isHtmlResponse = typeof response.data === 'string' && 
-                (response.data.includes('<!DOCTYPE html>') || response.data.includes('<html>'));
-            
-            if (isHtmlResponse) {
-                console.log('⚠️ [FETCH STORES] Server returned HTML instead of JSON');
-                setStores([]);
-                return;
             }
 
-            if (response.data && Array.isArray(response.data.content)) {
-                setStores(response.data.content);
+            let url;
+            let response;
+
+            // Use location-based API if location filter is enabled and we have location
+            if (useLocationFilter && location) {
+                const radius = radiusInMeters || 50; // Default to 50m if not specified
+                url = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByLocation?latitude=${location.latitude}&longitude=${location.longitude}&radiusInMeters=${radius}`;
+
+                console.log('🔵 [FETCH STORES] Using location-based API:', url);
+
+                response = await axios.get(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'IconMobile',
+                    }
+                });
+
+                // Location API returns array directly
+                if (Array.isArray(response.data)) {
+                    let filteredStores = response.data;
+
+                    // Apply search filter if provided
+                    if (searchText.trim()) {
+                        filteredStores = filteredStores.filter(store =>
+                            store.storeName?.toLowerCase().includes(searchText.toLowerCase())
+                        );
+                    }
+
+                    // Apply customer type filter if not ALL
+                    if (customerTypeFilter !== 'ALL') {
+                        filteredStores = filteredStores.filter(store => {
+                            // Handle both old and new formats
+                            if (customerTypeFilter === 'Dealer/Shop') {
+                                return isDealerType(store.clientType);
+                            } else if (customerTypeFilter === 'Engineer/Architect/Contractor') {
+                                return isProfessionalType(store.clientType);
+                            } else {
+                                return store.clientType === customerTypeFilter;
+                            }
+                        });
+                    }
+
+                    // If no visits exist for this date and filter is ALL, force Dealer only
+                    if (!hasVisitsForDate && customerTypeFilter === 'ALL') {
+                        filteredStores = filteredStores.filter(store => isDealerType(store.clientType));
+                        console.log('🔵 [FETCH STORES] No visits exist for date, filtering for Dealer stores only');
+                    }
+
+                    setStores(filteredStores);
+                } else {
+                    setStores([]);
+                }
             } else {
-                setStores([]);
+                // Fallback to filteredValues API
+                url = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/filteredValues?page=0&size=20&sortBy=storeName&sortOrder=asc`;
+
+                if (searchText.trim()) {
+                    url += `&storeName=${encodeURIComponent(searchText.trim())}`;
+                }
+
+                // Apply customer type filter if not ALL
+                if (customerTypeFilter !== 'ALL') {
+                    // Send the new format value to backend
+                    url += `&clientType=${encodeURIComponent(customerTypeFilter)}`;
+                } else if (!hasVisitsForDate) {
+                    // If no visits exist for this date and filter is ALL, only show Dealer type stores
+                    url += `&clientType=Dealer/Shop`;
+                    console.log('🔵 [FETCH STORES] No visits exist for date, filtering for Dealer stores only');
+                }
+
+                response = await axios.get(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'IconMobile',
+                    }
+                });
+
+                // Check if response is HTML instead of JSON
+                const isHtmlResponse = typeof response.data === 'string' &&
+                    (response.data.includes('<!DOCTYPE html>') || response.data.includes('<html>'));
+
+                if (isHtmlResponse) {
+                    console.log('⚠️ [FETCH STORES] Server returned HTML instead of JSON');
+                    setStores([]);
+                    return;
+                }
+
+                if (response.data && Array.isArray(response.data.content)) {
+                    setStores(response.data.content);
+                } else {
+                    setStores([]);
+                }
             }
         } catch (error) {
             console.error('Error fetching stores:', error);
-            
+
             if (error.response && (error.response.status === 401 || error.response.status === 403)) {
                 Alert.alert(
                     "Session Expired",
@@ -737,13 +936,18 @@ const VisitsList = ({ authToken }) => {
             }
         })();
         if (isModalVisible) {
+            // Reset location on modal open
+            setCurrentLocation(null);
+            setLocationError(null);
             fetchStores('');
         } else {
             setStores([]);
             setStoreSearchText('');
             setSelectedStore(null);
+            setCurrentLocation(null);
+            setLocationError(null);
         }
-    }, [isModalVisible]);
+    }, [isModalVisible, useLocationFilter, radiusInMeters, customerTypeFilter]);
 
     const renderTimelineCard = ({ item }) => {
         if (item.type === 'activity') {
@@ -763,7 +967,7 @@ const VisitsList = ({ authToken }) => {
                             <Text style={styles.statusText}>Activity</Text>
                         </View>
                     </View>
-                    
+
                     <View style={styles.visitDetails}>
                         <View style={styles.visitRow}>
                             <View style={styles.visitItem}>
@@ -776,7 +980,7 @@ const VisitsList = ({ authToken }) => {
                             </View>
                         </View>
                     </View>
-                    
+
                     <View style={styles.cardFooter}>
                         <View style={styles.footerLeft}>
                             <View style={styles.footerItem}>
@@ -840,7 +1044,7 @@ const VisitsList = ({ authToken }) => {
                             <Text style={styles.statusText}>{visit.status}</Text>
                         </View>
                     </View>
-                    
+
                     <View style={styles.visitDetails}>
                         <View style={styles.visitRow}>
                             <View style={styles.visitItem}>
@@ -853,7 +1057,7 @@ const VisitsList = ({ authToken }) => {
                             </View>
                         </View>
                     </View>
-                    
+
                     <View style={styles.cardFooter}>
                         <View style={styles.footerLeft}>
                             {formattedDuration && (
@@ -877,8 +1081,8 @@ const VisitsList = ({ authToken }) => {
 
     return (
         <View style={styles.container}>
-            <CustomDatePicker 
-                selectedDate={selectedDate} 
+            <CustomDatePicker
+                selectedDate={selectedDate}
                 onDateChange={handleDateChange}
             />
             <View style={styles.filtersContainer}>
@@ -906,19 +1110,22 @@ const VisitsList = ({ authToken }) => {
                 <View style={styles.errorContainer}>
                     <Text style={styles.errorText}>{error}</Text>
                 </View>
-             ) : (
-                 <FlatList
-                     data={filteredTimelineData}
-                     renderItem={renderTimelineCard}
-                     keyExtractor={(item) => `${item.type}-${item.id}`}
-                     contentContainerStyle={styles.listContainer}
-                     ListEmptyComponent={() => (
-                         <Text style={styles.noVisitsText}>No visits or activities found for this date</Text>
-                     )}
-                 />
-             )}
-            {String(employeeRole).toUpperCase() !== 'AVP' && (
-                <TouchableOpacity style={styles.addButton} onPress={openCreateOptions}>
+            ) : (
+                <FlatList
+                    data={filteredTimelineData}
+                    renderItem={renderTimelineCard}
+                    keyExtractor={(item) => `${item.type}-${item.id}`}
+                    contentContainerStyle={styles.listContainer}
+                    ListEmptyComponent={() => (
+                        <Text style={styles.noVisitsText}>No visits or activities found for this date</Text>
+                    )}
+                />
+            )}
+            {String(employeeRole).toUpperCase() !== 'AVP' && !isPastSelectedDate && (
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={openCreateOptions}
+                >
                     <Ionicons name="add" size={24} color="white" />
                 </TouchableOpacity>
             )}
@@ -938,22 +1145,30 @@ const VisitsList = ({ authToken }) => {
                                 <Ionicons name="close" size={24} color="#000" />
                             </TouchableOpacity>
                         </View>
-                        
+
                         <View style={styles.optionsContainer}>
                             <TouchableOpacity style={styles.optionButton} onPress={openVisitModal}>
                                 <View style={styles.optionIconContainer}>
-                                    <Ionicons name="business-outline" size={32} color="#4F46E5" />
+                                    <Ionicons name="business-outline" size={24} color="#4F46E5" />
                                 </View>
                                 <Text style={styles.optionTitle}>Visit</Text>
                                 <Text style={styles.optionDescription}>Create a customer visit</Text>
                             </TouchableOpacity>
-                            
+
                             <TouchableOpacity style={styles.optionButton} onPress={openActivityModal}>
                                 <View style={styles.optionIconContainer}>
-                                    <Ionicons name="briefcase-outline" size={32} color="#9C27B0" />
+                                    <Ionicons name="briefcase-outline" size={24} color="#9C27B0" />
                                 </View>
                                 <Text style={styles.optionTitle}>Activity</Text>
                                 <Text style={styles.optionDescription}>Log a work activity</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.optionButton} onPress={openCreateStoreModal}>
+                                <View style={styles.optionIconContainer}>
+                                    <Ionicons name="storefront-outline" size={24} color="#10B981" />
+                                </View>
+                                <Text style={styles.optionTitle}>Create Site Visit</Text>
+                                <Text style={styles.optionDescription}>Add a new customer store</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -975,73 +1190,177 @@ const VisitsList = ({ authToken }) => {
                             </TouchableOpacity>
                         </View>
 
-                         {!selectedStore ? (
-                             <View style={styles.storeSection}>
-                                 <Text style={styles.sectionTitle}>Select Store</Text>
-                                 
-                                 {/* Show restriction message when no visits exist */}
-                                 {!hasVisitsForDate && (
-                                     <View style={styles.restrictionBanner}>
-                                         <Ionicons name="information-circle" size={20} color="#F59E0B" />
-                                         <Text style={styles.restrictionText}>
-                                             No visits exist for this date. Only Dealer stores are available for new visits.
-                                         </Text>
-                                     </View>
-                                 )}
-                                 
-                                 <View style={styles.searchInputContainer}>
-                                     <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-                                     <TextInput
-                                         style={styles.searchInput}
-                                         placeholder={hasVisitsForDate ? "Search stores by name" : "Search Dealer stores by name"}
-                                         value={storeSearchText}
-                                         onChangeText={handleStoreSearchChange}
-                                         placeholderTextColor="#999"
-                                     />
-                                 </View>
-                                
+                        {!selectedStore ? (
+                            <View style={styles.storeSection}>
                                 <FlatList
                                     data={stores}
-                                    renderItem={({ item }) => (
-                                        <TouchableOpacity
-                                            style={styles.storeItem}
-                                            onPress={() => handleStoreSelect(item)}
-                                        >
-                                            <View style={styles.storeItemContent}>
-                                                <Text style={styles.storeItemName}>{item.storeName}</Text>
-                                                <View style={styles.storeItemGrid}>
-                                                    <View style={styles.storeItemColumn}>
-                                                        <View style={styles.storeItemRow}>
-                                                            <Ionicons name="person-outline" size={14} color="#6B7280" />
-                                                            <Text style={styles.storeItemText} numberOfLines={1}>
-                                                                {item.clientFirstName} {item.clientLastName}
-                                                            </Text>
-                                                        </View>
-                                                        <View style={styles.storeItemRow}>
-                                                            <Ionicons name="business-outline" size={14} color="#6B7280" />
-                                                            <Text style={styles.storeItemText} numberOfLines={1}>
-                                                                {item.clientType || 'N/A'}
-                                                            </Text>
-                                                        </View>
+                                    style={styles.storesList}
+                                    contentContainerStyle={styles.storesListContent}
+                                    showsVerticalScrollIndicator={true}
+                                    ListHeaderComponent={() => (
+                                        <>
+                                            <Text style={styles.sectionTitle}>Select Store</Text>
+
+                                            {/* Radius selector with No Limit option */}
+                                            <View style={styles.radiusAndTypeContainer}>
+                                                <View style={styles.radiusSelector}>
+                                                    <View style={styles.radiusSelectorHeader}>
+                                                        <Ionicons name="location" size={16} color="#4F46E5" />
+                                                        <Text style={styles.radiusLabel}>Distance:</Text>
                                                     </View>
-                                                    <View style={styles.storeItemColumn}>
-                                                        <View style={styles.storeItemRow}>
-                                                            <Ionicons name="location-outline" size={14} color="#6B7280" />
-                                                            <Text style={styles.storeItemText} numberOfLines={1}>
-                                                                {item.city}
-                                                            </Text>
-                                                        </View>
+                                                    <View style={styles.radiusButtons}>
+                                                        {[500, 1000, 2000, 5000, null].map((radius) => (
+                                                            <TouchableOpacity
+                                                                key={radius === null ? 'no-limit' : radius}
+                                                                style={[
+                                                                    styles.radiusButton,
+                                                                    radiusInMeters === radius && styles.radiusButtonActive
+                                                                ]}
+                                                                onPress={() => {
+                                                                    setRadiusInMeters(radius);
+                                                                    setUseLocationFilter(radius !== null);
+                                                                    setCurrentLocation(null);
+                                                                }}
+                                                            >
+                                                                <Text style={[
+                                                                    styles.radiusButtonText,
+                                                                    radiusInMeters === radius && styles.radiusButtonTextActive
+                                                                ]}>
+                                                                    {radius === null ? 'No Limit' : (radius >= 1000 ? `${radius / 1000}km` : `${radius}m`)}
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        ))}
+                                                    </View>
+                                                </View>
+
+                                                {/* Customer Type Filter */}
+                                                <View style={styles.typeFilter}>
+                                                    <View style={styles.typeFilterHeader}>
+                                                        <Ionicons name="people" size={16} color="#4F46E5" />
+                                                        <Text style={styles.typeFilterLabel}>Customer Type:</Text>
+                                                    </View>
+                                                    <View style={styles.typeFilterChips}>
+                                                        {(() => {
+                                                            // For first visit of the day, only show Dealer/Shop option
+                                                            const customerTypeOptions = !hasVisitsForDate
+                                                                ? [{ label: 'Dealer/Shop', value: 'Dealer/Shop' }]
+                                                                : [
+                                                                    { label: 'All', value: 'ALL' },
+                                                                    { label: 'Dealer/Shop', value: 'Dealer/Shop' },
+                                                                    { label: 'Engineer/Architect/Contractor', value: 'Engineer/Architect/Contractor' },
+                                                                    { label: 'Site Visit', value: 'Site Visit' },
+                                                                ];
+
+                                                            return customerTypeOptions.map(type => (
+                                                                <TouchableOpacity
+                                                                    key={type.value}
+                                                                    style={[
+                                                                        styles.typeChip,
+                                                                        customerTypeFilter === type.value && styles.typeChipActive
+                                                                    ]}
+                                                                    onPress={() => setCustomerTypeFilter(type.value)}
+                                                                >
+                                                                    <Text
+                                                                        style={[
+                                                                            styles.typeChipText,
+                                                                            customerTypeFilter === type.value && styles.typeChipTextActive
+                                                                        ]}
+                                                                    >
+                                                                        {type.label}
+                                                                    </Text>
+                                                                </TouchableOpacity>
+                                                            ));
+                                                        })()}
                                                     </View>
                                                 </View>
                                             </View>
-                                        </TouchableOpacity>
+
+                                            {/* Show location error if any */}
+                                            {locationError && (
+                                                <View style={styles.locationErrorBanner}>
+                                                    <Ionicons name="warning-outline" size={16} color="#EF4444" />
+                                                    <Text style={styles.locationErrorText}>{locationError}</Text>
+                                                </View>
+                                            )}
+
+                                            {/* Show restriction message when no visits exist */}
+                                            {!hasVisitsForDate && (
+                                                <View style={styles.restrictionBanner}>
+                                                    <Ionicons name="information-circle" size={20} color="#F59E0B" />
+                                                    <Text style={styles.restrictionText}>
+                                                        No visits exist for this date. Only Dealer stores are available for new visits.
+                                                    </Text>
+                                                </View>
+                                            )}
+
+                                            <View style={styles.searchInputContainer}>
+                                                <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+                                                <TextInput
+                                                    style={styles.searchInput}
+                                                    placeholder={hasVisitsForDate ? "Search stores by name" : "Search Dealer stores by name"}
+                                                    value={storeSearchText}
+                                                    onChangeText={handleStoreSearchChange}
+                                                    placeholderTextColor="#999"
+                                                />
+                                            </View>
+                                        </>
                                     )}
+                                    renderItem={({ item }) => {
+                                        const isDisabled = radiusInMeters === null;
+                                        return (
+                                            <TouchableOpacity
+                                                style={styles.storeItem}
+                                                onPress={() => !isDisabled && handleStoreSelect(item)}
+                                                disabled={isDisabled}
+                                            >
+                                                <View style={styles.storeItemContent}>
+                                                    <Text style={styles.storeItemName}>{item.storeName}</Text>
+                                                    <View style={styles.storeItemGrid}>
+                                                        <View style={styles.storeItemColumn}>
+                                                            <View style={styles.storeItemRow}>
+                                                                <Ionicons
+                                                                    name="person-outline"
+                                                                    size={14}
+                                                                    color="#6B7280"
+                                                                />
+                                                                <Text style={styles.storeItemText} numberOfLines={1}>
+                                                                    {item.clientFirstName} {item.clientLastName}
+                                                                </Text>
+                                                            </View>
+                                                            <View style={styles.storeItemRow}>
+                                                                <Ionicons
+                                                                    name="business-outline"
+                                                                    size={14}
+                                                                    color="#6B7280"
+                                                                />
+                                                                <Text style={styles.storeItemText} numberOfLines={1}>
+                                                                    {getClientTypeDisplay(item.clientType)}
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                        <View style={styles.storeItemColumn}>
+                                                            <View style={styles.storeItemRow}>
+                                                                <Ionicons
+                                                                    name="location-outline"
+                                                                    size={14}
+                                                                    color="#6B7280"
+                                                                />
+                                                                <Text style={styles.storeItemText} numberOfLines={1}>
+                                                                    {item.city}
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            </TouchableOpacity>
+                                        );
+                                    }}
                                     keyExtractor={(item) => (item?.storeId || '').toString()}
                                     ListEmptyComponent={() => (
                                         <Text style={styles.noStoresText}>
-                                            {isStoreLoading ? 'Searching...' : 
-                                             storeSearchText.trim() ? 'No stores found matching your search' : 
-                                             'No stores available'}
+                                            {isStoreLoading ? 'Searching...' :
+                                                storeSearchText.trim() ? 'No stores found matching your search' :
+                                                    'No stores available'}
                                         </Text>
                                     )}
                                     ListFooterComponent={() => (
@@ -1111,180 +1430,105 @@ const VisitsList = ({ authToken }) => {
                 </View>
             </Modal>
 
-             <DatePicker
-                 isVisible={isPickerVisible}
-                 onClose={() => setPickerVisible(false)}
-                 onSelect={handleSelectDate}
-             />
+            <DatePicker
+                isVisible={isPickerVisible}
+                onClose={() => setPickerVisible(false)}
+                onSelect={handleSelectDate}
+            />
 
-             {/* Activity Creation Modal */}
-             <Modal
-                 visible={isActivityModalVisible}
-                 animationType="slide"
-                 onRequestClose={closeActivityModal}
-                 transparent={true}
-             >
-                 <View style={styles.modalBackground}>
-                     <View style={styles.modalContainer}>
-                         <View style={styles.modalHeader}>
-                             <Text style={styles.modalTitle}>Create Activity</Text>
-                             <TouchableOpacity style={styles.closeButton} onPress={closeActivityModal}>
-                                 <Ionicons name="close" size={24} color="#000" />
-                             </TouchableOpacity>
-                         </View>
-
-                         <ScrollView contentContainerStyle={styles.scrollContent}>
-                             <View style={styles.inputContainer}>
-                                 <Text style={styles.label}>Activity Title *</Text>
-                                 <TextInput
-                                     style={styles.input}
-                                     placeholder="Enter activity title"
-                                     value={newActivityDetails.title}
-                                     onChangeText={(text) => setNewActivityDetails({ ...newActivityDetails, title: text })}
-                                     placeholderTextColor="#999"
-                                 />
-                             </View>
-
-                             <View style={styles.inputContainer}>
-                                 <Text style={styles.label}>Description</Text>
-                                 <TextInput
-                                     style={[styles.input, styles.textArea]}
-                                     placeholder="Enter activity description (optional)"
-                                     value={newActivityDetails.description}
-                                     onChangeText={(text) => setNewActivityDetails({ ...newActivityDetails, description: text })}
-                                     placeholderTextColor="#999"
-                                     multiline={true}
-                                     numberOfLines={4}
-                                     textAlignVertical="top"
-                                 />
-                             </View>
-
-                             <View style={styles.inputContainer}>
-                                 <Text style={styles.label}>Activity Date</Text>
-                                 <TouchableOpacity
-                                     style={styles.dateButton}
-                                     onPress={() => setPickerVisible(true)}
-                                 >
-                                     <Text style={styles.dateButtonText}>
-                                         {format(newActivityDetails.activityDate, 'MMMM d, yyyy')}
-                                     </Text>
-                                 </TouchableOpacity>
-                             </View>
-
-                             <TouchableOpacity style={styles.createButton} onPress={createActivityAPI}>
-                                 <Text style={styles.createButtonText}>Create Activity</Text>
-                             </TouchableOpacity>
-                         </ScrollView>
-                     </View>
-                 </View>
-             </Modal>
-
-             <Modal
-                visible={isCreateStoreModalVisible}
+            {/* Activity Creation Modal */}
+            <Modal
+                visible={isActivityModalVisible}
                 animationType="slide"
-                onRequestClose={closeCreateStoreModal}
+                onRequestClose={closeActivityModal}
+                transparent={true}
             >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    style={{ flex: 1 }}
-                    keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
-                >
-                    <ScrollView>
-                        <View style={styles.modalContainer}>
-                            <View style={styles.modalHeader}>
-                                <TouchableOpacity style={styles.backButton} onPress={closeCreateStoreModal}>
-                                    <Ionicons name="arrow-back" size={24} color="#000" />
-                                </TouchableOpacity>
-                                <Text style={styles.modalTitle}>Create New Store</Text>
-                            </View>
-
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Store Name</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Name of your store"
-                                    value={newStoreDetails.storeName}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, storeName: text })}
-                                />
-                            </View>
-
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Client First Name</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="First name of the client"
-                                    value={newStoreDetails.clientFirstName}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, clientFirstName: text })}
-                                />
-                            </View>
-
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Client Last Name</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Last name of the client"
-                                    value={newStoreDetails.clientLastName}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, clientLastName: text })}
-                                />
-                            </View>
-
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Primary Contact</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Primary phone number"
-                                    value={newStoreDetails.primaryContact}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, primaryContact: text })}
-                                    keyboardType="phone-pad"
-                                />
-                            </View>
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>City</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="City"
-                                    value={newStoreDetails.city}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, city: text })}
-                                />
-                            </View>
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Village</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Village"
-                                    value={newStoreDetails.village}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, village: text })}
-                                />
-                            </View>
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>Taluka</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Taluka"
-                                    value={newStoreDetails.taluka}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, taluka: text })}
-                                />
-                            </View>
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>State</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="State"
-                                    value={newStoreDetails.state}
-                                    onChangeText={(text) => setNewStoreDetails({ ...newStoreDetails, state: text })}
-                                />
-                            </View>
-
-                            <TouchableOpacity
-                                style={styles.createButton}
-                                onPress={handleCreateStore}
-                            >
-                                <Text style={styles.createButtonText}>Create Store</Text>
+                <View style={styles.modalBackground}>
+                    <View style={styles.modalContainer}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Create Activity</Text>
+                            <TouchableOpacity style={styles.closeButton} onPress={closeActivityModal}>
+                                <Ionicons name="close" size={24} color="#000" />
                             </TouchableOpacity>
                         </View>
-                    </ScrollView>
-                </KeyboardAvoidingView>
+
+                        <ScrollView contentContainerStyle={styles.scrollContent}>
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.label}>Activity Title *</Text>
+                                <CustomDropdown
+                                    options={[
+                                        { label: 'Contractor Meeting', value: 'Contractor Meeting' },
+                                        { label: 'Mason Meeting', value: 'Mason Meeting' },
+                                        { label: 'Expo', value: 'Expo' },
+                                        { label: 'Others', value: 'Others' },
+                                    ]}
+                                    placeholder="Select activity title"
+                                    onSelect={(option) => {
+                                        setSelectedActivityTitle(option);
+                                        if (option?.value !== 'Others') {
+                                            setNewActivityDetails({ ...newActivityDetails, customTitle: '' });
+                                        }
+                                    }}
+                                    selectedOption={selectedActivityTitle}
+                                />
+                            </View>
+
+                            {selectedActivityTitle?.value === 'Others' && (
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.label}>Custom Activity Title *</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="Enter custom activity title"
+                                        value={newActivityDetails.customTitle}
+                                        onChangeText={(text) => setNewActivityDetails({ ...newActivityDetails, customTitle: text })}
+                                        placeholderTextColor="#999"
+                                    />
+                                </View>
+                            )}
+
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.label}>Description</Text>
+                                <TextInput
+                                    style={[styles.input, styles.textArea]}
+                                    placeholder="Enter activity description (optional)"
+                                    value={newActivityDetails.description}
+                                    onChangeText={(text) => setNewActivityDetails({ ...newActivityDetails, description: text })}
+                                    placeholderTextColor="#999"
+                                    multiline={true}
+                                    numberOfLines={4}
+                                    textAlignVertical="top"
+                                />
+                            </View>
+
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.label}>Activity Date</Text>
+                                <TouchableOpacity
+                                    style={styles.dateButton}
+                                    onPress={() => setPickerVisible(true)}
+                                >
+                                    <Text style={styles.dateButtonText}>
+                                        {format(newActivityDetails.activityDate, 'MMMM d, yyyy')}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity style={styles.createButton} onPress={createActivityAPI}>
+                                <Text style={styles.createButtonText}>Create Activity</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </View>
+                </View>
             </Modal>
+
+            {/* Create Store Modal */}
+            <CreateCustomerComponent
+                isVisible={isCreateStoreModalVisible}
+                onClose={closeCreateStoreModal}
+                authToken={authToken}
+                onCustomerCreated={handleStoreCreated}
+                navigation={navigation}
+                defaultClientType="Site Visit"
+            />
             <ConfirmationBottomSheet />
             <OngoingVisitBottomSheet />
         </View>
@@ -1472,6 +1716,10 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         elevation: 5,
     },
+    addButtonDisabled: {
+        backgroundColor: '#9CA3AF',
+        elevation: 1,
+    },
     modalContent: {
         flex: 1,
         padding: 20,
@@ -1496,7 +1744,8 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
-        maxHeight: '80%',
+        maxHeight: '95%',
+        minHeight: '70%',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -1513,6 +1762,13 @@ const styles = StyleSheet.create({
     },
     storeSection: {
         marginBottom: 20,
+        flex: 1,
+    },
+    storesList: {
+        flex: 1,
+    },
+    storesListContent: {
+        paddingBottom: 20,
     },
     sectionTitle: {
         fontSize: 18,
@@ -1857,6 +2113,114 @@ const styles = StyleSheet.create({
         color: '#6B7280',
         marginTop: 4,
     },
+    radiusSelector: {
+        marginBottom: 12,
+        paddingVertical: 8,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+    },
+    radiusSelectorHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    radiusLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginLeft: 6,
+    },
+    radiusButtons: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    radiusButton: {
+        backgroundColor: '#F3F4F6',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        marginRight: 8,
+        marginBottom: 8,
+    },
+    radiusButtonActive: {
+        backgroundColor: '#4F46E5',
+        borderColor: '#4F46E5',
+    },
+    radiusButtonText: {
+        fontSize: 13,
+        color: '#6B7280',
+        fontWeight: '500',
+    },
+    radiusButtonTextActive: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+    },
+    radiusAndTypeContainer: {
+        marginBottom: 12,
+        gap: 12,
+    },
+    typeFilter: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 8,
+        padding: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    typeFilterHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 6,
+        gap: 6,
+    },
+    typeFilterLabel: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#374151',
+    },
+    typeFilterChips: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    typeChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFFFFF',
+    },
+    typeChipActive: {
+        backgroundColor: '#4F46E5',
+        borderColor: '#4F46E5',
+    },
+    typeChipText: {
+        fontSize: 12,
+        color: '#4B5563',
+    },
+    typeChipTextActive: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+    },
+    locationErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF2F2',
+        padding: 10,
+        borderRadius: 8,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#FEE2E2',
+    },
+    locationErrorText: {
+        fontSize: 13,
+        color: '#EF4444',
+        marginLeft: 8,
+        flex: 1,
+    },
     storeItemContent: {
         flex: 1,
     },
@@ -1891,88 +2255,100 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 20,
     },
-     errorText: {
-         color: '#EF4444',
-         fontSize: 16,
-         textAlign: 'center',
-     },
-     // Activity card styles
-     activityCard: {
-         borderLeftWidth: 4,
-         borderLeftColor: '#9C27B0',
-     },
-     activityTitle: {
-         fontSize: 18,
-         fontWeight: 'bold',
-         color: '#1F2937',
-         flex: 1,
-         marginRight: 8,
-     },
-     // Create options modal styles
-     createOptionsContainer: {
-         backgroundColor: '#fff',
-         borderTopLeftRadius: 20,
-         borderTopRightRadius: 20,
-         padding: 20,
-         maxHeight: '60%',
-     },
-     optionsContainer: {
-         flexDirection: 'row',
-         justifyContent: 'space-around',
-         marginTop: 20,
-     },
-     optionButton: {
-         alignItems: 'center',
-         padding: 20,
-         borderRadius: 12,
-         backgroundColor: '#F9FAFB',
-         borderWidth: 1,
-         borderColor: '#E5E7EB',
-         width: '45%',
-     },
-     optionIconContainer: {
-         width: 60,
-         height: 60,
-         borderRadius: 30,
-         backgroundColor: '#F3F4F6',
-         alignItems: 'center',
-         justifyContent: 'center',
-         marginBottom: 12,
-     },
-     optionTitle: {
-         fontSize: 16,
-         fontWeight: 'bold',
-         color: '#1F2937',
-         marginBottom: 4,
-     },
-     optionDescription: {
-         fontSize: 12,
-         color: '#6B7280',
-         textAlign: 'center',
-     },
-     // Text area styles
-     textArea: {
-         height: 100,
-         textAlignVertical: 'top',
-     },
-     // Restriction banner styles
-     restrictionBanner: {
-         flexDirection: 'row',
-         alignItems: 'center',
-         backgroundColor: '#FEF3C7',
-         borderColor: '#F59E0B',
-         borderWidth: 1,
-         borderRadius: 8,
-         padding: 12,
-         marginBottom: 16,
-     },
-     restrictionText: {
-         flex: 1,
-         fontSize: 14,
-         color: '#92400E',
-         marginLeft: 8,
-         lineHeight: 20,
-     },
- });
+    errorText: {
+        color: '#EF4444',
+        fontSize: 16,
+        textAlign: 'center',
+    },
+    // Activity card styles
+    activityCard: {
+        borderLeftWidth: 4,
+        borderLeftColor: '#9C27B0',
+    },
+    activityTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#1F2937',
+        flex: 1,
+        marginRight: 8,
+    },
+    // Create options modal styles
+    createOptionsContainer: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        maxHeight: '60%',
+    },
+    optionsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        marginTop: 15,
+        gap: 10,
+    },
+    optionButton: {
+        alignItems: 'center',
+        padding: 16,
+        borderRadius: 12,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1.5,
+        borderColor: '#E5E7EB',
+        width: '31%',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 1,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    optionIconContainer: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
+    },
+    optionTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 3,
+        textAlign: 'center',
+    },
+    optionDescription: {
+        fontSize: 11,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 14,
+    },
+    // Text area styles
+    textArea: {
+        height: 100,
+        textAlignVertical: 'top',
+    },
+    // Restriction banner styles
+    restrictionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF3C7',
+        borderColor: '#F59E0B',
+        borderWidth: 1,
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 16,
+    },
+    restrictionText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#92400E',
+        marginLeft: 8,
+        lineHeight: 20,
+    },
+});
 
- export default VisitsList;
+export default VisitsList;

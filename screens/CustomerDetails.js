@@ -5,6 +5,7 @@ import axios from 'axios';
 import { format, isToday, isYesterday } from 'date-fns';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import * as Location from 'expo-location';
 import CustomDropdown from './CustomDropdown';
 import DatePicker from './DatePicker';
 import NotesSection from './NotesSection';
@@ -206,6 +207,24 @@ function CustomerDetails({ route, navigation }) {
     return initials.toUpperCase();
   };
 
+  // Calculate distance between two coordinates using Haversine formula (returns distance in meters)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) {
+      return null;
+    }
+
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c; // Distance in meters
+    return distance;
+  };
+
   const handleCreateVisit = () => {
     createVisit();
   };
@@ -213,6 +232,74 @@ function CustomerDetails({ route, navigation }) {
   const createVisit = async () => {
     if (!newVisitDetails.purpose || newVisitDetails.purpose.trim() === '') {
       alert('Please select a purpose for the visit.');
+      return;
+    }
+
+    // Check if user is within 500 meters of the store
+    try {
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Permission Required',
+          'Location permission is required to verify you are near the store. Please enable location permissions in settings.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Get user's current location
+      const userLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      // Get store location from customerDetails
+      const storeLat = customerDetails.latitude;
+      const storeLon = customerDetails.longitude;
+
+      if (!storeLat || !storeLon) {
+        Alert.alert(
+          'Store Location Missing',
+          'Store location information is not available. Cannot verify proximity.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Calculate distance
+      const distance = calculateDistance(
+        userLocation.coords.latitude,
+        userLocation.coords.longitude,
+        storeLat,
+        storeLon
+      );
+
+      if (distance === null) {
+        Alert.alert(
+          'Location Error',
+          'Unable to calculate distance. Please try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Check if within 500 meters
+      if (distance > 500) {
+        const distanceInKm = (distance / 1000).toFixed(2);
+        Alert.alert(
+          'Location Restriction',
+          `You are not within 500 meters radius of the store. Your current distance is ${distanceInKm} km. Please move closer to the store to create a visit.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking location:', error);
+      Alert.alert(
+        'Location Error',
+        'Failed to get your location. Please ensure location services are enabled and try again.',
+        [{ text: 'OK' }]
+      );
       return;
     }
 
@@ -319,9 +406,33 @@ function CustomerDetails({ route, navigation }) {
     });
   };
 
+  // Helper functions to check client types (accepting both old and new formats)
+  const isDealerType = (clientType) => {
+    if (!clientType) return false;
+    const normalized = clientType.toLowerCase();
+    return normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop');
+  };
+
+  const isProfessionalType = (clientType) => {
+    if (!clientType) return false;
+    const normalized = clientType.toLowerCase();
+    return normalized === 'professional' || 
+           normalized === 'engineer/architect/contractor' ||
+           normalized.includes('engineer') || 
+           normalized.includes('architect') || 
+           normalized.includes('contractor') ||
+           normalized.includes('professional');
+  };
+
+  const isSiteVisitType = (clientType) => {
+    if (!clientType) return false;
+    const normalized = clientType.toLowerCase();
+    return normalized === 'site visit';
+  };
+
   const renderCustomerCard = () => {
-    const isProfessional = ['Professional'].includes(customerDetails.clientType);
-    const isSiteVisit = customerDetails.clientType === 'Site Visit';
+    const isProfessional = isProfessionalType(customerDetails.clientType);
+    const isSiteVisit = isSiteVisitType(customerDetails.clientType);
     const primaryProfessional = Array.isArray(customerDetails.professionals)
       ? customerDetails.professionals[0]
       : null;
@@ -357,8 +468,14 @@ function CustomerDetails({ route, navigation }) {
     const hasProfessionals =
       Array.isArray(customerDetails.professionals) && customerDetails.professionals.length > 0;
     
-    // Map backend values to display labels
+    // Map backend values to display labels (handles both old and new formats)
     const getClientTypeDisplay = (clientType) => {
+      if (!clientType) return 'N/A';
+      // If already in new format, return as-is
+      if (clientType === 'Engineer/Architect/Contractor' || clientType === 'Dealer/Shop' || clientType === 'Site Visit') {
+        return clientType;
+      }
+      // Map old backend values to new display format
       const typeMapping = {
         'Professional': 'Engineer/Architect/Contractor',
         'Dealer': 'Dealer/Shop',
@@ -370,9 +487,7 @@ function CustomerDetails({ route, navigation }) {
     return (
         <View style={styles.card}>
             <View style={styles.cardHeader}>
-                <TouchableOpacity style={[styles.iconBtn, styles.editBtn]} onPress={() => setModalVisible(true)}>
-                    <Ionicons name="create-outline" size={24} color="#fff" />
-                </TouchableOpacity>
+                {/* Edit button removed/disabled */}
                 <View style={styles.avatar}>
                     <Text style={styles.avatarText}>
                         {getInitials(`${customerDetails.clientFirstName} ${customerDetails.clientLastName}`)}
@@ -409,7 +524,7 @@ function CustomerDetails({ route, navigation }) {
                     >
                         <Text style={[styles.tabBtnText, customerInfoTab === 'details' && styles.activeTabText]}>Details</Text>
                     </TouchableOpacity>
-                    {(customerDetails.clientType === 'Dealer' || 
+                    {(isDealerType(customerDetails.clientType) || 
                       customerDetails.clientType === 'Professional' || 
                       customerDetails.clientType === 'Site Visit') && (
                       <TouchableOpacity
@@ -417,8 +532,8 @@ function CustomerDetails({ route, navigation }) {
                           onPress={() => setCustomerInfoTab('specific')}
                       >
                           <Text style={[styles.tabBtnText, customerInfoTab === 'specific' && styles.activeTabText]}>
-                            {customerDetails.clientType === 'Dealer' ? 'Dealer Info' : 
-                             customerDetails.clientType === 'Professional' ? 'Professional' : 'Project'}
+                            {isDealerType(customerDetails.clientType) ? 'Dealer Info' : 
+                             isProfessionalType(customerDetails.clientType) ? 'Professional' : 'Project'}
                           </Text>
                       </TouchableOpacity>
                     )}
@@ -459,7 +574,7 @@ function CustomerDetails({ route, navigation }) {
                 {customerInfoTab === 'specific' && (
                     <View>
                         {/* Dealer Specific Fields */}
-                        {customerDetails.clientType === 'Dealer' && (
+                        {isDealerType(customerDetails.clientType) && (
                           <>
                             <InfoRow
                                 icon="time-outline"
@@ -476,6 +591,23 @@ function CustomerDetails({ route, navigation }) {
                                 label="Dealer Type"
                                 value={customerDetails.dealerType || 'N/A'}
                             />
+                            {customerDetails.productCategories && Array.isArray(customerDetails.productCategories) && customerDetails.productCategories.length > 0 && (
+                              <View style={styles.infoRow}>
+                                <Ionicons name="cube-outline" size={20} color="#7F00FF" style={styles.infoIcon} />
+                                <View style={styles.infoTextContainer}>
+                                  <Text style={styles.infoLabel}>Product Categories:</Text>
+                                  <View style={styles.productCategoriesContainer}>
+                                    {customerDetails.productCategories.map((category, index) => (
+                                      <View key={index} style={styles.productCategoryChip}>
+                                        <Text style={styles.productCategoryText}>
+                                          {category.charAt(0).toUpperCase() + category.slice(1).toLowerCase().replace(/_/g, ' ')}
+                                        </Text>
+                                      </View>
+                                    ))}
+                                  </View>
+                                </View>
+                              </View>
+                            )}
                           </>
                         )}
                         
@@ -654,7 +786,7 @@ function CustomerDetails({ route, navigation }) {
 
   const renderContent = () => {
     const tabs = [
-      { id: 'notes', icon: 'document-text-outline', label: 'Notes' },
+      { id: 'notes', icon: 'document-text-outline', label: 'Discussion' },
       { id: 'visits', icon: 'time-outline', label: 'Visits' },
     ];
 
@@ -1055,27 +1187,7 @@ function CustomerDetails({ route, navigation }) {
       <ScrollView style={styles.scrollContainer}>
         {renderCustomerCard()}
         {renderContent()}
-      <EditCustomerModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        customerDetails={customerDetails}
-        onSave={(updatedDetails) => {
-          setCustomerDetails(updatedDetails);
-          axios.put(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/edit?id=${customerId}`, updatedDetails, {
-            headers: {
-              'Authorization': `Bearer ${authToken}`
-            }
-          })
-            .then((response) => {
-              console.log('Store Updated Successfully');
-              setModalVisible(false);
-            })
-            .catch((error) => {
-              console.error('Error updating store:', error);
-              Alert.alert('Error', 'Failed to update customer details');
-            });
-        }}
-      />
+      {/* EditCustomerModal removed - edit functionality disabled */}
       <Modal
         visible={visitModalVisible}
         animationType="slide"
@@ -1346,6 +1458,25 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 14,
     color: '#1F2937',
+    fontWeight: '500',
+  },
+  productCategoriesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  productCategoryChip: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  productCategoryText: {
+    fontSize: 12,
+    color: '#4F46E5',
     fontWeight: '500',
   },
   contentContainer: {

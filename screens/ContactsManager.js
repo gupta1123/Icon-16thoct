@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Modal,
     ScrollView,
     StyleSheet,
     Text,
@@ -12,9 +13,11 @@ import {
     View
 } from 'react-native';
 
-const ContactsManager = ({ storeId, authToken, onClose }) => {
-    const [contacts, setContacts] = useState([]);
+const ContactsManager = ({ storeId, authToken, onClose, clientType }) => {
+    const [contacts, setContacts] = useState([]); // Contacts associated with this store
+    const [allContacts, setAllContacts] = useState([]); // All shared contacts (for Site Visit)
     const [showForm, setShowForm] = useState(false);
+    const [showSelectContact, setShowSelectContact] = useState(false);
     const [contactForm, setContactForm] = useState({
         name: '',
         role: '',
@@ -22,22 +25,39 @@ const ContactsManager = ({ storeId, authToken, onClose }) => {
     });
     const [loading, setLoading] = useState(true);
     const [editingContact, setEditingContact] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
 
     const contactTypes = ['Architect', 'Engineer', 'Builder'];
 
+    // Helper function to check if client type is Site Visit (handles both old and new formats)
+    const isSiteVisitType = (clientType) => {
+        if (!clientType) return false;
+        const normalized = clientType.toLowerCase();
+        return normalized === 'site visit';
+    };
+    const isSiteVisit = isSiteVisitType(clientType);
+
     useEffect(() => {
         fetchContacts();
+        if (isSiteVisit) {
+            fetchAllContacts();
+        }
     }, []);
 
+    // Fetch contacts associated with this store
     const fetchContacts = async () => {
         try {
             const response = await axios.get(
                 `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getByStore?storeId=${storeId}`,
                 {
-                    headers: { Authorization: `Bearer ${authToken}` },
+                    headers: { 
+                        Authorization: `Bearer ${authToken}`,
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'IconMobile',
+                    },
                 }
             );
-            setContacts(response.data);
+            setContacts(response.data || []);
             setLoading(false);
         } catch (error) {
             console.error('Error fetching contacts:', error);
@@ -46,67 +66,173 @@ const ContactsManager = ({ storeId, authToken, onClose }) => {
         }
     };
 
+    // Fetch all shared contacts (for Site Visit)
+    const fetchAllContacts = async () => {
+        try {
+            const response = await axios.get(
+                'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getAll',
+                {
+                    headers: { 
+                        Authorization: `Bearer ${authToken}`,
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'IconMobile',
+                    },
+                }
+            );
+            setAllContacts(response.data || []);
+        } catch (error) {
+            console.error('Error fetching all contacts:', error);
+        }
+    };
+
+    // Associate an existing contact with this store
+    const associateContactWithStore = async (contact) => {
+        try {
+            // New backend contract: link existing professional record to this store
+            await axios.put(
+                'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/linkToStore',
+                null,
+                {
+                    params: {
+                        professionalId: contact.id,
+                        storeId: storeId,
+                    },
+                    headers: {
+                        Authorization: `Bearer ${authToken}`,
+                        'ngrok-skip-browser-warning': 'true',
+                        'User-Agent': 'IconMobile',
+                    },
+                },
+            );
+            Alert.alert('Success', 'Contact associated with this store');
+            fetchContacts();
+            setShowSelectContact(false);
+        } catch (error) {
+            console.error('Error associating contact:', error);
+            Alert.alert('Error', error.response?.data?.message || 'Failed to associate contact with store');
+        }
+    };
+
     const handleSubmit = async () => {
+        // Basic validation
         if (!contactForm.name || !contactForm.role || !contactForm.contact) {
-            Alert.alert('Error', 'Please fill all fields');
+            Alert.alert('Error', 'Please fill all required fields');
             return;
         }
 
         try {
+            const payload = {
+                name: contactForm.name.trim(),
+                role: contactForm.role,
+                contact: contactForm.contact.trim(),
+            };
+
             if (editingContact) {
                 // Edit existing contact
                 await axios.put(
                     `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/edit?professionalId=${editingContact.id}`,
+                    payload,
                     {
-                        ...contactForm,
-                        storeId,
-                    },
-                    {
-                        headers: { Authorization: `Bearer ${authToken}` },
+                        headers: { 
+                            Authorization: `Bearer ${authToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'IconMobile',
+                        },
                     }
                 );
             } else {
-                // Add new contact
-                await axios.post(
-                    'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/addForStore',
+                // Add new contact and associate with store
+                const createResponse = await axios.post(
+                    'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/create',
+                    payload,
                     {
-                        ...contactForm,
-                        storeId,
-                    },
-                    {
-                        headers: { Authorization: `Bearer ${authToken}` },
+                        headers: { 
+                            Authorization: `Bearer ${authToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'IconMobile',
+                        },
                     }
+                );
+
+                const createdId = createResponse?.data?.id ?? createResponse?.data;
+
+                // Link the created professional to this store
+                await axios.put(
+                    'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/linkToStore',
+                    null,
+                    {
+                        params: {
+                            professionalId: createdId,
+                            storeId: storeId,
+                        },
+                        headers: {
+                            Authorization: `Bearer ${authToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'IconMobile',
+                        },
+                    },
                 );
             }
             resetForm();
             fetchContacts();
+            if (isSiteVisit) {
+                fetchAllContacts();
+            }
         } catch (error) {
             console.error('Error saving contact:', error);
-            Alert.alert('Error', 'Failed to save contact');
+            Alert.alert('Error', error.response?.data?.message || 'Failed to save contact');
         }
     };
 
     const handleDelete = async (professionalId) => {
         try {
-            await axios.delete(
-                `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/delete?professionalId=${professionalId}`,
-                {
-                    headers: { Authorization: `Bearer ${authToken}` },
-                }
-            );
+            if (isSiteVisit) {
+                // For Site Visit: professionals are shared; only unlink from this store
+                await axios.put(
+                    'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/unlinkFromStore',
+                    null,
+                    {
+                        params: {
+                            professionalId,
+                            storeId,
+                        },
+                        headers: {
+                            Authorization: `Bearer ${authToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'IconMobile',
+                        },
+                    },
+                );
+            } else {
+                // For other client types: delete the professional record
+                await axios.delete(
+                    `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/delete`,
+                    {
+                        params: { professionalId },
+                        headers: {
+                            Authorization: `Bearer ${authToken}`,
+                            'ngrok-skip-browser-warning': 'true',
+                            'User-Agent': 'IconMobile',
+                        },
+                    },
+                );
+            }
             fetchContacts();
+            if (isSiteVisit) {
+                fetchAllContacts();
+            }
         } catch (error) {
             console.error('Error deleting contact:', error);
-            Alert.alert('Error', 'Failed to delete contact');
+            Alert.alert('Error', 'Failed to update contact for this store');
         }
     };
 
     const handleEdit = (contact) => {
         setEditingContact(contact);
         setContactForm({
-            name: contact.name,
-            role: contact.role.toLowerCase(),
-            contact: contact.contact,
+            name: contact.name || '',
+            role: contact.role ? contact.role.toLowerCase() : '',
+            contact: contact.contact || '',
         });
         setShowForm(true);
     };
@@ -115,6 +241,7 @@ const ContactsManager = ({ storeId, authToken, onClose }) => {
         setContactForm({ name: '', role: '', contact: '' });
         setEditingContact(null);
         setShowForm(false);
+        setShowSelectContact(false);
     };
 
     const renderContactCard = (contact) => (
@@ -143,76 +270,200 @@ const ContactsManager = ({ storeId, authToken, onClose }) => {
         </View>
     );
 
+    // Get contact IDs already associated with this store
+    const associatedContactIds = contacts.map(c => c.id);
+
     return (
         <View style={styles.container}>
-            <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => setShowForm(true)}
-            >
-                <Ionicons name="add-circle-outline" size={24} color="#4A90E2" />
-                <Text style={styles.addButtonText}>Add Contact</Text>
-            </TouchableOpacity>
+            {isSiteVisit ? (
+                <View style={styles.buttonRow}>
+                    <TouchableOpacity
+                        style={[styles.addButton, styles.selectButton]}
+                        onPress={() => setShowSelectContact(true)}
+                    >
+                        <Ionicons name="list-outline" size={22} color="#4A90E2" />
+                        <Text style={styles.addButtonText}>Select Contact</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.addButton, styles.createButton]}
+                        onPress={() => setShowForm(true)}
+                    >
+                        <Ionicons name="add-circle-outline" size={22} color="#4A90E2" />
+                        <Text style={styles.addButtonTextSmall}>New Contact</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => setShowForm(true)}
+                >
+                    <Ionicons name="add-circle-outline" size={24} color="#4A90E2" />
+                    <Text style={styles.addButtonText}>Add Contact</Text>
+                </TouchableOpacity>
+            )}
 
-            {showForm && (
-                <View style={styles.form}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Contact Name"
-                        value={contactForm.name}
-                        onChangeText={(text) =>
-                            setContactForm({ ...contactForm, name: text })
-                        }
-                    />
-                    <View style={styles.typeButtons}>
-                        {contactTypes.map((type) => (
-                            <TouchableOpacity
-                                key={type}
-                                style={[
-                                    styles.typeButton,
-                                    contactForm.role === type.toLowerCase() && styles.selectedType,
-                                ]}
-                                onPress={() =>
-                                    setContactForm({ ...contactForm, role: type.toLowerCase() })
-                                }
-                            >
-                                <Text
-                                    style={[
-                                        styles.typeButtonText,
-                                        contactForm.role === type.toLowerCase() && styles.selectedTypeText,
-                                    ]}
-                                >
-                                    {type}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
+            {/* Select Existing Contact - Bottom Sheet Modal (Site Visit only) */}
+            {isSiteVisit && (
+                <Modal
+                    visible={showSelectContact}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowSelectContact(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.bottomSheet}>
+                            <View style={styles.sheetHeader}>
+                                <Text style={styles.sheetTitle}>Select Existing Contact</Text>
+                                <TouchableOpacity onPress={() => setShowSelectContact(false)}>
+                                    <Ionicons name="close" size={22} color="#111827" />
+                                </TouchableOpacity>
+                            </View>
+                            {/* Search box */}
+                            <View style={styles.searchRow}>
+                                <View style={styles.searchInputWrapper}>
+                                    <Ionicons name="search-outline" size={16} color="#9CA3AF" />
+                                    <TextInput
+                                        style={styles.searchInput}
+                                        placeholder="Search by name, role or number"
+                                        value={searchQuery}
+                                        onChangeText={setSearchQuery}
+                                    />
+                                </View>
+                            </View>
+                            <ScrollView style={styles.selectContactList}>
+                                {allContacts.length === 0 ? (
+                                    <Text style={styles.noContactsText}>No contacts available</Text>
+                                ) : (
+                                    allContacts
+                                        .filter((contact) => {
+                                            if (!searchQuery.trim()) return true;
+                                            const q = searchQuery.toLowerCase();
+                                            return (
+                                                (contact.name || '').toLowerCase().includes(q) ||
+                                                (contact.role || '').toLowerCase().includes(q) ||
+                                                (contact.contact || '').toString().toLowerCase().includes(q)
+                                            );
+                                        })
+                                        .map((contact) => {
+                                        const isAssociated = associatedContactIds.includes(contact.id);
+                                        return (
+                                            <TouchableOpacity
+                                                key={contact.id}
+                                                style={[
+                                                    styles.contactSelectCard,
+                                                    isAssociated && styles.contactSelectCardAssociated
+                                                ]}
+                                                onPress={() => {
+                                                    if (!isAssociated) {
+                                                        associateContactWithStore(contact);
+                                                    } else {
+                                                        Alert.alert('Info', 'This contact is already associated with this store');
+                                                    }
+                                                }}
+                                                disabled={isAssociated}
+                                            >
+                                                <View style={styles.contactInfo}>
+                                                    <Text style={styles.contactName}>{contact.name}</Text>
+                                                    <View style={styles.typeTag}>
+                                                        <Text style={styles.typeText}>{contact.role}</Text>
+                                                    </View>
+                                                    <Text style={styles.contactNumber}>{contact.contact}</Text>
+                                                </View>
+                                                {isAssociated && (
+                                                    <View style={styles.associatedBadge}>
+                                                        <Text style={styles.associatedBadgeText}>Added</Text>
+                                                    </View>
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    })
+                                )}
+                            </ScrollView>
+                        </View>
                     </View>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Contact Number"
-                        value={contactForm.contact}
-                        onChangeText={(text) =>
-                            setContactForm({ ...contactForm, contact: text })
-                        }
-                        keyboardType="phone-pad"
-                    />
-                    <View style={styles.formButtons}>
-                        <TouchableOpacity
-                            style={styles.submitButton}
-                            onPress={handleSubmit}
-                        >
-                            <Text style={styles.submitButtonText}>
-                                {editingContact ? 'Update' : 'Save'}
+                </Modal>
+            )}
+
+            {/* Create / Edit Contact - Bottom Sheet Modal */}
+            <Modal
+                visible={showForm}
+                transparent
+                animationType="slide"
+                onRequestClose={resetForm}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.bottomSheet}>
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>
+                                {editingContact ? 'Edit Contact' : 'Create New Contact'}
                             </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.cancelButton}
-                            onPress={resetForm}
-                        >
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
-                        </TouchableOpacity>
+                            <TouchableOpacity onPress={resetForm}>
+                                <Ionicons name="close" size={22} color="#111827" />
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView>
+                            <View style={styles.form}>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="Contact Name"
+                                    value={contactForm.name}
+                                    onChangeText={(text) =>
+                                        setContactForm({ ...contactForm, name: text })
+                                    }
+                                />
+                                <View style={styles.typeButtons}>
+                                    {contactTypes.map((type) => (
+                                        <TouchableOpacity
+                                            key={type}
+                                            style={[
+                                                styles.typeButton,
+                                                contactForm.role === type.toLowerCase() && styles.selectedType,
+                                            ]}
+                                            onPress={() =>
+                                                setContactForm({ ...contactForm, role: type.toLowerCase() })
+                                            }
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.typeButtonText,
+                                                    contactForm.role === type.toLowerCase() && styles.selectedTypeText,
+                                                ]}
+                                            >
+                                                {type}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="Contact Number"
+                                    value={contactForm.contact}
+                                    onChangeText={(text) =>
+                                        setContactForm({ ...contactForm, contact: text })
+                                    }
+                                    keyboardType="phone-pad"
+                                />
+                                <View style={styles.formButtons}>
+                                    <TouchableOpacity
+                                        style={styles.submitButton}
+                                        onPress={handleSubmit}
+                                    >
+                                        <Text style={styles.submitButtonText}>
+                                            {editingContact ? 'Update' : 'Save'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.cancelButton}
+                                        onPress={resetForm}
+                                    >
+                                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </ScrollView>
                     </View>
                 </View>
-            )}
+            </Modal>
 
             <ScrollView style={styles.contactsList}>
                 {loading ? (
@@ -245,6 +496,14 @@ const styles = StyleSheet.create({
         color: '#4A90E2',
         fontSize: 16,
         fontWeight: '600',
+        flexShrink: 1,
+    },
+    addButtonTextSmall: {
+        marginLeft: 8,
+        color: '#4A90E2',
+        fontSize: 16,
+        fontWeight: '600',
+        flexShrink: 1,
     },
     form: {
         backgroundColor: '#fff',
@@ -372,6 +631,120 @@ const styles = StyleSheet.create({
         fontSize: 16,
         textAlign: 'center',
         marginTop: 16,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'flex-end',
+    },
+    bottomSheet: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 24,
+        maxHeight: '90%',
+        minHeight: '50%',
+    },
+    sheetHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    sheetTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#111827',
+    },
+    searchRow: {
+        marginBottom: 8,
+    },
+    searchInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: '#F9FAFB',
+        gap: 6,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 14,
+        paddingVertical: 4,
+        color: '#111827',
+    },
+    buttonRow: {
+        flexDirection: 'row',
+        gap: 12,
+        marginBottom: 16,
+    },
+    selectButton: {
+        flex: 1,
+    },
+    createButton: {
+        flex: 1,
+    },
+    selectContactContainer: {
+        backgroundColor: '#fff',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 16,
+        maxHeight: 600,
+    },
+    selectContactList: {
+        maxHeight: 500,
+        marginBottom: 12,
+    },
+    contactSelectCard: {
+        backgroundColor: '#F9FAFB',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+    },
+    contactSelectCardAssociated: {
+        backgroundColor: '#EFF6FF',
+        borderColor: '#4A90E2',
+        opacity: 0.7,
+    },
+    associatedBadge: {
+        backgroundColor: '#4A90E2',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        alignSelf: 'flex-end',
+        marginTop: 8,
+    },
+    associatedBadgeText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    contactDetail: {
+        color: '#6B7280',
+        fontSize: 12,
+        marginTop: 4,
+    },
+    inputContainer: {
+        marginBottom: 12,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 8,
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#1F2937',
+        marginBottom: 12,
     },
 });
 

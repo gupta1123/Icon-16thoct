@@ -288,17 +288,40 @@ const CustomerListScreen = ({ authToken, shouldRefresh, setShouldRefresh }) => {
     </TouchableOpacity>
   );
 
+  // Helper functions to check client types (accepting both old and new formats)
+  const isDealerType = (clientType) => {
+    if (!clientType) return false;
+    const normalized = clientType.toLowerCase();
+    return normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop');
+  };
+
+  const isProfessionalType = (clientType) => {
+    if (!clientType) return false;
+    const normalized = clientType.toLowerCase();
+    return normalized === 'professional' || 
+           normalized === 'engineer/architect/contractor' ||
+           normalized.includes('engineer') || 
+           normalized.includes('architect') || 
+           normalized.includes('contractor') ||
+           normalized.includes('professional');
+  };
+
   const renderClientTypeTag = (clientType) => {
     if (!clientType) return null;
 
-    // Map backend values to display labels
-    const typeMapping = {
-      'Professional': 'Engineer/Architect/Contractor',
-      'Dealer': 'Dealer/Shop',
-      'Site Visit': 'Site Visit',
-    };
+    // Map backend values to display labels (handles both old and new formats)
+    let displayType;
+    if (clientType === 'Engineer/Architect/Contractor' || clientType === 'Dealer/Shop' || clientType === 'Site Visit') {
+      displayType = clientType; // Already in new format
+    } else {
+      const typeMapping = {
+        'Professional': 'Engineer/Architect/Contractor',
+        'Dealer': 'Dealer/Shop',
+        'Site Visit': 'Site Visit',
+      };
+      displayType = typeMapping[clientType] || clientType;
+    }
 
-    const displayType = typeMapping[clientType] || clientType;
     const tagColor = getClientTypeColor(clientType);
 
     return (
@@ -309,18 +332,22 @@ const CustomerListScreen = ({ authToken, shouldRefresh, setShouldRefresh }) => {
   };
 
   const getClientTypeColor = (type) => {
-    const colors = {
-      Professional: '#4CAF50', // Green for Engineer/Architect/Contractor
-      Dealer: '#2196F3', // Blue for Dealer/Shop
-      'Site Visit': '#9C27B0', // Purple for Site Visit
-    };
-    return colors[type] || '#607D8B'; // Gray as fallback
+    // Handle both old and new formats
+    const normalized = (type || '').toLowerCase();
+    if (normalized === 'professional' || normalized === 'engineer/architect/contractor' || normalized.includes('engineer') || normalized.includes('architect') || normalized.includes('contractor')) {
+      return '#4CAF50'; // Green for Engineer/Architect/Contractor
+    }
+    if (normalized === 'dealer' || normalized === 'dealer/shop' || normalized.includes('dealer') || normalized.includes('shop')) {
+      return '#2196F3'; // Blue for Dealer/Shop
+    }
+    if (normalized === 'site visit') {
+      return '#9C27B0'; // Purple for Site Visit
+    }
+    return '#607D8B'; // Gray as fallback
   };
 
   const isDealer = (clientType) => {
-    return clientType === 'Dealer' || 
-           clientType?.toLowerCase().includes('dealer') || 
-           clientType?.toLowerCase().includes('shop');
+    return isDealerType(clientType);
   };
 
   const openCreateCustomerModal = () => {
