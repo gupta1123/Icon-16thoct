@@ -1,7 +1,6 @@
 // Authentication service for WebSalesV3
-const API_BASE_URL = process.env.API_URL || 'http://localhost:8081';
-const LOGIN_ENDPOINT = `${API_BASE_URL}/user/token`;
-const LOGOUT_ENDPOINT = `${API_BASE_URL}/user/logout`;
+const LOGIN_ENDPOINT = '/api/proxy/user/token';
+const LOGOUT_ENDPOINT = '/api/proxy/user/logout';
 const USER_ROLE_ENDPOINT = '/api/proxy/user/manage/get';
 const CURRENT_USER_ENDPOINT = '/api/proxy/user/manage/current-user';
 

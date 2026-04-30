@@ -52,6 +52,7 @@ import { cn } from "@/lib/utils";
 import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
 
 const VISITS_STATE_STORAGE_KEY = "visitsTableState";
+const DEFAULT_QUICK_RANGE = "today";
 
 type PurposeComboboxProps = {
   value: string;
@@ -373,14 +374,12 @@ export default function VisitsTable() {
   const { userRole, currentUser } = useAuth();
   const [currentUserDetails, setCurrentUserDetails] = useState<CurrentUserDto | null>(null);
   
-  // Set default date range to last 7 days
-  const defaultEndDate = new Date();
-  const defaultStartDate = new Date();
-  defaultStartDate.setDate(defaultEndDate.getDate() - 7);
+  // Set default date range to today.
+  const defaultDate = new Date();
   
-  const [startDate, setStartDate] = useState<Date | undefined>(defaultStartDate);
-  const [endDate, setEndDate] = useState<Date | undefined>(defaultEndDate);
-  const [quickRange, setQuickRange] = useState<string>("last7Days");
+  const [startDate, setStartDate] = useState<Date | undefined>(defaultDate);
+  const [endDate, setEndDate] = useState<Date | undefined>(defaultDate);
+  const [quickRange, setQuickRange] = useState<string>(DEFAULT_QUICK_RANGE);
   const [selectedPurpose, setSelectedPurpose] = useState<string>("all");
   const [selectedExecutive, setSelectedExecutive] = useState<string>("all");
   const [customerName, setCustomerName] = useState<string>("");
@@ -424,23 +423,11 @@ export default function VisitsTable() {
           pageSize?: number;
         };
 
-        if (parsed.startDate) {
-          const parsedStart = new Date(parsed.startDate);
-          if (!Number.isNaN(parsedStart.getTime())) {
-            setStartDate(parsedStart);
-          }
-        }
-
-        if (parsed.endDate) {
-          const parsedEnd = new Date(parsed.endDate);
-          if (!Number.isNaN(parsedEnd.getTime())) {
-            setEndDate(parsedEnd);
-          }
-        }
-
-        if (parsed.quickRange) {
-          setQuickRange(parsed.quickRange);
-        }
+        // Always open the visit list on today's date by default. Other filters
+        // can persist, but stale stored dates should not override the default.
+        setStartDate(new Date());
+        setEndDate(new Date());
+        setQuickRange(DEFAULT_QUICK_RANGE);
 
         if (parsed.selectedPurpose) {
           setSelectedPurpose(parsed.selectedPurpose);
@@ -487,6 +474,7 @@ export default function VisitsTable() {
   }, [startDate]);
 
   const QUICK_RANGES = [
+    { value: "today", label: "Today" },
     { value: "last7Days", label: "Last 7 Days" },
     { value: "last15Days", label: "Last 15 Days" },
     { value: "thisMonth", label: "This Month" },
@@ -515,6 +503,10 @@ export default function VisitsTable() {
     let newEnd: Date = new Date(today);
 
     switch (range) {
+      case "today":
+        newStart = today;
+        newEnd = today;
+        break;
       case "last7Days":
         newStart = subDays(newEnd, 6);
         break;

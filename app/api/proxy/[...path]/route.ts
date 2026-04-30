@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
-const UPSTREAM_BASE = process.env.API_URL || 'http://localhost:8081';
+const DEFAULT_UPSTREAM_BASE = 'https://unbalkingly-uncharged-elizabet.ngrok-free.dev';
+const UPSTREAM_BASE = process.env.API_URL || DEFAULT_UPSTREAM_BASE;
 
 async function handle(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   let targetUrl = '';
@@ -28,6 +29,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     
     // Add User-Agent header
     headers['User-Agent'] = 'IConSteel-Frontend';
+    headers['ngrok-skip-browser-warning'] = 'true';
 
     // Set Authorization header - prioritize incoming header, fallback to cookie
     const incomingAuth = incomingHeaders.get('authorization');
@@ -116,4 +118,3 @@ export async function OPTIONS() {
     },
   });
 }
-
