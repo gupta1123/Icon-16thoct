@@ -365,7 +365,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             if (!token) return;
             
             try {
-                const response = await fetch('/api/proxy/user/manage/current-user', {
+                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -395,7 +395,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchIntentData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`/api/proxy/intent-audit/getByStore?id=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/intent-audit/getByStore?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -409,7 +409,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchSalesData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`/api/proxy/monthly-sale/getByStore?storeId=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/monthly-sale/getByStore?storeId=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -424,7 +424,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const fetchCustomerData = useCallback(async (id: string) => {
         try {
             setIsLoadingCustomer(true);
-            const response = await fetch(`/api/proxy/store/getById?id=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -448,7 +448,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchNotesData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`/api/proxy/notes/getByStore?id=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/getByStore?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -462,7 +462,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchVisitsData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`/api/proxy/visit/getByStore?id=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByStore?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -477,7 +477,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchRequirementsData = useCallback(async (id: string, start: Date, end: Date) => {
         try {
-            const response = await fetch(`/api/proxy/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -491,7 +491,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchComplaintsData = useCallback(async (id: string, start: Date, end: Date) => {
         try {
-            const response = await fetch(`/api/proxy/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -535,7 +535,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         try {
             setIsUpdatingCategories(true);
             setCategoryError(null);
-            const response = await fetch('/api/proxy/store/addCategories', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/addCategories', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -594,7 +594,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         try {
             setIsUpdatingCategories(true);
             setCategoryError(null);
-            const response = await fetch('/api/proxy/store/removeCategories', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/removeCategories', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -635,7 +635,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         setIsLoadingEmployees(true);
         try {
             // Always use the full list endpoint via proxy
-            const resAll = await fetch('/api/proxy/employee/getAll', {
+            const resAll = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
                 headers: { Authorization: `Bearer ${token}` },
             });
             let list: unknown[] = [];
@@ -687,7 +687,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const fetchStores = useCallback(async () => {
         try {
             setIsLoadingStores(true);
-            const response = await fetch('/api/proxy/store/names', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/names', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -704,7 +704,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const fetchBrandsData = useCallback(async (id: string) => {
         try {
             setIsLoadingBrands(true);
-            const response = await fetch(`/api/proxy/visit/getProConsByStore?storeId=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getProConsByStore?storeId=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -721,7 +721,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const fetchSitesData = useCallback(async (id: string) => {
         try {
             setIsLoadingSites(true);
-            const response = await fetch(`/api/proxy/site/getByStore?id=${id}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/site/getByStore?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -739,7 +739,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         setIsLoadingImages(true);
         try {
             // First, fetch the task details
-            const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+            const taskResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getById?id=${taskId}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -755,10 +755,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 .map((attachment: { tag: string; fileName: string }) => {
                     try {
                         // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
-                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
                     } catch {
                         // Fallback: use fileName to construct URL
-                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
                     }
                 });
     
@@ -785,7 +785,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         if (!noteContent.trim() || isSavingNote) return;
         setIsSavingNote(true);
         try {
-            const response = await fetch('/api/proxy/notes/create', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -823,7 +823,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         if (!noteContent.trim() || isSavingNote) return;
         setIsSavingNote(true);
         try {
-            const response = await fetch(`/api/proxy/notes/edit?id=${editingNoteId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/edit?id=${editingNoteId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -854,7 +854,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const handleDeleteNote = async (noteId: number): Promise<boolean> => {
         try {
-            const response = await fetch(`/api/proxy/notes/delete?id=${noteId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/delete?id=${noteId}`, {
                 method: 'DELETE',
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -949,7 +949,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const createTask = async () => {
         try {
-            const response = await fetch(`/api/proxy/task/getByStoreAndDate?storeId=${storeId}&start=${format(startDate, 'yyyy-MM-dd')}&end=${format(endDate, 'yyyy-MM-dd')}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=${format(startDate, 'yyyy-MM-dd')}&end=${format(endDate, 'yyyy-MM-dd')}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -1016,7 +1016,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const handleChangeStatus = async (taskId: number, status: string) => {
         try {
-            const response = await fetch(`/api/proxy/task/updateTask?taskId=${taskId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/updateTask?taskId=${taskId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1089,7 +1089,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
             console.log('Sending data:', requestData);
 
-            const response = await fetch(`/api/proxy/store/edit?id=${storeId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/edit?id=${storeId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1184,7 +1184,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 return;
             }
             
-            const response = await fetch('/api/proxy/task/create', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1269,7 +1269,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 return;
             }
             
-            const response = await fetch('/api/proxy/task/create', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1556,7 +1556,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                     await fetchEmployees();
                     
                     // Then fetch task details
-                    const response = await fetch(`/api/proxy/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
+                    const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
                         headers: {
                             Authorization: `Bearer ${token}`,
                         },
@@ -1588,7 +1588,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                     await fetchEmployees();
                     
                     // Then fetch task details
-                    const response = await fetch(`/api/proxy/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
+                    const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
                         headers: {
                             Authorization: `Bearer ${token}`,
                         },

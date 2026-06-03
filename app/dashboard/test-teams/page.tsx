@@ -313,7 +313,7 @@ export default function TestTeamsPage() {
       setError(null);
 
       try {
-        const response = await fetch("/api/proxy/employee/team/hierarchy", {
+        const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/hierarchy", {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
@@ -399,7 +399,7 @@ export default function TestTeamsPage() {
 
     try {
       const response = await fetch(
-        `/api/proxy/employee/team/addFieldOfficer?id=${teamId}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/addFieldOfficer?id=${teamId}`,
         {
           method: "PUT",
           headers: {
@@ -417,7 +417,7 @@ export default function TestTeamsPage() {
       }
 
       // Refresh data from API
-      const refreshResponse = await fetch("/api/proxy/employee/team/hierarchy", {
+      const refreshResponse = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/hierarchy", {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
@@ -503,7 +503,7 @@ export default function TestTeamsPage() {
 
         try {
           const response = await fetch(
-            `/api/proxy/employee/team/deleteFieldOfficer?id=${teamId}`,
+            `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/deleteFieldOfficer?id=${teamId}`,
             {
               method: "DELETE",
               headers: {
@@ -521,7 +521,7 @@ export default function TestTeamsPage() {
           }
 
           // Refresh data from API
-          const refreshResponse = await fetch("/api/proxy/employee/team/hierarchy", {
+          const refreshResponse = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/hierarchy", {
             headers: {
               Authorization: `Bearer ${token}`,
               Accept: "application/json",
@@ -575,7 +575,7 @@ export default function TestTeamsPage() {
               if (assignedCities.length > 0) {
                 const cityPromises = assignedCities.map(city =>
                   fetch(
-                    `/api/proxy/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
+                    `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
                     {
                       headers: {
                         Authorization: `Bearer ${token}`,
@@ -616,7 +616,7 @@ export default function TestTeamsPage() {
               if (assignedCities.length > 0) {
                 const cityPromises = assignedCities.map(city =>
                   fetch(
-                    `/api/proxy/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
+                    `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
                     {
                       headers: {
                         Authorization: `Bearer ${token}`,
@@ -660,7 +660,7 @@ export default function TestTeamsPage() {
             // Make API calls for each city
             const cityPromises = assignedCities.map(city =>
               fetch(
-                `/api/proxy/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`,
                 {
                   headers: {
                     Authorization: `Bearer ${token}`,
@@ -698,7 +698,7 @@ export default function TestTeamsPage() {
           const team = coordinatorTeams.find((t) => t.id === currentCardId);
           existingOfficerIds = team?.fieldOfficers.map((o) => o.id) ?? [];
           // For coordinators, fetch all field officers
-          const response = await fetch("/api/proxy/employee/getAllFieldOfficers", {
+          const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllFieldOfficers", {
             headers: {
               Authorization: `Bearer ${token}`,
             },

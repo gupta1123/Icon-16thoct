@@ -212,7 +212,7 @@ const AddTeam = () => {
     const fetchOfficeManagers = useCallback(async () => {
         try {
             const allEmployeesResponse = await fetch(
-                "/api/proxy/employee/getAll",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -221,7 +221,7 @@ const AddTeam = () => {
             );
 
             const teamsResponse = await fetch(
-                "/api/proxy/employee/team/getAll",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getAll",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -410,7 +410,7 @@ const AddTeam = () => {
     const fetchCities = useCallback(async () => {
         try {
             const response = await fetch(
-                "/api/proxy/employee/getCities",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getCities",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -473,7 +473,7 @@ const AddTeam = () => {
     const fetchAllFieldOfficers = async () => {
         try {
             const response = await fetch(
-                "/api/proxy/employee/getAllFieldOfficers",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllFieldOfficers",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -520,7 +520,7 @@ const AddTeam = () => {
     const fetchEmployeesByCities = async (cities: string[]) => {
         try {
             const response = await fetch(
-                "/api/proxy/employee/getFieldOfficer",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getFieldOfficer",
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -573,7 +573,7 @@ const AddTeam = () => {
             try {
                 for (const city of cities) {
                     await fetch(
-                        `/api/proxy/employee/assignCity?id=${officeManager.value}&city=${city}`,
+                        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${officeManager.value}&city=${city}`,
                         {
                             method: 'PUT',
                             headers: {
@@ -622,7 +622,7 @@ const AddTeam = () => {
                         
                         // First, create a team for this regional manager
                         const createTeamResponse = await fetch(
-                            "/api/proxy/employee/team/create",
+                            "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/create",
                             {
                                 method: 'POST',
                                 headers: {
@@ -665,7 +665,7 @@ const AddTeam = () => {
                 
                 // Now assign AVP to all selected teams using the new endpoint
                 const response = await fetch(
-                    `/api/proxy/employee/team/assignAvpToTeams`,
+                    `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/assignAvpToTeams`,
                     {
                         method: 'PUT',
                         headers: {
@@ -739,7 +739,7 @@ const AddTeam = () => {
 
                 for (const city of citiesToAssign) {
                     const assignResponse = await fetch(
-                        `/api/proxy/employee/assignCity?id=${officeManager.value}&city=${encodeURIComponent(city)}`,
+                        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${officeManager.value}&city=${encodeURIComponent(city)}`,
                         {
                             method: 'PUT',
                             headers: {
@@ -760,7 +760,7 @@ const AddTeam = () => {
             };
 
             const response = await fetch(
-                "/api/proxy/employee/team/create",
+                "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/create",
                 {
                     method: 'POST',
                     headers: {

@@ -233,13 +233,13 @@ const Requirements = () => {
                 // For managers (Regional Manager/AVP), use team + date range API
                 const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
                 const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
-                url = `/api/proxy/task/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Using MANAGER API (team+date):', url, 'Team ID:', teamId);
             } else {
                 // For admins, use date-based API
                 const formattedStartDate = format(new Date(filters.startDate), 'yyyy-MM-dd');
                 const formattedEndDate = format(new Date(filters.endDate), 'yyyy-MM-dd');
-                url = `/api/proxy/task/getByDate?start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByDate?start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Using ADMIN API:', url, 'User Role:', userRole);
             }
 
@@ -329,7 +329,7 @@ const Requirements = () => {
         if (!token) return;
         
         try {
-            const response = await fetch('/api/proxy/employee/getAllFieldOfficers', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllFieldOfficers', {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -359,7 +359,7 @@ const Requirements = () => {
         
         setIsStoresLoading(true);
         try {
-            const url = `/api/proxy/store/getStoreNamesByEmployee?employeeId=${employeeId}&searchTerm=${searchTerm}&page=${page}&size=${size}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
+            const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getStoreNamesByEmployee?employeeId=${employeeId}&searchTerm=${searchTerm}&page=${page}&size=${size}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
             const response = await fetch(url, {
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -540,7 +540,7 @@ const Requirements = () => {
                 priority: newTask.priority || 'low',
             };
 
-            const response = await fetch('/api/proxy/task/create', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -590,7 +590,7 @@ const Requirements = () => {
         
         try {
             const response = await fetch(
-                `/api/proxy/task/updateTask?taskId=${taskId}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/updateTask?taskId=${taskId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -619,7 +619,7 @@ const Requirements = () => {
         if (!token) return;
         
         try {
-            await fetch(`/api/proxy/task/deleteById?taskId=${taskId}`, {
+            await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/deleteById?taskId=${taskId}`, {
                 method: 'DELETE',
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -636,7 +636,7 @@ const Requirements = () => {
         
         try {
             // First, fetch the task details
-            const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+            const taskResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getById?id=${taskId}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -652,10 +652,10 @@ const Requirements = () => {
                 .map((attachment: { tag: string; fileName: string }) => {
                     try {
                         // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
-                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
                     } catch {
                         // Fallback: use fileName to construct URL
-                        return `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
+                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
                     }
                 });
     

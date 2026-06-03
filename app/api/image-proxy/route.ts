@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate that the URL is from the expected domain
-    if (!rawUrl.includes('api.gajkesaristeels.in')) {
+    if (!rawUrl.includes('app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net')) {
       return NextResponse.json({ error: 'Invalid image URL' }, { status: 400 });
     }
 

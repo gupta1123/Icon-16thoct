@@ -78,7 +78,7 @@ const ApprovalsPage = () => {
             if (!token) return;
             
             try {
-                const response = await fetch('/api/proxy/user/manage/current-user', {
+                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -196,7 +196,7 @@ const ApprovalsPage = () => {
                 // For managers and field officers using team-based API
                 // The team API doesn't return pagination info, so we need to fetch all and count
                 // This is less efficient but necessary for accurate counts
-                const url = `/api/proxy/expense/getForTeam?id=${teamId}`;
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getForTeam?id=${teamId}`;
                 const response = await fetch(url, {
                     headers: {
                         Authorization: `Bearer ${token}`
@@ -236,11 +236,11 @@ const ApprovalsPage = () => {
             
             if (isManager && teamId) {
                 // For managers, use team-based API call for expenses
-                url = `/api/proxy/expense/getForTeam?id=${teamId}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getForTeam?id=${teamId}`;
                 console.log('Manager API call:', url);
             } else if (isFieldOfficer && teamId) {
                 // For field officers, use team-based API call (same as manager for now)
-                url = `/api/proxy/expense/getForTeam?id=${teamId}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getForTeam?id=${teamId}`;
                 console.log('Field Officer API call:', url);
             } else if (isAdmin) {
                 // For admins, use paginated API call with search
@@ -367,7 +367,7 @@ const ApprovalsPage = () => {
         
         try {
             await fetch(
-                `/api/proxy/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
                 {
                     method: 'PUT',
                     headers: {

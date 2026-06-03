@@ -59,7 +59,7 @@ const EmployeeSummary: React.FC = () => {
             }
 
             const response = await fetch(
-                `/api/proxy/salary-calculation/manual-summary-range?startDate=${startDate}&endDate=${endDate}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/salary-calculation/manual-summary-range?startDate=${startDate}&endDate=${endDate}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,

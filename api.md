@@ -1,7 +1,7 @@
 New ec2 Address:
 http://ec2-13-48-72-129.eu-north-1.compute.amazonaws.com:8081
 
-https://unbalkingly-uncharged-elizabet.ngrok-free.dev
+https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net
 USER LOGIN
 Register New User
 Post Call
@@ -3169,7 +3169,7 @@ http://localhost:8081/store/getStoreNamesByEmployee?employeeId=1
 http://localhost:8081/store/getStoreNamesByEmployee?employeeId=1&searchTerm=e
 
 (With search and sort)
-https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getStoreNamesByEmployee?employeeId=1&searchTerm=2&page=0&size=20&sortBy=storeName&sortOrder=desc
+https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getStoreNamesByEmployee?employeeId=1&searchTerm=2&page=0&size=20&sortBy=storeName&sortOrder=desc
 
 {
     "content": [

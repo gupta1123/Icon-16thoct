@@ -133,7 +133,7 @@ const DailyBreakdown: React.FC = () => {
             const endDateStr = format(endDate, 'yyyy-MM-dd');
 
             const response = await fetch(
-                `/api/proxy/salary-calculation/daily-breakdown?employeeId=${employeeId}&startDate=${startDateStr}&endDate=${endDateStr}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/salary-calculation/daily-breakdown?employeeId=${employeeId}&startDate=${startDateStr}&endDate=${endDateStr}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -165,7 +165,7 @@ const DailyBreakdown: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch('/api/proxy/employee/getAll', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -273,7 +273,7 @@ const DailyBreakdown: React.FC = () => {
             const results = await Promise.allSettled(
                 rows.map((row) =>
                     fetch(
-                        `/api/proxy/attendance-log/updateStatus?employeeId=${row.employeeId}&date=${row.date}&status=${encodeURIComponent(status)}`,
+                        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/attendance-log/updateStatus?employeeId=${row.employeeId}&date=${row.date}&status=${encodeURIComponent(status)}`,
                         { method: "PUT", headers: { Authorization: `Bearer ${token}` } }
                     ).then(async (res) => {
                         if (!res.ok) {

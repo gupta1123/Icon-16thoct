@@ -50,7 +50,7 @@ const LiveLocations: React.FC = () => {
     setIsRefreshing(true);
     setError(null);
     try {
-      const response = await fetch('/api/proxy/employee/getAllLiveLocations', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllLiveLocations', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

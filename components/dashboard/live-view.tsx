@@ -260,7 +260,7 @@ export function DashboardLiveView({
           params.set("district", trimmedFilters.district);
         }
 
-        const response = await fetch(`/api/proxy/store/summary?${params.toString()}`, {
+        const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/summary?${params.toString()}`, {
           headers: {
             Authorization: `Bearer ${authToken}`,
             Accept: "application/json",

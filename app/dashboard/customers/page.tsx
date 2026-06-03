@@ -263,7 +263,7 @@ function CustomerListContent() {
             if (!token) return;
             
             try {
-                const response = await fetch('/api/proxy/user/manage/current-user', {
+                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -397,7 +397,7 @@ function CustomerListContent() {
                     if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
                 }
 
-                const url = `/api/proxy/store/filteredValues?${queryParams.toString()}`;
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryParams.toString()}`;
                 const headers: Record<string, string> = {
                     Authorization: token ? `Bearer ${token}` : '',
                     'Content-Type': 'application/json',
@@ -474,7 +474,7 @@ function CustomerListContent() {
                     if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
                 }
 
-                const url = `/api/proxy/store/filteredValues?${queryParams.toString()}`;
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryParams.toString()}`;
                 const headers: Record<string, string> = {
                     Authorization: token ? `Bearer ${token}` : '',
                     'Content-Type': 'application/json',
@@ -608,7 +608,7 @@ function CustomerListContent() {
                 }
                 
                 // Fallback to direct fetch
-                const response = await fetch(`/api/proxy/store/deleteById?id=${selectedCustomerId}`, {
+                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/deleteById?id=${selectedCustomerId}`, {
                     method: 'DELETE',
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -661,7 +661,7 @@ function CustomerListContent() {
         try {
             console.log('Starting export process...');
             
-            const response = await fetch('/api/proxy/store/export', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/export', {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${token}`,

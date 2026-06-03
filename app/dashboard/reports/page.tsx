@@ -285,7 +285,7 @@ const ReportsPage: React.FC = () => {
             if (!token) return;
             
             try {
-                const response = await fetch('/api/proxy/user/manage/current-user', {
+                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -320,7 +320,7 @@ const ReportsPage: React.FC = () => {
             }
             
             try {
-                const response = await fetch(`/api/proxy/employee/team/getByEmployee?id=${userData.employeeId}`, {
+                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${userData.employeeId}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -353,7 +353,7 @@ const ReportsPage: React.FC = () => {
                 if (isCoordinator || isManager) {
                     // For coordinators/managers, fetch team members only
                     if (teamId) {
-                        const teamResponse = await fetch(`/api/proxy/employee/team/getByEmployee?id=${userData?.employeeId}`, {
+                        const teamResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${userData?.employeeId}`, {
                             headers: { Authorization: `Bearer ${token}` },
                         });
                         if (teamResponse.ok) {
@@ -375,10 +375,10 @@ const ReportsPage: React.FC = () => {
                 } else {
                     // For admins and others, fetch all field officers
                     const [allEmployeesResponse, inactiveEmployeesResponse] = await Promise.all([
-                        fetch('/api/proxy/employee/getAll', {
+                        fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
                             headers: { Authorization: `Bearer ${token}` },
                         }),
-                        fetch('/api/proxy/employee/getAllInactive', {
+                        fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllInactive', {
                             headers: { Authorization: `Bearer ${token}` },
                         }),
                     ]);
@@ -451,7 +451,7 @@ const ReportsPage: React.FC = () => {
                     continue;
                 }
 
-                const url = `/api/proxy/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${encodeURIComponent(normalizedKey)}`;
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${encodeURIComponent(normalizedKey)}`;
                 const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
                 const data: VisitDetail[] = await response.json();
 
@@ -492,7 +492,7 @@ const ReportsPage: React.FC = () => {
         setDateRangeError(null);
         setReportLoading(true); setReportError(null); setShowReport(false);
         try {
-            const url = `/api/proxy/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
+            const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
             const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
             const data: FieldOfficerStatsResponse = await response.json();
 

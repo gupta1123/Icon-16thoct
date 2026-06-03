@@ -477,7 +477,7 @@ const Teams: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch('/api/proxy/employee/team/hierarchy', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/hierarchy', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -503,7 +503,7 @@ const Teams: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch("/api/proxy/employee/getCities", {
+            const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getCities", {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -525,7 +525,7 @@ const Teams: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch('/api/proxy/employee/getAllFieldOfficers', {
+            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllFieldOfficers', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -569,7 +569,7 @@ const Teams: React.FC = () => {
 
         try {
             const promises = cities.map(city =>
-                fetch(`/api/proxy/employee/getFieldOfficerByCity?city=${city}`, {
+                fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getFieldOfficerByCity?city=${city}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                     },
@@ -622,7 +622,7 @@ const Teams: React.FC = () => {
 
         setIsSaving(true);
         try {
-            const response = await fetch(`/api/proxy/employee/team/delete?id=${deleteTeamId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/delete?id=${deleteTeamId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -674,7 +674,7 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(
-                `/api/proxy/employee/removeCity?id=${selectedOfficeManagerId}&city=${cityToRemove}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/removeCity?id=${selectedOfficeManagerId}&city=${cityToRemove}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -705,7 +705,7 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(
-                `/api/proxy/employee/team/addFieldOfficer?id=${selectedTeamId}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/addFieldOfficer?id=${selectedTeamId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -743,7 +743,7 @@ const Teams: React.FC = () => {
 
         setIsSaving(true);
         try {
-            const response = await fetch(`/api/proxy/employee/team/deleteFieldOfficer?id=${fieldOfficerToRemove.teamId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/deleteFieldOfficer?id=${fieldOfficerToRemove.teamId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -775,7 +775,7 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(
-                `/api/proxy/employee/assignCity?id=${selectedOfficeManagerId}&city=${newCity}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${selectedOfficeManagerId}&city=${newCity}`,
                 {
                     method: 'PUT',
                     headers: {

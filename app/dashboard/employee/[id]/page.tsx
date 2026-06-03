@@ -204,7 +204,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     const fetchEmployeeData = async () => {
       try {
-        const response = await fetch(`/api/proxy/employee/getAll`, {
+        const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -334,7 +334,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
       try {
         console.log(`Fetching visit data for employee ${id} from ${startDate} to ${endDate}`);
-        const response = await fetch(`/api/proxy/visit/getByDateRangeAndEmployeeStats?id=${id}&start=${startDate}&end=${endDate}`, {
+        const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByDateRangeAndEmployeeStats?id=${id}&start=${startDate}&end=${endDate}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -384,7 +384,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         const start = expenseStartDate ? expenseStartDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
         const end = expenseEndDate ? expenseEndDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-30`;
         try {
-          const response = await fetch(`/api/proxy/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${id}`, {
+          const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getByEmployeeAndDate?start=${start}&end=${end}&id=${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -405,7 +405,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
       if (token && id) {
         try {
           const selectedDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-          const response = await fetch(`/api/proxy/attendance-log/monthlyVisits?date=${selectedDate}&employeeId=${id}`, {
+          const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/attendance-log/monthlyVisits?date=${selectedDate}&employeeId=${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -427,7 +427,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
         const start = pricingStartDate ? pricingStartDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
         const end = pricingEndDate ? pricingEndDate.toISOString().split('T')[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-30`;
         try {
-          const response = await fetch(`/api/proxy/brand/getByDateRangeForEmployee?start=${start}&end=${end}&id=${id}`, {
+          const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRangeForEmployee?start=${start}&end=${end}&id=${id}`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },

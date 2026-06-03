@@ -1,8 +1,10 @@
 // Authentication service for WebSalesV3
-const LOGIN_ENDPOINT = '/api/proxy/user/token';
-const LOGOUT_ENDPOINT = '/api/proxy/user/logout';
-const USER_ROLE_ENDPOINT = '/api/proxy/user/manage/get';
-const CURRENT_USER_ENDPOINT = '/api/proxy/user/manage/current-user';
+import { API_BASE_URL } from '@/lib/api';
+
+const LOGIN_ENDPOINT = `${API_BASE_URL}/user/token`;
+const LOGOUT_ENDPOINT = `${API_BASE_URL}/user/logout`;
+const USER_ROLE_ENDPOINT = `${API_BASE_URL}/user/manage/get`;
+const CURRENT_USER_ENDPOINT = `${API_BASE_URL}/user/manage/current-user`;
 
 export interface LoginCredentials {
   username: string;
@@ -124,7 +126,6 @@ export const authService = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'IConSteel-Frontend',
         },
         body: JSON.stringify(credentials),
       });
@@ -152,7 +153,6 @@ export const authService = {
         console.log('Token being used:', token);
         
         const roleResponse = await fetch(`${USER_ROLE_ENDPOINT}?username=${credentials.username}`, {
-          credentials: 'include', // Ensure cookies are sent
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`, // Manually add token
@@ -176,7 +176,6 @@ export const authService = {
       // Fetch current user details
       try {
         const currentUserResponse = await fetch(CURRENT_USER_ENDPOINT, {
-          credentials: 'include',
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -220,7 +219,6 @@ export const authService = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
-          'User-Agent': 'IConSteel-Frontend',
         },
       });
 

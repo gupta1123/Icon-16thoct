@@ -114,7 +114,7 @@ export default function EnquiriesPage() {
 
     try {
       const queryParams = new URLSearchParams();
-      const baseUrl = '/api/proxy/enquiry/filtered';
+      const baseUrl = 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/enquiry/filtered';
 
       if (storeNameFilter) queryParams.append('storeName', storeNameFilter);
       if (talukaFilter) queryParams.append('taluka', talukaFilter);

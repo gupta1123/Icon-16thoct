@@ -135,7 +135,7 @@ export default function AttendancePage() {
     }
 
     try {
-      const response = await fetch("/api/proxy/employee/getAll", {
+      const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -168,7 +168,7 @@ export default function AttendancePage() {
 
     try {
       const response = await fetch(
-        `/api/proxy/attendance-log/getForRange1?start=${startDate}&end=${endDate}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/attendance-log/getForRange1?start=${startDate}&end=${endDate}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -226,7 +226,7 @@ export default function AttendancePage() {
 
         for (const customerType of customerTypes) {
           try {
-            const customerVisitUrl = `/api/proxy/visit/customer-visit-details?employeeId=${employee.id}&startDate=${date}&endDate=${date}&customerType=${encodeURIComponent(customerType)}`;
+            const customerVisitUrl = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/customer-visit-details?employeeId=${employee.id}&startDate=${date}&endDate=${date}&customerType=${encodeURIComponent(customerType)}`;
             
             const customerResponse = await fetch(customerVisitUrl, {
               headers: {
@@ -244,7 +244,7 @@ export default function AttendancePage() {
         }
 
         // Also fetch timeline data for activities and individual visits
-        const timelineUrl = `/api/proxy/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
+        const timelineUrl = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
         
         const timelineResponse = await fetch(timelineUrl, {
           headers: {

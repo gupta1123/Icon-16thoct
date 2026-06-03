@@ -256,7 +256,7 @@ const HomeLocationRequests = () => {
     setFetchError(null);
 
     try {
-      const response = await fetch("/api/proxy/employee/pendingLocationChangeRequests", {
+      const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/pendingLocationChangeRequests", {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
@@ -364,7 +364,7 @@ const HomeLocationRequests = () => {
 
       try {
         const message = await callEndpointWithFallback(
-          `/api/proxy/employee/approveLocationChange?employeeId=${encodeURIComponent(
+          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/approveLocationChange?employeeId=${encodeURIComponent(
             identifierString
           )}&approve=${approve}`,
           token,

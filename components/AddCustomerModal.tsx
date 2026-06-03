@@ -571,8 +571,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
       const isEditing = Boolean(existingData && existingData.id);
       const method = isEditing ? 'PUT' : 'POST';
       const url = isEditing
-        ? `/api/proxy/store/edit?id=${existingData?.id}`
-        : '/api/proxy/store/create';
+        ? `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/edit?id=${existingData?.id}`
+        : 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/create';
 
       const requestBody = {
         ...customerData,
@@ -627,7 +627,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
 
           try {
             if (categoriesToAdd.length > 0) {
-              const addResponse = await fetch('/api/proxy/store/addCategories', {
+              const addResponse = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/addCategories', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -645,7 +645,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
             }
 
             if (categoriesToRemove.length > 0) {
-              const removeResponse = await fetch('/api/proxy/store/removeCategories', {
+              const removeResponse = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/removeCategories', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

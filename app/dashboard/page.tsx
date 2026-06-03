@@ -554,11 +554,10 @@ function DashboardPageContent() {
       }
       
       try {
-        const response = await fetch('/api/proxy/user/manage/current-user', {
+        const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
           },
         });
         
@@ -640,7 +639,7 @@ function DashboardPageContent() {
         const end = format(dateRange.end, "yyyy-MM-dd");
 
         // Explicitly use the in-memory auth token to avoid localStorage race/stale token issues
-        const response = await fetch(`/api/proxy/dashboard/overview?startDate=${start}&endDate=${end}`, {
+        const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/dashboard/overview?startDate=${start}&endDate=${end}`, {
           headers: token
             ? {
                 Authorization: `Bearer ${token}`,
@@ -720,7 +719,7 @@ function DashboardPageContent() {
     
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
-      const response = await fetch(`/api/proxy/brand/getByDateRange?start=${today}&end=${today}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRange?start=${today}&end=${today}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

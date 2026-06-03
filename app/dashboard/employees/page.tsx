@@ -226,7 +226,7 @@ export default function EmployeeList() {
       }
       
       try {
-        const response = await fetch('/api/proxy/user/manage/current-user', {
+        const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -356,7 +356,7 @@ export default function EmployeeList() {
     setError(null);
     try {
       if (role === 'MANAGER' || role === 'AVP') {
-        const response = await fetch(`/api/proxy/employee/team/getByEmployee?id=${employeeId}`, {
+        const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${employeeId}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -375,7 +375,7 @@ export default function EmployeeList() {
         setTeamData(team);
         setUsers(team.fieldOfficers.map((user: User) => ({ ...user, userName: user.userDto?.username || "" })));
       } else {
-        const response = await fetch('/api/proxy/employee/getAll', {
+        const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -403,7 +403,7 @@ export default function EmployeeList() {
   const fetchArchivedEmployees = async () => {
     try {
       console.log('Fetching archived employees...');
-      const response = await fetch('/api/proxy/employee/getAllInactive', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllInactive', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -424,7 +424,7 @@ export default function EmployeeList() {
 
   const fetchCities = async () => {
     try {
-      const response = await fetch('/api/proxy/employee/getCities', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getCities', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -449,7 +449,7 @@ export default function EmployeeList() {
 
     try {
       const response = await fetch(
-        `/api/proxy/employee/delete?id=${userToDelete.id}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/delete?id=${userToDelete.id}`,
         {
           method: 'PUT',
           headers: {
@@ -488,7 +488,7 @@ export default function EmployeeList() {
     setIsAssigningCity(true);
     try {
       const response = await fetch(
-        `/api/proxy/employee/assignCity?id=${userToAssignCity.id}&city=${encodeURIComponent(selectedCityToAssign)}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${userToAssignCity.id}&city=${encodeURIComponent(selectedCityToAssign)}`,
         {
           method: 'PUT',
           headers: {
@@ -535,7 +535,7 @@ export default function EmployeeList() {
 
     try {
       const response = await fetch(
-        "/api/proxy/user/manage/update",
+        "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/update",
         {
           method: 'PUT',
           headers: {
@@ -565,7 +565,7 @@ export default function EmployeeList() {
     if (editingEmployee) {
       try {
         const response = await fetch(
-          `/api/proxy/employee/edit?empId=${editingEmployee.id}`,
+          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/edit?empId=${editingEmployee.id}`,
           {
             method: 'PUT',
             headers: {
@@ -640,7 +640,7 @@ export default function EmployeeList() {
       console.log('Request body:', requestBody);
 
       const response = await fetch(
-        "/api/proxy/employee-user/create",
+        "https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee-user/create",
         {
           method: 'POST',
           headers: {
@@ -656,7 +656,7 @@ export default function EmployeeList() {
 
       if (response.ok) {
         // Get all employees to find the newly created employee
-        const getAllResponse = await fetch('/api/proxy/employee/getAll', {
+        const getAllResponse = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -673,7 +673,7 @@ export default function EmployeeList() {
             // Create attendance log for the new employee
             try {
               const attendanceResponse = await fetch(
-                `/api/proxy/attendance-log/createAttendanceLog?employeeId=${createdEmployee.id}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/attendance-log/createAttendanceLog?employeeId=${createdEmployee.id}`,
                 {
                   method: 'POST',
                   headers: {
@@ -694,7 +694,7 @@ export default function EmployeeList() {
             if (newEmployee.role === "Field Officer" && newEmployee.assignedCity) {
               try {
                 const assignCityResponse = await fetch(
-                  `/api/proxy/employee/assignCity?id=${createdEmployee.id}&city=${encodeURIComponent(newEmployee.assignedCity)}`,
+                  `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${createdEmployee.id}&city=${encodeURIComponent(newEmployee.assignedCity)}`,
                   {
                     method: 'PUT',
                     headers: {
@@ -747,7 +747,7 @@ export default function EmployeeList() {
   const handleUnarchive = async (employeeId: number) => {
     try {
       const response = await fetch(
-        `/api/proxy/employee/setActive?id=${employeeId}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/setActive?id=${employeeId}`,
         {
           method: 'PUT',
           headers: {
@@ -777,7 +777,7 @@ export default function EmployeeList() {
         
         const encodedUsername = encodeURIComponent(editingUsername.username.trim());
         const response = await fetch(
-          `/api/proxy/employee/editUsername?id=${editingUsername.id}&username=${encodedUsername}`,
+          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/editUsername?id=${editingUsername.id}&username=${encodedUsername}`,
           {
             method: 'PUT',
             headers: {

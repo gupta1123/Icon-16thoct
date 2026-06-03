@@ -214,7 +214,7 @@ export default function ExpensesPage() {
   // Handle approve expense
   const handleApprove = async (employeeName: string, expenseId: number) => {
     try {
-      const response = await fetch(`/api/proxy/expense/updateApproval?id=${expenseId}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/updateApproval?id=${expenseId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -266,7 +266,7 @@ export default function ExpensesPage() {
         paymentMethod: 'cash',
       }));
 
-      const response = await fetch('/api/proxy/expense/approveMultiple', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/approveMultiple', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -303,7 +303,7 @@ export default function ExpensesPage() {
   // Handle reject expense
   const handleReject = async (employeeName: string, expenseId: number) => {
     try {
-      const response = await fetch(`/api/proxy/expense/reject?id=${expenseId}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/reject?id=${expenseId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -351,7 +351,7 @@ export default function ExpensesPage() {
         rejectionReason: 'Reason',
       }));
 
-      const response = await fetch('/api/proxy/expense/rejectMultiple', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/rejectMultiple', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

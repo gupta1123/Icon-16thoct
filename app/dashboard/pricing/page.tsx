@@ -112,7 +112,7 @@ const PricingPage = () => {
             if (!token) return;
             
             try {
-                const response = await fetch('/api/proxy/user/manage/current-user', {
+                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -211,23 +211,23 @@ const PricingPage = () => {
             
             if (isManager && teamId !== null) {
                 // For managers, use team-based API call
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Manager API call:', url);
             } else if (isCoordinator && teamId !== null) {
                 // For coordinators, use team-based API call
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Coordinator API call:', url);
             } else if (isAdmin || isDataManager) {
                 // For admins and data managers, use the original API call (full access)
-                url = `/api/proxy/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log(isAdmin ? 'Admin API call:' : 'Data Manager API call:', url);
             } else if (isFieldOfficer) {
                 // For field officers, use team-based API call (same as manager for now)
-                url = `/api/proxy/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByTeamAndDate?id=${teamId}&start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Field Officer API call:', url);
             } else {
                 // Default to admin API call
-                url = `/api/proxy/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
+                url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRange?start=${formattedStartDate}&end=${formattedEndDate}`;
                 console.log('Default (Admin) API call:', url);
             }
 

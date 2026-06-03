@@ -44,7 +44,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
         employeeDto: { id: 99 }
       };
 
-      const response = await fetch('/api/proxy/brand/create', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

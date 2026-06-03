@@ -1,7 +1,5 @@
 // API service for WebSalesV3 - All endpoints from api.md
-// Use Next.js proxy to avoid CORS issues
-// Always use the proxy route for consistency between client and server
-const API_BASE_URL = '/api/proxy';
+export const API_BASE_URL = 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net';
 
 // Types based on API responses from api.md
 export interface EmployeeDto {
@@ -1331,7 +1329,6 @@ export class API {
     this.loadToken();
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      'User-Agent': 'IConSteel-Frontend',
     };
 
     if (this.token) {

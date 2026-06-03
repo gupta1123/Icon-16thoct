@@ -22,12 +22,11 @@ const DailyPricingChecker = () => {
     
     try {
       const today = new Date().toISOString().split('T')[0];
-      const response = await fetch(`/api/proxy/brand/getByDateRange?start=${today}&end=${today}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRange?start=${today}&end=${today}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-          'ngrok-skip-browser-warning': 'true',
         },
       });
       

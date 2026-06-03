@@ -48,7 +48,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
 
     const fetchBrands = useCallback(async () => {
         try {
-            const response = await fetch(`/api/proxy/visit/getProCons?visitId=${visitId}`, {
+            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getProCons?visitId=${visitId}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -115,7 +115,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
             })), brand];
 
             try {
-                const response = await fetch(`/api/proxy/visit/addProCons?visitId=${visitId}`, {
+                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/addProCons?visitId=${visitId}`, {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
@@ -171,7 +171,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
             });
 
             try {
-                const response = await fetch(`/api/proxy/visit/addProCons?visitId=${visitId}`, {
+                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/addProCons?visitId=${visitId}`, {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
@@ -214,7 +214,7 @@ export default function BrandTab({ brands, setBrands, visitId, token, fetchVisit
 
         if (deletedBrand) {
             try {
-                const response = await fetch(`/api/proxy/visit/deleteProCons?visitId=${visitId}`, {
+                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/deleteProCons?visitId=${visitId}`, {
                     method: "DELETE",
                     headers: {
                         "Content-Type": "application/json",

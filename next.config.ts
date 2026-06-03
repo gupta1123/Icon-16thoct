@@ -10,10 +10,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Ensure environment variables are available
-  env: {
-    API_URL: process.env.API_URL,
-  },
   typescript: {
     // Already checked with tsc, so we know types are correct
     ignoreBuildErrors: false,

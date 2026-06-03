@@ -74,7 +74,7 @@ export default function PricingCheckModal({ isOpen, onClose, onSuccess }: Pricin
 
       console.log('Creating pricing with payload:', payload);
 
-      const response = await fetch('/api/proxy/brand/create', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/create', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -700,7 +700,7 @@ export default function VisitDetailPage({
             const att = attachment as { fileName?: string };
             try {
            
-              const response = await fetch(`/api/proxy/visit/downloadFile/${visitId}/check-in/${att.fileName}`, {
+              const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/downloadFile/${visitId}/check-in/${att.fileName}`, {
                 headers: {
                   'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
                 },
@@ -739,7 +739,7 @@ export default function VisitDetailPage({
         return;
       }
 
-      const response = await fetch(`/api/proxy/visit/downloadFile/${visitId}/check-out/${fileName}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/downloadFile/${visitId}/check-out/${fileName}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
         },
@@ -1137,7 +1137,7 @@ export default function VisitDetailPage({
     try {
       const token = localStorage.getItem('authToken');
       // First, fetch the task details
-      const taskResponse = await fetch(`/api/proxy/task/getById?id=${taskId}`, {
+      const taskResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getById?id=${taskId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -1153,7 +1153,7 @@ export default function VisitDetailPage({
 
       const imageUrls = attachments.map((attachment) =>
         attachment.fileDownloadUri ??
-        `/api/proxy/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`
       );
 
       setTaskImages(imageUrls);
@@ -1332,7 +1332,7 @@ export default function VisitDetailPage({
         }
         
         const response = await fetch(
-          `/api/proxy/notes/edit?id=${editingNoteId}`,
+          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/edit?id=${editingNoteId}`,
           {
             method: 'PUT',
             headers: {
@@ -1357,7 +1357,7 @@ export default function VisitDetailPage({
         setNotes(updatedNotes);
       } else if (visitDetail) {
         const response = await fetch(
-          '/api/proxy/notes/create',
+          'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/create',
           {
             method: 'POST',
             headers: {
@@ -1406,7 +1406,7 @@ export default function VisitDetailPage({
   const deleteNote = async (id: number) => {
     try {
       const response = await fetch(
-        `/api/proxy/notes/delete?id=${id}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/delete?id=${id}`,
         {
           method: 'DELETE',
           headers: {
@@ -1538,7 +1538,7 @@ export default function VisitDetailPage({
         apiPayload.taskTitle = currentTask.taskTitle.trim();
       }
 
-      const response = await fetch('/api/proxy/task/create', {
+      const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
