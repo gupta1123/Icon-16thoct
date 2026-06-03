@@ -1068,7 +1068,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 shopAgeYears: data.shopAgeYears ? parseInt(data.shopAgeYears.toString(), 10) : undefined,
                 ownershipType: data.ownershipType || undefined,
                 dealerType: data.dealerType || undefined,
-                dealerSubType: data.dealerSubType || undefined,
+                dealerSubType: data.dealerType === 'ICON' ? data.dealerSubType || undefined : undefined,
                 // Engineer/Architect/Contractor specific fields
                 dateOfBirth: data.dateOfBirth || undefined,
                 yearsOfExperience: data.yearsOfExperience || undefined,
@@ -2977,10 +2977,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                         <Select
                                                             value={formData.dealerType || ''}
                                                             onValueChange={(value) => {
-                                                                setFormData(prev => ({ ...prev, dealerType: value }));
-                                                                if (value === 'ICON') {
-                                                                    setFormData(prev => ({ ...prev, dealerSubType: 'EXCLUSIVE' }));
-                                                                }
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    dealerType: value,
+                                                                    dealerSubType: value === 'ICON' ? 'EXCLUSIVE' : '',
+                                                                }));
                                                             }}
                                                         >
                                                             <SelectTrigger>
@@ -2992,21 +2993,23 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="dealerSubType">Dealer Sub-Type</Label>
-                                                        <Select
-                                                            value={formData.dealerSubType || ''}
-                                                            onValueChange={(value) => setFormData(prev => ({ ...prev, dealerSubType: value }))}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select dealer sub-type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="EXCLUSIVE">Exclusive</SelectItem>
-                                                                <SelectItem value="NON_EXCLUSIVE">Non-Exclusive</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
+                                                    {formData.dealerType === 'ICON' && (
+                                                        <div className="space-y-2">
+                                                            <Label htmlFor="dealerSubType">Dealer Sub-Type</Label>
+                                                            <Select
+                                                                value={formData.dealerSubType || ''}
+                                                                onValueChange={(value) => setFormData(prev => ({ ...prev, dealerSubType: value }))}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Select dealer sub-type" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="EXCLUSIVE">Exclusive</SelectItem>
+                                                                    <SelectItem value="NON_EXCLUSIVE">Non-Exclusive</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </>
                                         )}

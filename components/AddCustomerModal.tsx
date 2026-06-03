@@ -589,6 +589,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         employeeId: employeeId || null,
       };
 
+      (requestBody as Record<string, unknown>).dealerSubType =
+        customerData.dealerType === 'ICON' ? customerData.dealerSubType : undefined;
       (requestBody as Record<string, unknown>).productCategories =
         customerData.clientType === 'Dealer' && !isEditing && apiCategories.length > 0 ? apiCategories : undefined;
       (requestBody as Record<string, unknown>).productCategory = undefined;
@@ -1220,6 +1222,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                       // If dealer type is ICON, automatically set sub-type to EXCLUSIVE
                       if (value === 'ICON') {
                         handleInputChange('dealerSubType', 'EXCLUSIVE');
+                      } else {
+                        handleInputChange('dealerSubType', '');
                       }
                     }}>
                       <SelectTrigger className="col-span-3">
@@ -1234,23 +1238,25 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="dealerSubType" className="text-right">
-                      Dealer Sub-Type
-                    </Label>
-                    <Select value={customerData.dealerSubType || ''} onValueChange={(value) => handleInputChange('dealerSubType', value)}>
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Select dealer sub-type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DEALER_SUB_TYPES.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {customerData.dealerType === 'ICON' && (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="dealerSubType" className="text-right">
+                        Dealer Sub-Type
+                      </Label>
+                      <Select value={customerData.dealerSubType || ''} onValueChange={(value) => handleInputChange('dealerSubType', value)}>
+                        <SelectTrigger className="col-span-3">
+                          <SelectValue placeholder="Select dealer sub-type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DEALER_SUB_TYPES.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </>
               )}
 
