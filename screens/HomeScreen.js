@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import * as Location from 'expo-location';
-import moment from 'moment';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -64,7 +63,7 @@ const HomeScreen = ({ authToken }) => {
       }
 
       const response = await axios.put(
-        `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/employee/updateLiveLocation?id=${employeeId}&latitude=${location.coords.latitude}&longitude=${location.coords.longitude}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/updateLiveLocation?id=${employeeId}&latitude=${location.coords.latitude}&longitude=${location.coords.longitude}`,
         {},
         {
           headers: {
@@ -133,7 +132,7 @@ const HomeScreen = ({ authToken }) => {
         return;
       }
 
-      const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${startDateFormatted}&end=${endDateFormatted}`, {
+      const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${startDateFormatted}&end=${endDateFormatted}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           // Bypass ngrok browser warning page
@@ -192,7 +191,7 @@ const HomeScreen = ({ authToken }) => {
       
       console.log('🔵 [FETCH EMPLOYEE] Calling /employee/get with ID:', employeeId);
 
-      const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/employee/get?id=${employeeId}`, {
+      const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/get?id=${employeeId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           // Bypass ngrok browser warning page
@@ -263,13 +262,6 @@ const HomeScreen = ({ authToken }) => {
   const fetchNotifications = async () => {
     try {
       const employeeId = await AsyncStorage.getItem('employeeId');
-      const today = moment();
-      const startDate = today.clone().subtract(2, 'days').format('YYYY-MM-DD');
-      const endDate = today.clone().add(1, 'days').format('YYYY-MM-DD');
-
-      console.log('🔵 [FETCH NOTIFICATIONS] Date range:', { startDate, endDate });
-
-      // Get fresh token from AsyncStorage
       const token = await AsyncStorage.getItem('userToken');
       if (!token) {
         console.error('❌ [FETCH NOTIFICATIONS] Auth token not found');
@@ -277,34 +269,20 @@ const HomeScreen = ({ authToken }) => {
       }
 
       const response = await axios.get(
-        `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${startDate}&end=${endDate}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notifications/unread-count?employeeId=${employeeId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            // Bypass ngrok browser warning page
             'ngrok-skip-browser-warning': 'true',
             'User-Agent': 'IconMobile',
           },
         }
       );
 
-      // Check if response is HTML instead of JSON (ngrok or auth issue)
-      const isHtmlResponse = typeof response.data === 'string' && 
-        (response.data.includes('<!DOCTYPE html>') || response.data.includes('<html>'));
-      
-      if (isHtmlResponse) {
-        console.log('⚠️ [FETCH NOTIFICATIONS] Server returned HTML instead of JSON - possible auth/ngrok issue');
-        setUnreadTasks(0);
-        return;
-      }
-
-      console.log('🔵 [FETCH NOTIFICATIONS] Response:', response.data?.length, 'visits');
-
-      const assignedVisits = response.data.filter(visit => visit.isSelfGenerated === false);
-
-      const unread = assignedVisits.filter(visit =>
-        !visit.checkoutLatitude && !visit.checkoutLongitude && !visit.checkoutDate && !visit.checkoutTime
-      ).length;
+      const unread =
+        typeof response.data === 'number'
+          ? response.data
+          : response.data?.count ?? response.data?.unreadCount ?? 0;
 
       console.log('🔵 [FETCH NOTIFICATIONS] Unread tasks:', unread);
       setUnreadTasks(unread);
@@ -328,7 +306,7 @@ const HomeScreen = ({ authToken }) => {
       }
 
       const response = await axios.get(
-        `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/brand/getByDateRangeForEmployee?start=${today}&end=${today}&id=${employeeId}`,
+        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/brand/getByDateRangeForEmployee?start=${today}&end=${today}&id=${employeeId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -498,6 +476,7 @@ const HomeScreen = ({ authToken }) => {
           onProfilePress={() => navigation.navigate('UserProfile', { authToken })}
           onNotificationPress={() => navigation.navigate('Notifications1', { authToken })}
           connectivityComponent={<ConnectivityStatusIcons />}
+          unreadTasks={unreadTasks}
         />
 
         <DailyPricingIndicator />

@@ -6,6 +6,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import * as Location from 'expo-location';
+import { formatProductCategoryLabel, getVisitPurposeOptions } from '../utils/clientTypeConfig';
 import CustomDropdown from './CustomDropdown';
 import DatePicker from './DatePicker';
 import NotesSection from './NotesSection';
@@ -56,22 +57,10 @@ const indianStates = [
   { label: 'Puducherry', value: 'Puducherry' },
 ];
 
-const purposeOptions = [
-  { label: 'First Visit', value: 'First Visit' },
-  { label: 'Follow Up', value: 'Follow Up' },
-  { label: 'Order', value: 'Order' },
-  { label: 'Monthly Visit', value: 'Monthly Visit' },
-  { label: 'Special Meet', value: 'Special Meet' },
-  { label: 'Sales', value: 'Sales' },
-  { label: 'Special Enquiry', value: 'Special Enquiry' },
-  { label: 'Payment', value: 'Payment' },
-  { label: 'Others', value: 'Others' },
-];
-
 function CustomerDetails({ route, navigation }) {
   const [customerInfoTab, setCustomerInfoTab] = useState('contact');
   const [contentTab, setContentTab] = useState('notes');
-  const { customerId, authToken } = route.params;
+  const { customerId, authToken, openVisitModal = false } = route.params;
   const [modalVisible, setModalVisible] = useState(false);
   const [visitModalVisible, setVisitModalVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -87,6 +76,9 @@ function CustomerDetails({ route, navigation }) {
   const [existingVisits, setExistingVisits] = useState([]);
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [employeeRole, setEmployeeRole] = useState('');
+  const [hasAutoOpenedVisitModal, setHasAutoOpenedVisitModal] = useState(false);
+  const [isAddDetailsVisible, setIsAddDetailsVisible] = useState(false);
+  const [isSavingAdditionalDetails, setIsSavingAdditionalDetails] = useState(false);
 
   const [customerDetails, setCustomerDetails] = useState({
     storeName: '',
@@ -109,12 +101,108 @@ function CustomerDetails({ route, navigation }) {
     district: '',
     professionals: [], // Add professionals array
   });
+  const visitPurposeOptions = getVisitPurposeOptions(customerDetails.clientType);
+  const editableCustomerSections = [
+    {
+      title: 'Basic Details',
+      fields: [
+        { key: 'storeName', label: 'Customer / Store Name', keyboardType: 'default' },
+        { key: 'clientFirstName', label: 'First Name', keyboardType: 'default' },
+        { key: 'clientLastName', label: 'Last Name', keyboardType: 'default' },
+        { key: 'primaryContact', label: 'Primary Contact', keyboardType: 'phone-pad' },
+        { key: 'secondaryContact', label: 'Secondary Contact', keyboardType: 'phone-pad' },
+        { key: 'email', label: 'Email', keyboardType: 'email-address' },
+      ],
+    },
+    {
+      title: 'Business Details',
+      fields: [
+        { key: 'gstNumber', label: 'GST Number', keyboardType: 'default' },
+        { key: 'monthlySale', label: 'Monthly Sale', keyboardType: 'numeric' },
+      ],
+    },
+    {
+      title: 'Address Details',
+      fields: [
+        { key: 'addressLine1', label: 'Address Line 1', keyboardType: 'default' },
+        { key: 'addressLine2', label: 'Address Line 2', keyboardType: 'default' },
+        { key: 'city', label: 'City', keyboardType: 'default' },
+        { key: 'district', label: 'District', keyboardType: 'default' },
+        { key: 'subDistrict', label: 'Sub District / Taluka', keyboardType: 'default' },
+        { key: 'state', label: 'State', keyboardType: 'default' },
+        { key: 'pincode', label: 'Pincode', keyboardType: 'numeric' },
+      ],
+    },
+  ];
+
+  const editableCustomerFields = editableCustomerSections.flatMap((section) => section.fields);
+
+  const getDraftValue = (details, field) => {
+    const value = details[field];
+    return value === undefined || value === null ? '' : String(value);
+  };
+
+  const getMissingEditableSections = () =>
+    editableCustomerSections
+      .map((section) => ({
+        ...section,
+        fields: section.fields.filter((field) => !getDraftValue(customerDetails, field.key).trim()),
+      }))
+      .filter((section) => section.fields.length > 0);
+
+  const handleSaveAdditionalDetails = async (detailsToAdd) => {
+    const missingFieldKeys = new Set(getMissingEditableSections().flatMap((section) => section.fields.map((field) => field.key)));
+    const payload = {};
+
+    editableCustomerFields.forEach((field) => {
+      if (!missingFieldKeys.has(field.key)) return;
+      const nextValue = getDraftValue(detailsToAdd, field.key).trim();
+
+      if (nextValue) {
+        if (field.keyboardType === 'numeric') {
+          const parsedPincode = parseFloat(nextValue);
+          if (!Number.isNaN(parsedPincode)) {
+            payload[field.key] = parsedPincode;
+          }
+        } else {
+          payload[field.key] = nextValue;
+        }
+      }
+    });
+
+    if (Object.keys(payload).length === 0) {
+      Alert.alert('Edit Customer', 'Please enter at least one missing detail.');
+      return;
+    }
+
+    setIsSavingAdditionalDetails(true);
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      await axios.put(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/edit?id=${customerId}`, payload, {
+        headers: {
+          Authorization: `Bearer ${token || authToken}`,
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'IconMobile',
+        },
+      });
+
+      Alert.alert('Success', 'Customer details added successfully.');
+      setIsAddDetailsVisible(false);
+      await loadCustomerDetails();
+    } catch (error) {
+      console.error('Error adding customer details:', error);
+      Alert.alert('Error', 'Failed to add customer details. Please try again.');
+    } finally {
+      setIsSavingAdditionalDetails(false);
+    }
+  };
 
   const loadCustomerDetails = useCallback(async () => {
     try {
       console.log('🔵 [CUSTOMER DETAILS] Fetching store details for ID:', customerId);
       
-      const response = await fetch(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getById?id=${customerId}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${customerId}`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'ngrok-skip-browser-warning': 'true',
@@ -172,7 +260,7 @@ function CustomerDetails({ route, navigation }) {
 
   const fetchIntentLevel = async () => {
     try {
-      const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/intent-audit/getByStore?id=${customerId}`, {
+      const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/intent-audit/getByStore?id=${customerId}`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -200,6 +288,32 @@ function CustomerDetails({ route, navigation }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    setHasAutoOpenedVisitModal(false);
+  }, [customerId]);
+
+  useEffect(() => {
+    if (!openVisitModal || hasAutoOpenedVisitModal || !customerDetails.storeName) {
+      return;
+    }
+
+    setContentTab('visits');
+    setNewVisitDetails({
+      date: new Date(),
+      purpose: '',
+      customPurpose: '',
+    });
+    setVisitModalVisible(true);
+    setHasAutoOpenedVisitModal(true);
+    navigation.setParams({ openVisitModal: false });
+  }, [openVisitModal, hasAutoOpenedVisitModal, customerDetails.storeName, navigation]);
+
+  useEffect(() => {
+    if (newVisitDetails.purpose && !visitPurposeOptions.some(option => option.value === newVisitDetails.purpose)) {
+      setNewVisitDetails(prev => ({ ...prev, purpose: '', customPurpose: '' }));
+    }
+  }, [newVisitDetails.purpose, visitPurposeOptions]);
 
   const getInitials = (name) => {
     const names = name.split(' ');
@@ -307,31 +421,17 @@ function CustomerDetails({ route, navigation }) {
       const employeeId = await AsyncStorage.getItem('employeeId');
       const formattedDate = format(newVisitDetails.date, 'yyyy-MM-dd');
       
-      // Check if this is the first visit of the day
-      const response = await fetch(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${formattedDate}&end=${formattedDate}`, {
+      const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${formattedDate}&end=${formattedDate}`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
       });
 
-      if (response.ok) {
-        const visits = await response.json();
-        const existingVisitsForStore = visits.filter((visit) => visit.storeId === customerId);
-        const totalVisitsToday = visits.length;
+        if (response.ok) {
+          const visits = await response.json();
+          const existingVisitsForStore = visits.filter((visit) => visit.storeId === customerId);
 
-        // Check if this is the first visit of the day and customer is not a dealer
-        if (totalVisitsToday === 0 && customerDetails.clientType !== 'Dealer' && 
-            !customerDetails.clientType?.toLowerCase().includes('dealer') && 
-            !customerDetails.clientType?.toLowerCase().includes('shop')) {
-          Alert.alert(
-            'First Visit Restriction',
-            'The first visit of the day must be to a Dealer/Shop customer. Please select a Dealer/Shop customer for your first visit.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        if (existingVisitsForStore.length > 0) {
+          if (existingVisitsForStore.length > 0) {
           setExistingVisits(existingVisitsForStore);
           
           // Check if there's an ongoing visit (checked in but not checked out)
@@ -370,7 +470,7 @@ function CustomerDetails({ route, navigation }) {
       
       console.log('🔵 [VISIT] Creating basic visit with payload:', basicPayload);
       
-      const response = await axios.put('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/create', basicPayload, {
+      const response = await axios.put('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/create', basicPayload, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -487,7 +587,10 @@ function CustomerDetails({ route, navigation }) {
     return (
         <View style={styles.card}>
             <View style={styles.cardHeader}>
-                {/* Edit button removed/disabled */}
+                <TouchableOpacity style={styles.addDetailsButton} onPress={() => setIsAddDetailsVisible(true)}>
+                  <Ionicons name="add-circle-outline" size={18} color="#4F46E5" />
+                  <Text style={styles.addDetailsButtonText}>Edit</Text>
+                </TouchableOpacity>
                 <View style={styles.avatar}>
                     <Text style={styles.avatarText}>
                         {getInitials(`${customerDetails.clientFirstName} ${customerDetails.clientLastName}`)}
@@ -504,7 +607,14 @@ function CustomerDetails({ route, navigation }) {
                       customerDetails.dealerType === 'NON_ICON' ? styles.nonExclusiveBadge : styles.exclusiveBadge
                     ]}>
                       <Text style={styles.dealerTypeBadgeText}>
-                        {customerDetails.dealerType === 'NON_ICON' ? 'Non-Exclusive' : 'Exclusive'}
+                        {customerDetails.dealerType === 'NON_ICON' ? 'Non Icon' : 'Icon'}
+                      </Text>
+                    </View>
+                  )}
+                  {customerDetails.dealerSubType && (
+                    <View style={[styles.dealerTypeBadge, styles.exclusiveBadge]}>
+                      <Text style={styles.dealerTypeBadgeText}>
+                        {customerDetails.dealerSubType === 'NON_EXCLUSIVE' ? 'Non-Exclusive' : 'Exclusive'}
                       </Text>
                     </View>
                   )}
@@ -591,26 +701,32 @@ function CustomerDetails({ route, navigation }) {
                                 label="Dealer Type"
                                 value={customerDetails.dealerType || 'N/A'}
                             />
-                            {customerDetails.productCategories && Array.isArray(customerDetails.productCategories) && customerDetails.productCategories.length > 0 && (
-                              <View style={styles.infoRow}>
-                                <Ionicons name="cube-outline" size={20} color="#7F00FF" style={styles.infoIcon} />
-                                <View style={styles.infoTextContainer}>
-                                  <Text style={styles.infoLabel}>Product Categories:</Text>
-                                  <View style={styles.productCategoriesContainer}>
-                                    {customerDetails.productCategories.map((category, index) => (
-                                      <View key={index} style={styles.productCategoryChip}>
-                                        <Text style={styles.productCategoryText}>
-                                          {category.charAt(0).toUpperCase() + category.slice(1).toLowerCase().replace(/_/g, ' ')}
-                                        </Text>
-                                      </View>
-                                    ))}
-                                  </View>
-                                </View>
-                              </View>
-                            )}
+                            <InfoRow
+                                icon="ribbon-outline"
+                                label="Dealer Sub-Type"
+                                value={customerDetails.dealerSubType || 'N/A'}
+                            />
                           </>
                         )}
-                        
+
+                        {customerDetails.productCategories && Array.isArray(customerDetails.productCategories) && customerDetails.productCategories.length > 0 && (
+                          <View style={styles.infoRow}>
+                            <Ionicons name="cube-outline" size={20} color="#7F00FF" style={styles.infoIcon} />
+                            <View style={styles.infoTextContainer}>
+                              <Text style={styles.infoLabel}>Products:</Text>
+                              <View style={styles.productCategoriesContainer}>
+                                {customerDetails.productCategories.map((category, index) => (
+                                  <View key={index} style={styles.productCategoryChip}>
+                                    <Text style={styles.productCategoryText}>
+                                      {formatProductCategoryLabel(category)}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            </View>
+                          </View>
+                        )}
+
                         {/* Professional & Site Visit Specific Fields - Show as Cards */}
                         {(customerDetails.clientType === 'Professional' || customerDetails.clientType === 'Site Visit') && (
                           <View>
@@ -1170,6 +1286,80 @@ function CustomerDetails({ route, navigation }) {
     </Modal>
   );
 
+  const AddDetailsModal = () => {
+    const missingSections = getMissingEditableSections();
+    const [draftDetails, setDraftDetails] = useState({});
+
+    useEffect(() => {
+      if (isAddDetailsVisible) {
+        setDraftDetails({});
+      }
+    }, [isAddDetailsVisible]);
+
+    return (
+      <Modal
+        visible={isAddDetailsVisible}
+        animationType="slide"
+        onRequestClose={() => setIsAddDetailsVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.addDetailsModalContainer}
+        >
+          <View style={styles.addDetailsHeader}>
+            <TouchableOpacity onPress={() => setIsAddDetailsVisible(false)} style={styles.addDetailsCloseButton}>
+              <Ionicons name="close" size={24} color="#111827" />
+            </TouchableOpacity>
+            <Text style={styles.addDetailsTitle}>Edit Customer</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+
+          <ScrollView contentContainerStyle={styles.addDetailsContent}>
+            {missingSections.length === 0 ? (
+              <View style={styles.noMissingDetailsCard}>
+                <Ionicons name="checkmark-circle-outline" size={48} color="#10B981" />
+                <Text style={styles.noMissingDetailsTitle}>All details are added</Text>
+                <Text style={styles.noMissingDetailsText}>There are no empty customer fields to update.</Text>
+              </View>
+            ) : (
+              missingSections.map((section) => (
+                <View key={section.title} style={styles.editSectionCard}>
+                  <Text style={styles.editSectionTitle}>{section.title}</Text>
+                  {section.fields.map((field) => (
+                    <View key={field.key} style={styles.addDetailsInputContainer}>
+                      <Text style={styles.addDetailsLabel}>{field.label}</Text>
+                      <TextInput
+                        style={styles.addDetailsInput}
+                        value={draftDetails[field.key] || ''}
+                        onChangeText={(value) => setDraftDetails((prev) => ({ ...prev, [field.key]: value }))}
+                        keyboardType={field.keyboardType}
+                        placeholder={`Enter ${field.label.toLowerCase()}`}
+                      />
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
+          </ScrollView>
+
+          <View style={styles.addDetailsFooter}>
+            <TouchableOpacity
+              style={[styles.addDetailsSaveButton, (isSavingAdditionalDetails || missingSections.length === 0) && styles.addDetailsSaveButtonDisabled]}
+              onPress={() => handleSaveAdditionalDetails(draftDetails)}
+              disabled={isSavingAdditionalDetails || missingSections.length === 0}
+            >
+              {isSavingAdditionalDetails ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.addDetailsSaveButtonText}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
   return (
     <View style={styles.container}>
       {/* Header with back button */}
@@ -1187,7 +1377,9 @@ function CustomerDetails({ route, navigation }) {
       <ScrollView style={styles.scrollContainer}>
         {renderCustomerCard()}
         {renderContent()}
-      {/* EditCustomerModal removed - edit functionality disabled */}
+      </ScrollView>
+
+      <AddDetailsModal />
       <Modal
         visible={visitModalVisible}
         animationType="slide"
@@ -1222,7 +1414,7 @@ function CustomerDetails({ route, navigation }) {
 
             <Text style={styles.label}>Purpose</Text>
             <View style={styles.purposeOptions}>
-              {purposeOptions.map((option) => (
+              {visitPurposeOptions.map((option) => (
                 <TouchableOpacity
                   key={option.value}
                   style={[
@@ -1268,6 +1460,7 @@ function CustomerDetails({ route, navigation }) {
       <DatePicker
         isVisible={isPickerVisible}
         onClose={() => setPickerVisible(false)}
+        todayOnly={true}
         onSelect={(date) => {
           setSelectedDate(date);
           setNewVisitDetails(prev => ({ ...prev, date }));
@@ -1275,8 +1468,7 @@ function CustomerDetails({ route, navigation }) {
         }}
       />
 
-        <ConfirmationBottomSheet />
-      </ScrollView>
+      <ConfirmationBottomSheet />
     </View>
   );
 }
@@ -1343,6 +1535,24 @@ const styles = StyleSheet.create({
   },
   editBtn: {
     right: 12,
+  },
+  addDetailsButton: {
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 10,
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    zIndex: 1,
+  },
+  addDetailsButtonText: {
+    color: '#4F46E5',
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 4,
   },
   avatar: {
     width: 64,
@@ -1578,6 +1788,105 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+  },
+  addDetailsModalContainer: {
+    backgroundColor: '#F3F4F6',
+    flex: 1,
+  },
+  addDetailsHeader: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderBottomColor: '#E5E7EB',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    paddingTop: 54,
+  },
+  addDetailsCloseButton: {
+    padding: 8,
+  },
+  addDetailsTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  addDetailsContent: {
+    padding: 20,
+  },
+  editSectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 2,
+  },
+  editSectionTitle: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 14,
+  },
+  addDetailsInputContainer: {
+    marginBottom: 16,
+  },
+  addDetailsLabel: {
+    color: '#4B5563',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  addDetailsInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#111827',
+    fontSize: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  noMissingDetailsCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 34,
+  },
+  noMissingDetailsTitle: {
+    color: '#111827',
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: 12,
+  },
+  noMissingDetailsText: {
+    color: '#6B7280',
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  addDetailsFooter: {
+    backgroundColor: '#FFFFFF',
+    borderTopColor: '#E5E7EB',
+    borderTopWidth: 1,
+    padding: 20,
+  },
+  addDetailsSaveButton: {
+    alignItems: 'center',
+    backgroundColor: '#4F46E5',
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 46,
+  },
+  addDetailsSaveButtonDisabled: {
+    opacity: 0.65,
+  },
+  addDetailsSaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
   footerButton: {
     paddingVertical: 12,

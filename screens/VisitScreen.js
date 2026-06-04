@@ -36,6 +36,39 @@ const CONSTRUCTION_STAGE_OPTIONS = [
   { label: 'Completing', value: 'COMPLETING' },
 ];
 
+const normalizeBrandCategory = (category, item = {}) => {
+  const normalized = (category || '').toString().trim().toUpperCase();
+
+  if (normalized === 'METAL') {
+    return 'STEEL';
+  }
+
+  if (normalized === 'STEEL' || normalized === 'CEMENT') {
+    return normalized;
+  }
+
+  if (item?.cementQuantitySold !== undefined && item?.cementQuantitySold !== null) {
+    return 'CEMENT';
+  }
+
+  return 'STEEL';
+};
+
+const normalizeVisitBrandEntry = (item) => {
+  const category = normalizeBrandCategory(item?.category || item?.brandCategory || item?.materialType, item);
+
+  return {
+    ...item,
+    brandName: item?.brandName || item?.brand || item?.brandCurrentlyUsed || '',
+    category,
+    purchasedFrom: item?.purchasedFrom || item?.source || null,
+    steelQuantitySold:
+      item?.steelQuantitySold ?? (category === 'STEEL' ? item?.quantity ?? null : null),
+    cementQuantitySold:
+      item?.cementQuantitySold ?? (category === 'CEMENT' ? item?.quantity ?? null : null),
+  };
+};
+
 // Remove the task definition since we don't need background tracking anymore
 const VisitScreen = ({ route }) => {
   const params = route?.params ?? {};
@@ -93,6 +126,10 @@ const VisitScreen = ({ route }) => {
   const [isSavingMaterialDetails, setIsSavingMaterialDetails] = useState(false);
   const [upcomingSiteCount, setUpcomingSiteCount] = useState('');
   const [isGiftImageUploaded, setIsGiftImageUploaded] = useState(false);
+  const [steelRequiredInDays, setSteelRequiredInDays] = useState('');
+  const [steelRequiredDate, setSteelRequiredDate] = useState('');
+  const [isSteelRequirementSaved, setIsSteelRequirementSaved] = useState(false);
+  const [isSavingSteelReminder, setIsSavingSteelReminder] = useState(false);
 
   const shouldLogVisitApi = checkedIn && isCheckInImageUploaded;
 
@@ -159,7 +196,7 @@ const VisitScreen = ({ route }) => {
     if (!storeId) return;
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/site/getByStore?id=${storeId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/site/getByStore?id=${storeId}`;
       logVisitApiRequest('fetchSitesCount', { endpoint });
       const response = await axios.get(
         endpoint,
@@ -186,7 +223,7 @@ const VisitScreen = ({ route }) => {
       const sites = Array.isArray(response.data) ? response.data : [];
       setSitesCount(sites.length);
     } catch (error) {
-      logVisitApiError('fetchSitesCount', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/site/getByStore?id=${storeIdParam || visit?.storeId}`, error });
+      logVisitApiError('fetchSitesCount', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/site/getByStore?id=${storeIdParam || visit?.storeId}`, error });
       console.error('Error fetching sites count:', error);
       setSitesCount(0);
     }
@@ -197,7 +234,7 @@ const VisitScreen = ({ route }) => {
     if (!storeId) return;
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getByStore?storeId=${storeId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/getByStore?storeId=${storeId}`;
       logVisitApiRequest('fetchContactsCount', { endpoint });
       const response = await axios.get(
         endpoint,
@@ -212,7 +249,7 @@ const VisitScreen = ({ route }) => {
       logVisitApiResponse('fetchContactsCount', { endpoint, status: response.status, data: response.data });
       setContactsCount(response.data.length);
     } catch (error) {
-      logVisitApiError('fetchContactsCount', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getByStore?storeId=${storeIdParam || visit?.storeId}`, error });
+      logVisitApiError('fetchContactsCount', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/getByStore?storeId=${storeIdParam || visit?.storeId}`, error });
       console.error('Error fetching contacts count:', error);
       setContactsCount(0);
     }
@@ -228,7 +265,7 @@ const VisitScreen = ({ route }) => {
     try {
       const token = await AsyncStorage.getItem('userToken');
       console.log('🔵 [FETCH VISIT DETAILS] Using token:', token ? `${token.substring(0, 20)}...` : 'null');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getById?id=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getById?id=${visitId}`;
       console.log('🔵 [FETCH VISIT DETAILS] API URL:', endpoint);
       logVisitApiRequest('fetchVisitDetails', { endpoint });
       const visitResponse = await axios.get(endpoint, {
@@ -279,7 +316,9 @@ const VisitScreen = ({ route }) => {
           ...prevData,
           monthlySales: visitData.monthlySale || 0,
           competitiveInfo: visitData.brandProCons?.length > 0 ? visitData.brandProCons[0] : { brand: '', pros: [], cons: [] },
-          brandsInUse: visitData.brandsInUse || [],
+          brandsInUse: Array.isArray(visitData.brandsInUse)
+            ? visitData.brandsInUse.map(normalizeVisitBrandEntry)
+            : [],
           visitDuration: visitData.checkoutDate ? calculateDuration(visitData.checkinDate, visitData.checkinTime, visitData.checkoutDate, visitData.checkoutTime) : null,
           intentLevel: visitData.visitIntentValue || 0,
         }));
@@ -294,12 +333,22 @@ const VisitScreen = ({ route }) => {
         
         // Set upcoming site count if available
         setUpcomingSiteCount(visitData.upcomingSiteCount?.toString() || '');
+        const requirementDays = visitData.requirementDays ?? visitData.steelRequirementDays;
+        if (requirementDays) {
+          setSteelRequiredInDays(String(requirementDays));
+          setSteelRequiredDate(format(addDays(new Date(), Number(requirementDays)), 'yyyy-MM-dd'));
+          setIsSteelRequirementSaved(true);
+        } else {
+          setSteelRequiredInDays('');
+          setSteelRequiredDate('');
+          setIsSteelRequirementSaved(false);
+        }
 
 
         // Only fetch client type if we have storeId
         if (visitData.storeId) {
           try {
-            const storeEndpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getById?id=${visitData.storeId}`;
+            const storeEndpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${visitData.storeId}`;
             logVisitApiRequest('fetchStoreForVisit', { endpoint: storeEndpoint });
             const storeResponse = await axios.get(storeEndpoint, {
               headers: {
@@ -311,7 +360,7 @@ const VisitScreen = ({ route }) => {
             logVisitApiResponse('fetchStoreForVisit', { endpoint: storeEndpoint, status: storeResponse.status, data: storeResponse.data });
             setClientType((storeResponse.data.clientType || 'shop').toLowerCase());
           } catch (error) {
-            logVisitApiError('fetchStoreForVisit', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getById?id=${visitData.storeId}`, error });
+            logVisitApiError('fetchStoreForVisit', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${visitData.storeId}`, error });
             console.error('Error fetching store details:', error);
             setClientType('shop'); // Default to shop if fetch fails
           }
@@ -334,7 +383,7 @@ const VisitScreen = ({ route }) => {
         console.log('⚠️ [FETCH VISIT DETAILS] No visit data received');
       }
     } catch (error) {
-      logVisitApiError('fetchVisitDetails', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getById?id=${visitId}`, error });
+      logVisitApiError('fetchVisitDetails', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getById?id=${visitId}`, error });
       console.error('❌ [FETCH VISIT DETAILS] Error:', error);
       console.error('❌ [FETCH VISIT DETAILS] Error message:', error.message);
       console.error('❌ [FETCH VISIT DETAILS] Error response:', error.response?.data);
@@ -345,7 +394,6 @@ const VisitScreen = ({ route }) => {
   };
 
   const normalizedClientType = (clientType || '').toLowerCase();
-
   // Treat "professional" (our canonical value from create-store flow) the same
   // as engineer/architect/contractor for all visit-flow decisions.
   const isSiteRelatedClient =
@@ -415,7 +463,7 @@ const VisitScreen = ({ route }) => {
     }
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getById?id=${storeId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${storeId}`;
       logVisitApiRequest('fetchClientType', { endpoint });
       const response = await axios.get(endpoint, {
         headers: {
@@ -436,7 +484,7 @@ const VisitScreen = ({ route }) => {
       
       setClientType((response.data.clientType || 'shop').toLowerCase());
     } catch (error) {
-      logVisitApiError('fetchClientType', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getById?id=${storeId}`, error });
+      logVisitApiError('fetchClientType', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${storeId}`, error });
       console.error('Error fetching client type:', error);
       setClientType('shop'); // Default to shop if fetch fails
     }
@@ -446,7 +494,7 @@ const VisitScreen = ({ route }) => {
     if (!visitId) return;
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/notes/getByVisit?id=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/getByVisit?id=${visitId}`;
       logVisitApiRequest('fetchNotes', { endpoint });
       const response = await axios.get(endpoint, {
         headers: { 
@@ -464,7 +512,7 @@ const VisitScreen = ({ route }) => {
         notes: notes
       }));
     } catch (error) {
-      logVisitApiError('fetchNotes', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/notes/getByVisit?id=${visitId}`, error });
+      logVisitApiError('fetchNotes', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/getByVisit?id=${visitId}`, error });
       console.error('Error fetching notes:', error);
     }
   };
@@ -472,7 +520,7 @@ const VisitScreen = ({ route }) => {
   const fetchBrandsProCons = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getProCons?visitId=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getProCons?visitId=${visitId}`;
       logVisitApiRequest('fetchBrandsProCons', { endpoint });
       const response = await axios.get(endpoint, {
         headers: { 
@@ -490,7 +538,9 @@ const VisitScreen = ({ route }) => {
         return;
       }
       
-      const brandsProCons = Array.isArray(response.data) ? response.data : [];
+      const brandsProCons = Array.isArray(response.data)
+        ? response.data.map(normalizeVisitBrandEntry)
+        : [];
       setBrandsProConsCount(brandsProCons.length);  // Set the count
       setVisitData(prevData => ({
         ...prevData,
@@ -498,7 +548,7 @@ const VisitScreen = ({ route }) => {
         brandsInUse: brandsProCons
       }));
     } catch (error) {
-      logVisitApiError('fetchBrandsProCons', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getProCons?visitId=${visitId}`, error });
+      logVisitApiError('fetchBrandsProCons', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getProCons?visitId=${visitId}`, error });
       console.error('Error fetching brands pro-cons:', error);
     }
   };
@@ -506,7 +556,7 @@ const VisitScreen = ({ route }) => {
   const fetchComplaints = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/task/getByVisit?type=complaint&visitId=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByVisit?type=complaint&visitId=${visitId}`;
       logVisitApiRequest('fetchComplaints', { endpoint });
       const response = await axios.get(endpoint, {
         headers: { 
@@ -532,7 +582,7 @@ const VisitScreen = ({ route }) => {
         complaints: filteredComplaints
       }));
     } catch (error) {
-      logVisitApiError('fetchComplaints', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/task/getByVisit?type=complaint&visitId=${visitId}`, error });
+      logVisitApiError('fetchComplaints', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByVisit?type=complaint&visitId=${visitId}`, error });
       console.error('Error fetching complaints:', error);
     }
   };
@@ -540,7 +590,7 @@ const VisitScreen = ({ route }) => {
   const fetchRequirements = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/task/getByVisit?type=requirement&visitId=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByVisit?type=requirement&visitId=${visitId}`;
       logVisitApiRequest('fetchRequirements', { endpoint });
       const response = await axios.get(endpoint, {
         headers: { 
@@ -558,7 +608,7 @@ const VisitScreen = ({ route }) => {
         requirements: filteredRequirements
       }));
     } catch (error) {
-      logVisitApiError('fetchRequirements', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/task/getByVisit?type=requirement&visitId=${visitId}`, error });
+      logVisitApiError('fetchRequirements', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByVisit?type=requirement&visitId=${visitId}`, error });
       console.error('Error fetching requirements:', error);
     }
   };
@@ -566,7 +616,7 @@ const VisitScreen = ({ route }) => {
   const fetchMonthlySales = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/monthly-sale/getByVisit?visitId=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/monthly-sale/getByVisit?visitId=${visitId}`;
       logVisitApiRequest('fetchMonthlySales', { endpoint });
       const response = await axios.get(endpoint, {
         headers: {
@@ -605,7 +655,7 @@ const VisitScreen = ({ route }) => {
         }));
       }
     } catch (error) {
-      logVisitApiError('fetchMonthlySales', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/monthly-sale/getByVisit?visitId=${visitId}`, error });
+      logVisitApiError('fetchMonthlySales', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/monthly-sale/getByVisit?visitId=${visitId}`, error });
       console.error('Error fetching monthly sale:', error);
     }
   };
@@ -613,7 +663,7 @@ const VisitScreen = ({ route }) => {
   const fetchIntentLevel = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/intent-audit/getByVisit?id=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/intent-audit/getByVisit?id=${visitId}`;
       logVisitApiRequest('fetchIntentLevel', { endpoint });
       const response = await axios.get(endpoint, {
         headers: {
@@ -644,7 +694,7 @@ const VisitScreen = ({ route }) => {
         console.log('No intent audit data found, keeping current intent level');
       }
     } catch (error) {
-      logVisitApiError('fetchIntentLevel', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/intent-audit/getByVisit?id=${visitId}`, error });
+      logVisitApiError('fetchIntentLevel', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/intent-audit/getByVisit?id=${visitId}`, error });
       console.error('Error fetching intent level:', error.response || error);
       // Don't reset to 0 on error - keep rating-based intent level
       console.log('Error fetching intent audit, keeping current intent level');
@@ -665,7 +715,7 @@ const VisitScreen = ({ route }) => {
     const visitIntentV = newIntentLevel - 1;
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit.id}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit.id}`;
       const payload = { visitIntentValue: newIntentLevel };
       logVisitApiRequest('handleUpdateIntentLevel', { endpoint, method: 'PUT', payload });
       const response = await axios.put(
@@ -698,7 +748,7 @@ const VisitScreen = ({ route }) => {
         throw new Error('Failed to update rating');
       }
     } catch (error) {
-      logVisitApiError('handleUpdateIntentLevel', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit?.id}`, error });
+      logVisitApiError('handleUpdateIntentLevel', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit?.id}`, error });
       console.error('Error updating intent level:', error);
       Alert.alert('Error', 'Failed to update rating. Please try again.');
     }
@@ -711,7 +761,7 @@ const VisitScreen = ({ route }) => {
     }
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit.id}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit.id}`;
       const payload = { visitIntentValue: newIntentLevel };
       logVisitApiRequest('updateIntentLevel', { endpoint, method: 'PUT', payload });
       const response = await axios.put(
@@ -739,7 +789,7 @@ const VisitScreen = ({ route }) => {
         throw new Error('Failed to update rating');
       }
     } catch (error) {
-      logVisitApiError('updateIntentLevel', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit?.id}`, error });
+      logVisitApiError('updateIntentLevel', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit?.id}`, error });
       console.error('Error updating intent level:', error);
       Alert.alert('Error', 'Failed to update rating. Please try again.');
     }
@@ -760,7 +810,7 @@ const VisitScreen = ({ route }) => {
   const handleRatingChange = async (newRating) => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit.id}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit.id}`;
       const payload = { rating: newRating };
       logVisitApiRequest('handleRatingChange', { endpoint, method: 'PUT', payload });
       const response = await axios.put(
@@ -790,7 +840,7 @@ const VisitScreen = ({ route }) => {
         throw new Error('Failed to update rating');
       }
     } catch (error) {
-      logVisitApiError('handleRatingChange', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/edit?id=${visit?.id}`, error });
+      logVisitApiError('handleRatingChange', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visit?.id}`, error });
       console.error('Error updating rating:', error);
       Alert.alert('Error', 'Failed to update rating. Please try again.');
     }
@@ -821,7 +871,7 @@ const VisitScreen = ({ route }) => {
   };
 
   const handleBrandAdded = (brands) => {
-    const normalizedBrands = Array.isArray(brands) ? brands : [];
+    const normalizedBrands = Array.isArray(brands) ? brands.map(normalizeVisitBrandEntry) : [];
     setVisitData(prevData => ({
       ...prevData,
       brandsInUse: normalizedBrands
@@ -1034,7 +1084,7 @@ const VisitScreen = ({ route }) => {
       console.log('Check-in location:', latitude, longitude);
 
       const token = await AsyncStorage.getItem('userToken');
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/checkin?id=${visitId}`;
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/checkin?id=${visitId}`;
       const payload = {
         checkinLatitude: latitude,
         checkinLongitude: longitude,
@@ -1070,7 +1120,7 @@ const VisitScreen = ({ route }) => {
         throw new Error('check_in_failed');
       }
     } catch (error) {
-      logVisitApiError('handleCheckIn', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/checkin?id=${visitId}`, error, forceLog: true });
+      logVisitApiError('handleCheckIn', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/checkin?id=${visitId}`, error, forceLog: true });
       console.error('Error during check-in:', error);
       console.error('Error response:', error.response?.data);
       
@@ -1221,13 +1271,20 @@ const VisitScreen = ({ route }) => {
 
         // Build brandPurchases array from brandsInUse
         if (visitData.brandsInUse && visitData.brandsInUse.length > 0) {
-          checkoutPayload.brandPurchases = visitData.brandsInUse.map(brand => ({
-            brandName: brand.brandName || brand.brand || '',
-            category: brand.category || 'STEEL',
-            purchasedFrom: brand.purchasedFrom || null,
-            steelQuantitySold: brand.steelQuantitySold || (brand.category === 'STEEL' ? brand.quantity : null),
-            cementQuantitySold: brand.cementQuantitySold || (brand.category === 'CEMENT' ? brand.quantity : null),
-          }));
+          checkoutPayload.brandPurchases = visitData.brandsInUse.map((brand) => {
+            const normalizedBrand = normalizeVisitBrandEntry(brand);
+            return {
+              brandName: normalizedBrand.brandName || '',
+              category: normalizedBrand.category,
+              purchasedFrom: normalizedBrand.purchasedFrom || null,
+              steelQuantitySold:
+                normalizedBrand.steelQuantitySold ??
+                (normalizedBrand.category === 'STEEL' ? normalizedBrand.quantity ?? null : null),
+              cementQuantitySold:
+                normalizedBrand.cementQuantitySold ??
+                (normalizedBrand.category === 'CEMENT' ? normalizedBrand.quantity ?? null : null),
+            };
+          });
 
           // If there's a purchasedFrom at the brand level, also set it at checkout level
           const firstBrandWithPurchase = visitData.brandsInUse.find(b => b.purchasedFrom);
@@ -1256,7 +1313,15 @@ const VisitScreen = ({ route }) => {
         }
       }
 
-      const endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/checkout?id=${visitId}`;
+      if (isSiteVisitClient && steelRequiredInDays) {
+        const requirementDays = parseInt(steelRequiredInDays, 10);
+        if (!Number.isNaN(requirementDays) && requirementDays > 0) {
+          checkoutPayload.requirementText = `Need steel after ${requirementDays} day${requirementDays === 1 ? '' : 's'}`;
+          checkoutPayload.requirementDays = requirementDays;
+        }
+      }
+
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/checkout?id=${visitId}`;
       logVisitApiRequest('handleCheckOut', { endpoint, method: 'PUT', payload: checkoutPayload });
       const response = await axios.put(
         endpoint,
@@ -1294,7 +1359,7 @@ const VisitScreen = ({ route }) => {
         throw new Error(response.data || 'Failed to check out');
       }
     } catch (error) {
-      logVisitApiError('handleCheckOut', { endpoint: `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/checkout?id=${visitId}`, error });
+      logVisitApiError('handleCheckOut', { endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/checkout?id=${visitId}`, error });
       console.error('Error during check-out:', error);
       Alert.alert(
         'Checkout Error',
@@ -1358,6 +1423,148 @@ const VisitScreen = ({ route }) => {
       )}
     </TouchableOpacity>
   );
+
+  const handleSteelRequiredDaysChange = (value) => {
+    const numericValue = value.replace(/[^0-9]/g, '');
+    setSteelRequiredInDays(numericValue);
+
+    if (!numericValue) {
+      setSteelRequiredDate('');
+      return;
+    }
+
+    const days = parseInt(numericValue, 10);
+    if (Number.isNaN(days)) {
+      setSteelRequiredDate('');
+      return;
+    }
+
+    setSteelRequiredDate(format(addDays(new Date(), days), 'yyyy-MM-dd'));
+  };
+
+  const handleSaveSteelReminder = async () => {
+    const days = parseInt(steelRequiredInDays, 10);
+    if (!steelRequiredInDays || Number.isNaN(days) || days <= 0) {
+      Alert.alert('Required days', 'Please enter after how many days the client will require steel.');
+      return;
+    }
+
+    setIsSavingSteelReminder(true);
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const requiredDate = format(addDays(new Date(), days), 'yyyy-MM-dd');
+      const payload = {
+        requirementText: `Need steel after ${days} day${days === 1 ? '' : 's'}`,
+        requirementDays: days,
+      };
+      const endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visitId}`;
+
+      logVisitApiRequest('saveSteelRequirement', { endpoint, method: 'PUT', payload, forceLog: true });
+      const response = await axios.put(endpoint, payload, {
+        headers: {
+          Authorization: `Bearer ${token || authToken}`,
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          'User-Agent': 'IconMobile',
+        },
+      });
+      logVisitApiResponse('saveSteelRequirement', { endpoint, status: response.status, data: response.data, forceLog: true });
+
+      setSteelRequiredDate(requiredDate);
+      setSteelRequiredInDays(String(days));
+      setIsSteelRequirementSaved(true);
+      setVisit((prev) => ({
+        ...prev,
+        requirementText: payload.requirementText,
+        requirementDays: days,
+      }));
+      Alert.alert('Requirement saved', 'Steel requirement has been saved.');
+    } catch (error) {
+      logVisitApiError('saveSteelRequirement', {
+        endpoint: `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/edit?id=${visitId}`,
+        error,
+        forceLog: true,
+      });
+      console.error('Error saving steel requirement:', error);
+      Alert.alert('Error', 'Failed to save steel requirement.');
+    } finally {
+      setIsSavingSteelReminder(false);
+    }
+  };
+
+  const formatSteelReminderDisplayDate = (date) => {
+    if (!date) return 'N/A';
+    try {
+      return format(new Date(`${date}T00:00:00`), 'dd MMM yyyy');
+    } catch {
+      return date;
+    }
+  };
+
+  const SteelOrderReminderCard = () => {
+    if (!isSiteVisitClient) return null;
+
+    const notificationDate = steelRequiredDate
+      ? format(subDays(new Date(`${steelRequiredDate}T00:00:00`), 2), 'dd MMM yyyy')
+      : 'N/A';
+
+    return (
+      <View style={styles.steelReminderCard}>
+        <View style={styles.steelReminderHeader}>
+          <View style={styles.steelReminderIcon}>
+            <Ionicons name="notifications-outline" size={20} color="#4F46E5" />
+          </View>
+          <View style={styles.steelReminderTitleWrap}>
+            <Text style={styles.steelReminderTitle}>Steel Order Reminder</Text>
+            <Text style={styles.steelReminderSubtitle}>
+              Backend notification appears two days before the requirement date.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.steelReminderInputRow}>
+          <View style={styles.steelReminderInputWrap}>
+            <Text style={styles.steelReminderLabel}>Required after days</Text>
+            <TextInput
+              style={styles.steelReminderInput}
+              value={steelRequiredInDays}
+              onChangeText={handleSteelRequiredDaysChange}
+              keyboardType="numeric"
+              placeholder="e.g. 7"
+              editable={visitStatus !== 'Completed'}
+            />
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.steelReminderSaveButton,
+              (isSavingSteelReminder || visitStatus === 'Completed') && styles.steelReminderSaveButtonDisabled,
+            ]}
+            onPress={handleSaveSteelReminder}
+            disabled={isSavingSteelReminder || visitStatus === 'Completed'}
+          >
+            {isSavingSteelReminder ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.steelReminderSaveButtonText}>Save</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.steelReminderMetaRow}>
+          <Text style={styles.steelReminderMetaText}>
+            Required: {formatSteelReminderDisplayDate(steelRequiredDate)}
+          </Text>
+          <Text style={styles.steelReminderMetaText}>Notify: {notificationDate}</Text>
+        </View>
+
+        {isSteelRequirementSaved && (
+          <Text style={styles.steelReminderSavedText}>
+            Steel requirement saved for this visit.
+          </Text>
+        )}
+      </View>
+    );
+  };
 
 
 
@@ -1828,6 +2035,7 @@ const VisitScreen = ({ route }) => {
               {visitData.notes?.length === 0 && (
                 <Text style={styles.noDataText}>No discussion added</Text>
               )}
+
             </View>
           </View>
         );
@@ -2304,7 +2512,7 @@ const VisitScreen = ({ route }) => {
       const today = new Date();
       const formattedDate = format(today, 'yyyy-MM-dd');
       
-      endpoint = `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${formattedDate}&end=${formattedDate}`;
+      endpoint = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByDateRangeAndEmployee?id=${employeeId}&start=${formattedDate}&end=${formattedDate}`;
       logVisitApiRequest('fetchOngoingVisits', { endpoint });
       const response = await axios.get(
         endpoint,
@@ -2383,6 +2591,7 @@ const VisitScreen = ({ route }) => {
       ) : (
         <ScrollView style={styles.bottomSheetScrollView}>
           {visit && <VisitInfo />}
+          {visit && <SteelOrderReminderCard />}
           <CardActions />
         </ScrollView>
       )}
@@ -2458,6 +2667,99 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 15,
     margin: 10,
+  },
+  steelReminderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginHorizontal: 10,
+    marginBottom: 10,
+    padding: 15,
+  },
+  steelReminderHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    marginBottom: 14,
+  },
+  steelReminderIcon: {
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    marginRight: 10,
+    width: 40,
+  },
+  steelReminderTitleWrap: {
+    flex: 1,
+  },
+  steelReminderTitle: {
+    color: '#1F2937',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  steelReminderSubtitle: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  steelReminderInputRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+  },
+  steelReminderInputWrap: {
+    flex: 1,
+    marginRight: 10,
+  },
+  steelReminderLabel: {
+    color: '#4B5563',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  steelReminderInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#111827',
+    fontSize: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  steelReminderSaveButton: {
+    alignItems: 'center',
+    backgroundColor: '#4F46E5',
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  steelReminderSaveButtonDisabled: {
+    opacity: 0.65,
+  },
+  steelReminderSaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  steelReminderMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  steelReminderMetaText: {
+    color: '#4B5563',
+    fontSize: 12,
+    fontWeight: '600',
+    marginRight: 8,
+    marginTop: 4,
+  },
+  steelReminderSavedText: {
+    color: '#059669',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 10,
   },
   materialCard: {
     backgroundColor: '#fff',

@@ -43,6 +43,19 @@ const projectTypeOptions = [
   { label: 'Others', value: 'OTHERS' },
 ];
 
+const getSiteVisitFallbackName = (details) => {
+  const projectName = details.storeName?.trim();
+  if (projectName) return projectName;
+
+  const siteOwner = details.siteOwner?.trim();
+  if (siteOwner) return siteOwner;
+
+  const clientName = [details.clientFirstName, details.clientLastName].filter(Boolean).join(' ').trim();
+  if (clientName) return clientName;
+
+  return `Site Visit - ${format(new Date(), 'yyyy-MM-dd')}`;
+};
+
 const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) => {
   const [selectedState, setSelectedState] = useState(null);
   const [selectedDistrict, setSelectedDistrict] = useState(null);
@@ -92,9 +105,21 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
   });
 
   const handleInputChange = (name, value) => {
-    setNewCustomerDetails(prev => ({ ...prev, [name]: value }));
+    setNewCustomerDetails(prev => {
+      if (name === 'dealerType') {
+        return {
+          ...prev,
+          dealerType: value,
+          dealerSubType: value === 'NON_ICON' ? '' : prev.dealerSubType,
+        };
+      }
+      return { ...prev, [name]: value };
+    });
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+    if (name === 'dealerType' && value === 'NON_ICON' && errors.dealerSubType) {
+      setErrors(prev => ({ ...prev, dealerSubType: '' }));
     }
   };
 
@@ -111,7 +136,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
   const fetchStates = async () => {
     try {
       setLoadingStates(true);
-      const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/location/states', {
+      const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/location/states', {
         headers: {
           Authorization: `Bearer ${authToken}`,
           'Content-Type': 'application/json',
@@ -137,7 +162,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
     }
     try {
       setLoadingDistricts(true);
-      const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/location/districts?state=${selectedState}`, {
+      const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/location/districts?state=${selectedState}`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
           'Content-Type': 'application/json',
@@ -229,12 +254,15 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
   };
 
   const handleCreateCustomer = async () => {
-    const { primaryContact, storeName, clientType } = newCustomerDetails;
+    const { primaryContact, clientType } = newCustomerDetails;
 
     // Required fields validation
     const newErrors = {};
     
-    const requiredFields = ['storeName', 'clientFirstName', 'clientLastName', 'primaryContact', 'village', 'taluka', 'city', 'clientType'];
+    const requiredFields = ['clientFirstName', 'clientLastName', 'primaryContact', 'village', 'taluka', 'city', 'clientType'];
+    if (clientType !== 'Site Visit') {
+      requiredFields.unshift('storeName');
+    }
     
     requiredFields.forEach(field => {
       if (!newCustomerDetails[field]) {
@@ -272,21 +300,8 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
       if (!newCustomerDetails.dealerType) {
         newErrors.dealerType = 'Dealer type is required';
       }
-      if (!newCustomerDetails.dealerSubType) {
+      if (newCustomerDetails.dealerType === 'ICON' && !newCustomerDetails.dealerSubType) {
         newErrors.dealerSubType = 'Dealer sub-type is required';
-      }
-    }
-
-    // Additional validation for Site Visit
-    if (clientType === 'Site Visit') {
-      if (!newCustomerDetails.siteOwner) {
-        newErrors.siteOwner = 'Site owner is required';
-      }
-      if (!newCustomerDetails.projectType) {
-        newErrors.projectType = 'Project type is required';
-      }
-      if (!newCustomerDetails.projectSize) {
-        newErrors.projectSize = 'Project size is required';
       }
     }
 
@@ -297,7 +312,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
     }
 
     try {
-      const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${primaryContact}`, {
+      const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getByPhone?phone=${primaryContact}`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -308,7 +323,9 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
       } else {
         const employeeId = await AsyncStorage.getItem('employeeId');
         const payload = {
-          storeName: newCustomerDetails.storeName,
+          storeName: clientType === 'Site Visit'
+            ? getSiteVisitFallbackName(newCustomerDetails)
+            : newCustomerDetails.storeName,
           clientFirstName: newCustomerDetails.clientFirstName,
           clientLastName: newCustomerDetails.clientLastName,
           primaryContact: parseInt(newCustomerDetails.primaryContact),
@@ -327,7 +344,9 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
           if (newCustomerDetails.shopAgeYears) payload.shopAgeYears = parseInt(newCustomerDetails.shopAgeYears);
           if (newCustomerDetails.ownershipType) payload.ownershipType = newCustomerDetails.ownershipType;
           if (newCustomerDetails.dealerType) payload.dealerType = newCustomerDetails.dealerType;
-          if (newCustomerDetails.dealerSubType) payload.dealerSubType = newCustomerDetails.dealerSubType;
+          if (newCustomerDetails.dealerType === 'ICON' && newCustomerDetails.dealerSubType) {
+            payload.dealerSubType = newCustomerDetails.dealerSubType;
+          }
         }
 
         // Add Site Visit specific fields
@@ -340,7 +359,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
         }
 
         // Step 1: Create Store
-        const createResponse = await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/create', payload, {
+        const createResponse = await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/create', payload, {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
@@ -363,7 +382,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
 
             console.log('🔵 [PROFESSIONAL] Creating professional record with payload:', professionalPayload);
 
-            await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/addForStore', professionalPayload, {
+            await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/addForStore', professionalPayload, {
               headers: {
                 Authorization: `Bearer ${authToken}`,
               },
@@ -438,7 +457,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
 
             {/* Basic Information */}
             <Text style={styles.sectionTitle}>Basic Information</Text>
-            {renderInput('storeName', 'Store Name*')}
+            {renderInput('storeName', selectedClientType === 'Site Visit' ? 'Project Name' : 'Store Name*')}
             {renderInput('clientFirstName', 'Client First Name*')}
             {renderInput('clientLastName', 'Client Last Name*')}
             {renderInput('primaryContact', 'Phone number*', 'phone-pad')}
@@ -574,6 +593,9 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
                       placeholder="Select dealer type"
                       onSelect={(option) => {
                         setSelectedDealerType(option);
+                        if (option?.value === 'NON_ICON') {
+                          setSelectedDealerSubType(null);
+                        }
                         handleInputChange('dealerType', option ? option.value : '');
                       }}
                       selectedOption={selectedDealerType}
@@ -581,19 +603,21 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
                     {errors.dealerType && <Text style={styles.errorText}>{errors.dealerType}</Text>}
                   </View>
                   
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Dealer Sub-Type*</Text>
-                    <CustomDropdown
-                      options={dealerSubTypeOptions}
-                      placeholder="Select dealer sub-type"
-                      onSelect={(option) => {
-                        setSelectedDealerSubType(option);
-                        handleInputChange('dealerSubType', option ? option.value : '');
-                      }}
-                      selectedOption={selectedDealerSubType}
-                    />
-                    {errors.dealerSubType && <Text style={styles.errorText}>{errors.dealerSubType}</Text>}
-                  </View>
+                  {newCustomerDetails.dealerType === 'ICON' && (
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.label}>Dealer Sub-Type*</Text>
+                      <CustomDropdown
+                        options={dealerSubTypeOptions}
+                        placeholder="Select dealer sub-type"
+                        onSelect={(option) => {
+                          setSelectedDealerSubType(option);
+                          handleInputChange('dealerSubType', option ? option.value : '');
+                        }}
+                        selectedOption={selectedDealerSubType}
+                      />
+                      {errors.dealerSubType && <Text style={styles.errorText}>{errors.dealerSubType}</Text>}
+                    </View>
+                  )}
                 </View>
               </>
             )}
@@ -604,14 +628,14 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
                 <View style={styles.siteVisitSection}>
                   <Text style={styles.sectionTitle}>Site Visit Details</Text>
                   
-                  {renderInput('siteOwner', 'Site Owner Name*')}
+                  {renderInput('siteOwner', 'Site Owner Name')}
                   
                   {renderInput('contractorName', 'Contractor Name (Optional)')}
                   
                   {renderInput('engineerName', 'Engineer Name (Optional)')}
                   
                   <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Project Type*</Text>
+                      <Text style={styles.label}>Project Type</Text>
                     <CustomDropdown
                       options={projectTypeOptions}
                       placeholder="Select project type"
@@ -624,7 +648,7 @@ const AddCustomerModal = ({ isVisible, onClose, authToken, onCustomerCreated }) 
                     {errors.projectType && <Text style={styles.errorText}>{errors.projectType}</Text>}
                   </View>
                   
-                  {renderInput('projectSize', 'Project Size (sq ft)*', 'numeric')}
+                  {renderInput('projectSize', 'Project Size (sq ft)', 'numeric')}
                 </View>
               </>
             )}

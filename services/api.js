@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // API Base URL
-const API_BASE_URL = 'https://unbalkingly-uncharged-elizabet.ngrok-free.dev';
+const API_BASE_URL = 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net';
 
 /**
  * Get the default headers for API requests

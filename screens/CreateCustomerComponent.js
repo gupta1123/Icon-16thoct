@@ -6,6 +6,7 @@ import * as Location from 'expo-location';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getPendingCustomers, storePendingCustomer } from '../utils/offlineStorage';
+import { getDefaultVisitPurpose, getProductCategoryOptions } from '../utils/clientTypeConfig';
 import CustomDropdown from './CustomDropdown';
 import DobPicker from './DobPicker';
 
@@ -71,14 +72,45 @@ const predefinedStates = [
   { label: 'Karnataka', value: 'Karnataka' },
 ];
 
-// Product Categories options (values lowercased to match API)
-const materialOptions = [
-  { label: 'Structure', value: 'structure' },
-  { label: 'Tiles', value: 'tiles' },
-  { label: 'Pipes', value: 'pipes' },
-  { label: 'Paints', value: 'paints' },
-  { label: 'Adhesives', value: 'adhesives' },
-];
+const getClientSpecificFieldLabels = (clientType) => {
+  if (isSiteVisitType(clientType)) {
+    return {
+      storeName: 'Project Name',
+      clientName: 'Site Owner Name*',
+    };
+  }
+
+  if (isProfessionalType(clientType)) {
+    return {
+      storeName: 'Firm Name*',
+      clientName: 'Owner Name*',
+    };
+  }
+
+  if (isDealerType(clientType)) {
+    return {
+      storeName: 'Shop Name*',
+      clientName: 'Owner Name*',
+    };
+  }
+
+  return {
+    storeName: 'Store Name*',
+    clientName: 'Client Name*',
+  };
+};
+
+const stripRequiredMarker = (label) => label.replace('*', '').trim();
+
+const getSiteVisitFallbackName = (details) => {
+  const projectName = details.storeName?.trim();
+  if (projectName) return projectName;
+
+  const clientName = details.clientName?.trim();
+  if (clientName) return clientName;
+
+  return `Site Visit - ${format(new Date(), 'yyyy-MM-dd')}`;
+};
 
 const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCreated, navigation, defaultClientType }) => {
     const [newCustomerDetails, setNewCustomerDetails] = useState({
@@ -153,6 +185,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
     // Location dropdown data
     const [states, setStates] = useState([]);
     const [districts, setDistricts] = useState([]);
+    const [districtCatalog, setDistrictCatalog] = useState([]);
     const [loadingStates, setLoadingStates] = useState(false);
     const [loadingDistricts, setLoadingDistricts] = useState(false);
   
@@ -163,6 +196,287 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
     const [currentLocation, setCurrentLocation] = useState(null);
     const [locationError, setLocationError] = useState(null);
     const [selectedRadius, setSelectedRadius] = useState(100); // Default 100 meters
+
+    const clientSpecificLabels = getClientSpecificFieldLabels(selectedClientType || newCustomerDetails.clientType);
+    const productCategoryOptions = getProductCategoryOptions(selectedClientType || newCustomerDetails.clientType);
+
+    const getFieldLabel = (field) => {
+      if (field === 'storeName') {
+        return stripRequiredMarker(clientSpecificLabels.storeName);
+      }
+
+      if (field === 'clientName') {
+        return stripRequiredMarker(clientSpecificLabels.clientName);
+      }
+
+      if (field === 'taluka') {
+        return 'Taluka / Village';
+      }
+
+      return field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+    };
+
+    const buildAddressLine = (parts = []) => {
+      const uniqueParts = [];
+
+      parts.forEach((part) => {
+        const trimmedPart = part?.toString().trim();
+        if (!trimmedPart) {
+          return;
+        }
+
+        if (!uniqueParts.some(existingPart => normalizeLocationToken(existingPart) === normalizeLocationToken(trimmedPart))) {
+          uniqueParts.push(trimmedPart);
+        }
+      });
+
+      return uniqueParts.join(', ');
+    };
+
+    const isLikelyPlusCode = (value) => {
+      const trimmedValue = value?.toString().trim();
+      if (!trimmedValue) {
+        return false;
+      }
+
+      return /^[A-Z0-9]{4,}\+[A-Z0-9]{2,}$/i.test(trimmedValue);
+    };
+
+    const normalizeLocationToken = (value) => {
+      if (!value) {
+        return '';
+      }
+
+      return value
+        .toString()
+        .toLowerCase()
+        .replace(/\bbangalore\b/g, 'bengaluru')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const locationValuesMatch = (left, right) => {
+      const normalizedLeft = normalizeLocationToken(left);
+      const normalizedRight = normalizeLocationToken(right);
+
+      if (!normalizedLeft || !normalizedRight) {
+        return false;
+      }
+
+      return (
+        normalizedLeft === normalizedRight ||
+        normalizedLeft.includes(normalizedRight) ||
+        normalizedRight.includes(normalizedLeft)
+      );
+    };
+
+    const extractAddressFromCoordinates = (address) => {
+      if (!address) {
+        return null;
+      }
+
+      const addressLine1 = buildAddressLine([
+        [address.streetNumber, address.street].filter(Boolean).join(' ').trim(),
+        address.name,
+      ]);
+
+      const state = address.region?.trim() || '';
+      const district = address.subregion?.trim() || address.district?.trim() || '';
+      const city = address.city?.trim() || address.district?.trim() || address.subregion?.trim() || '';
+      const taluka = address.district?.trim() || address.name?.trim() || city || '';
+
+      return {
+        state,
+        district,
+        city,
+        taluka,
+        locality: address.name?.trim() || '',
+        addressLine1: isLikelyPlusCode(addressLine1) ? '' : addressLine1,
+        pincode: address.postalCode?.trim() || '',
+        country: address.country?.trim() || '',
+      };
+    };
+
+    const fetchDistrictFromPincode = async (pincode) => {
+      if (!pincode) {
+        return '';
+      }
+
+      try {
+        const response = await axios.get(`https://api.postalpincode.in/pincode/${encodeURIComponent(pincode)}`, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'IconMobile/1.0',
+          },
+          timeout: 15000,
+        });
+
+        const lookupResults = Array.isArray(response.data) ? response.data : [];
+        const firstResult = lookupResults[0];
+        const postOffices = Array.isArray(firstResult?.PostOffice) ? firstResult.PostOffice : [];
+        const firstPostOffice = postOffices[0];
+
+        return firstPostOffice?.District?.trim() || '';
+      } catch (error) {
+        console.error('❌ [LOCATION] Pincode district lookup failed:', error);
+        return '';
+      }
+    };
+
+    const fetchFallbackAddressFromNetwork = async (latitude, longitude) => {
+      try {
+        const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+          params: {
+            format: 'jsonv2',
+            lat: latitude,
+            lon: longitude,
+            addressdetails: 1,
+          },
+          headers: {
+            Accept: 'application/json',
+            'Accept-Language': 'en',
+            'User-Agent': 'IconMobile/1.0',
+          },
+          timeout: 15000,
+        });
+
+        const address = response.data?.address || {};
+        const addressLine1 = buildAddressLine([
+          [address.house_number, address.road].filter(Boolean).join(' ').trim(),
+          address.neighbourhood,
+          address.suburb,
+          address.hamlet,
+          address.village,
+        ]);
+
+        return {
+          state: address.state?.trim() || '',
+          district: (address.state_district || address.county || '').trim(),
+          city: (address.city || address.town || address.municipality || address.village || '').trim(),
+          taluka: (address.city_district || address.county || address.suburb || address.village || '').trim(),
+          locality: (address.suburb || address.neighbourhood || address.village || address.hamlet || '').trim(),
+          addressLine1: isLikelyPlusCode(addressLine1) ? '' : addressLine1,
+          pincode: address.postcode?.trim() || '',
+          country: address.country?.trim() || '',
+        };
+      } catch (error) {
+        console.error('❌ [LOCATION] Network reverse geocode fallback failed:', error);
+        return null;
+      }
+    };
+
+    const inferDistrictFromLocation = (locationFields, availableDistricts = districtCatalog) => {
+      const candidates = [
+        locationFields?.district,
+        locationFields?.city,
+        locationFields?.taluka,
+        locationFields?.locality,
+      ].filter(Boolean);
+
+      if (!candidates.length || !Array.isArray(availableDistricts) || availableDistricts.length === 0) {
+        return '';
+      }
+
+      for (const district of availableDistricts) {
+        const districtName = district?.districtName || '';
+
+        if (candidates.some(candidate => locationValuesMatch(districtName, candidate))) {
+          return districtName;
+        }
+
+        const districtCities = Array.isArray(district?.cities) ? district.cities : [];
+        const cityMatch = districtCities.some(cityInfo =>
+          candidates.some(candidate =>
+            locationValuesMatch(cityInfo?.cityName, candidate) ||
+            locationValuesMatch(cityInfo?.subDistrictName, candidate)
+          )
+        );
+
+        if (cityMatch) {
+          return districtName;
+        }
+      }
+
+      return locationFields?.district || '';
+    };
+
+    const syncLocationDropdownOptions = async ({ state, district }, districtsData = []) => {
+      if (state) {
+        setStates(prev => {
+          const exists = prev.some(option => option.value === state);
+          return exists ? prev : [...prev, { label: state, value: state }];
+        });
+      }
+
+      if (Array.isArray(districtsData) && districtsData.length > 0) {
+        const districtsOptions = districtsData.map(item => ({
+          label: item.districtName,
+          value: item.districtName,
+        }));
+        setDistricts(districtsOptions);
+      }
+
+      if (district) {
+        setDistricts(prev => {
+          const exists = prev.some(option => option.value === district);
+          return exists ? prev : [...prev, { label: district, value: district }];
+        });
+      }
+    };
+
+    const autofillAddressFromCoordinates = async (latitude, longitude) => {
+      try {
+        const geocodedAddresses = await Location.reverseGeocodeAsync({ latitude, longitude });
+        const primaryAddress = Array.isArray(geocodedAddresses) ? geocodedAddresses[0] : null;
+        const expoLocationFields = extractAddressFromCoordinates(primaryAddress) || {};
+        const networkLocationFields = await fetchFallbackAddressFromNetwork(latitude, longitude);
+        const postalDistrict = await fetchDistrictFromPincode(
+          networkLocationFields?.pincode || expoLocationFields.pincode || ''
+        );
+        const preferredExpoAddressLine = !isLikelyPlusCode(expoLocationFields.addressLine1)
+          ? expoLocationFields.addressLine1
+          : '';
+        const locationFields = {
+          state: networkLocationFields?.state || expoLocationFields.state || '',
+          district: postalDistrict || networkLocationFields?.district || expoLocationFields.district || '',
+          city: expoLocationFields.city || networkLocationFields?.city || '',
+          taluka: expoLocationFields.taluka || networkLocationFields?.taluka || '',
+          locality: expoLocationFields.locality || networkLocationFields?.locality || '',
+          addressLine1: preferredExpoAddressLine || networkLocationFields?.addressLine1 || '',
+          pincode: networkLocationFields?.pincode || expoLocationFields.pincode || '',
+          country: networkLocationFields?.country || expoLocationFields.country || 'India',
+        };
+
+        if (!locationFields.state && !locationFields.city && !locationFields.taluka && !locationFields.district) {
+          return;
+        }
+
+        const districtsData = locationFields.state
+          ? await fetchDistricts(locationFields.state)
+          : districtCatalog;
+        const inferredDistrict = inferDistrictFromLocation(locationFields, districtsData);
+        const resolvedLocationFields = {
+          ...locationFields,
+          district: inferredDistrict || locationFields.district,
+        };
+
+        setNewCustomerDetails(prev => ({
+          ...prev,
+          state: resolvedLocationFields.state || prev.state,
+          district: resolvedLocationFields.district || prev.district,
+          taluka: resolvedLocationFields.taluka || prev.taluka,
+          city: resolvedLocationFields.city || prev.city,
+          addressLine1: resolvedLocationFields.addressLine1 || prev.addressLine1,
+          pincode: resolvedLocationFields.pincode || prev.pincode,
+          country: resolvedLocationFields.country || prev.country || 'India',
+        }));
+
+        await syncLocationDropdownOptions(resolvedLocationFields, districtsData);
+      } catch (error) {
+        console.error('❌ [LOCATION] Error reverse geocoding coordinates:', error);
+      }
+    };
   
     useEffect(() => {
       if (isVisible) {
@@ -203,6 +517,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         fetchDistricts(newCustomerDetails.state);
       } else {
         setDistricts([]);
+        setDistrictCatalog([]);
       }
     }, [newCustomerDetails.state]);
 
@@ -214,10 +529,17 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       }
     }, [selectedClientType, isVisible]);
 
+    useEffect(() => {
+      setSelectedMaterials([]);
+      setCustomMaterial('');
+      setCustomMaterials([]);
+      setShowAddMaterialInput(false);
+    }, [selectedClientType]);
+
     const fetchEmployeeData = async () => {
       try {
         console.log('🔵 [CREATE CUSTOMER] Fetching employee data from /employee/me...');
-        const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/employee/me', {
+        const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/me', {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
@@ -229,7 +551,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         // Pre-fill country if available
         setNewCustomerDetails(prev => ({
           ...prev,
-          country: response.data.country || 'India',
+          country: prev.country || response.data.country || 'India',
         }));
 
         await fetchAssignedCities();
@@ -241,7 +563,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
     const fetchAssignedCities = async () => {
       try {
-        const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/employee/getMyAssignedCities', {
+        const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getMyAssignedCities', {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'ngrok-skip-browser-warning': 'true',
@@ -257,9 +579,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
           setNewCustomerDetails(prev => ({
             ...prev,
-            state: primaryCity.stateName || prev.state || '',
-            district: primaryCity.districtName || prev.district || '',
-            taluka: primaryCity.subDistrictName || prev.taluka || '',
+            state: prev.state || primaryCity.stateName || '',
+            district: prev.district || primaryCity.districtName || '',
+            taluka: prev.taluka || primaryCity.subDistrictName || '',
           }));
 
           if (primaryCity.stateName) {
@@ -272,7 +594,6 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                     { label: primaryCity.stateName, value: primaryCity.stateName },
                   ];
             });
-            await fetchDistricts(primaryCity.stateName);
             if (primaryCity.districtName) {
               setDistricts(prev => {
                 const exists = prev.some(option => option.value === primaryCity.districtName);
@@ -303,7 +624,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           return;
         }
 
-        const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/location/states', {
+        const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/location/states', {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'Content-Type': 'application/json',
@@ -330,13 +651,14 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
     const fetchDistricts = async (selectedState) => {
       if (!selectedState) {
         setDistricts([]);
-        return;
+        setDistrictCatalog([]);
+        return [];
       }
       try {
         setLoadingDistricts(true);
         console.log('🌍 [LOCATION] Fetching districts for state:', selectedState);
         
-        const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/location/districts?stateName=${encodeURIComponent(selectedState)}`, {
+        const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/location/districts?stateName=${encodeURIComponent(selectedState)}`, {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'Content-Type': 'application/json',
@@ -348,14 +670,18 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         
         console.log('🌍 [LOCATION] Districts response:', response.data);
         const districtsData = Array.isArray(response.data) ? response.data : [];
+        setDistrictCatalog(districtsData);
         const districtsOptions = districtsData.map(district => ({ label: district.districtName, value: district.districtName }));
         setDistricts(districtsOptions);
         console.log('✅ [LOCATION] Loaded', districtsOptions.length, 'districts for', selectedState);
+        return districtsData;
       } catch (error) {
         console.error('❌ [LOCATION] Error fetching districts:', error);
         console.error('❌ [LOCATION] Error response:', error.response?.data);
         console.error('❌ [LOCATION] State parameter was:', selectedState);
         setDistricts([]);
+        setDistrictCatalog([]);
+        return [];
       } finally {
         setLoadingDistricts(false);
       }
@@ -367,7 +693,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         setLoadingEngineers(true);
         console.log('👷 [ENGINEERS] Fetching engineers list...');
         
-        const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getAll', {
+        const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/getAll', {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'ngrok-skip-browser-warning': 'true',
@@ -397,7 +723,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         setLoadingContractors(true);
         console.log('🏗️ [CONTRACTORS] Fetching contractors list...');
         
-        const response = await axios.get('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/getAll', {
+        const response = await axios.get('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/getAll', {
           headers: {
             Authorization: `Bearer ${authToken}`,
             'ngrok-skip-browser-warning': 'true',
@@ -479,6 +805,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
       // Reset location dropdown data
       setDistricts([]);
+      setDistrictCatalog([]);
     };
   
     const handleClose = () => {
@@ -496,7 +823,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
     const handleStoreItemClick = (store) => {
       handleClose();
-      navigation.navigate('CustomerDetails', { customerId: store.storeId, authToken });
+      navigation.navigate('CustomerDetails', { customerId: store.storeId, authToken, openVisitModal: true });
     };
 
     const handleRadiusChange = async (radius) => {
@@ -511,14 +838,14 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       const newErrors = {};
 
       // Required fields for all client types
-      const requiredFields = ['storeName', 'clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
+      const requiredFields = ['clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
+      if (!isSiteVisitType(newCustomerDetails.clientType)) {
+        requiredFields.unshift('storeName');
+      }
       
       requiredFields.forEach(field => {
         if (!newCustomerDetails[field]) {
-          const label = field === 'taluka'
-            ? 'Taluka / Village'
-            : field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
-          newErrors[field] = `${label} is required`;
+          newErrors[field] = `${getFieldLabel(field)} is required`;
         }
       });
   
@@ -553,7 +880,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         if (!newCustomerDetails.dealerType) {
           newErrors.dealerType = 'Dealer type is required';
         }
-        if (!newCustomerDetails.dealerSubType) {
+        if (newCustomerDetails.dealerType === 'ICON' && !newCustomerDetails.dealerSubType) {
           newErrors.dealerSubType = 'Dealer sub-type is required';
         }
       }
@@ -569,7 +896,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         // Check if customer already exists (only if phone number is provided)
         if (newCustomerDetails.primaryContact) {
           try {
-            const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
+            const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
               headers: {
                 Authorization: `Bearer ${authToken}`,
               },
@@ -608,18 +935,18 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           storeId: newCustomerId,
           employeeId: employeeId, // Keep as string to match other implementations
           visit_date: today,
-          purpose: 'First Visit',
+          purpose: getDefaultVisitPurpose(newCustomerDetails.clientType),
         };
         
         console.log('🔵 [VISIT] Creating visit with payload:', JSON.stringify(visitPayload, null, 2));
         console.log('🔵 [VISIT] Store ID:', newCustomerId, 'Type:', typeof newCustomerId);
         console.log('🔵 [VISIT] Employee ID:', employeeId, 'Type:', typeof employeeId);
         console.log('🔵 [VISIT] Visit date:', today);
-        console.log('🔵 [VISIT] Purpose:', 'First Visit');
+        console.log('🔵 [VISIT] Purpose:', visitPayload.purpose);
         
         try {
           const visitResponse = await axios.put(
-            'https://unbalkingly-uncharged-elizabet.ngrok-free.dev/visit/create',
+            'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/create',
             visitPayload,
             {
               headers: {
@@ -676,19 +1003,13 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
               errorMessage = visitError.response.data.error;
             }
           }
-          
-          // Check if error is about first visit must be dealer (check multiple variations)
-          const errorText = errorMessage.toLowerCase();
-          const isFirstVisitDealerError = 
-            (errorText.includes('first visit') && errorText.includes('dealer')) ||
-            (errorText.includes('first visit') && errorText.includes('shop')) ||
-            (errorText.includes('dealer') && errorText.includes('first')) ||
-            visitError.response?.status === 400; // 400 status often means this error
-          
+
           // Store is created successfully, but visit can't be created
           Alert.alert(
             'Store Created Successfully',
-            'Store has been created successfully. However, the visit could not be created because the first visit of the day must be for a Dealer/Shop type customer. You can create a visit later from the store details page.',
+            errorMessage
+              ? `Store has been created successfully. However, the visit could not be created: ${errorMessage}`
+              : 'Store has been created successfully. However, the visit could not be created. You can create it later from the store details page.',
             [
               { 
                 text: 'OK', 
@@ -732,7 +1053,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         
         // Prepare the payload according to API structure
         const payload = {
-          storeName: newCustomerDetails.storeName,
+          storeName: isSiteVisitType(newCustomerDetails.clientType)
+            ? getSiteVisitFallbackName(newCustomerDetails)
+            : newCustomerDetails.storeName,
           clientFirstName: firstName,
           clientLastName: lastName,
           primaryContact: newCustomerDetails.primaryContact ? parseInt(newCustomerDetails.primaryContact) : null,
@@ -756,7 +1079,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           employeeId: parseInt(employeeId),
           brandProCons: [],
           productCategories:
-            isDealerType(newCustomerDetails.clientType) && selectedMaterials.length > 0
+            selectedMaterials.length > 0
               ? Array.from(new Set(selectedMaterials.map(c => c?.toString().toLowerCase())))
               : null,
         };
@@ -772,7 +1095,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           if (newCustomerDetails.dealerType) {
             payload.dealerType = newCustomerDetails.dealerType;
           }
-          if (newCustomerDetails.dealerSubType) {
+          if (newCustomerDetails.dealerType === 'ICON' && newCustomerDetails.dealerSubType) {
             payload.dealerSubType = newCustomerDetails.dealerSubType;
           }
         }
@@ -804,7 +1127,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
         console.log('Creating customer with payload:', payload);
 
-        const createResponse = await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/create', payload, {
+        const createResponse = await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/create', payload, {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
@@ -825,7 +1148,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
               storeId: newCustomerId,
             };
 
-            await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/addForStore', professionalPayload, {
+            await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/addForStore', professionalPayload, {
               headers: {
                 Authorization: `Bearer ${authToken}`,
               },
@@ -848,6 +1171,13 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
   
     const handleInputChange = (name, value) => {
       setNewCustomerDetails(prev => {
+        if (name === 'dealerType') {
+          return {
+            ...prev,
+            dealerType: value,
+            dealerSubType: value === 'NON_ICON' ? '' : prev.dealerSubType,
+          };
+        }
         if (name === 'state') {
           return {
             ...prev,
@@ -868,6 +1198,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       });
       if (errors[name]) {
         setErrors(prev => ({ ...prev, [name]: '' }));
+      }
+      if (name === 'dealerType' && value === 'NON_ICON' && errors.dealerSubType) {
+        setErrors(prev => ({ ...prev, dealerSubType: '' }));
       }
     };
 
@@ -894,7 +1227,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       if (customMaterial.trim()) {
         const trimmedMaterial = customMaterial.trim();
         // Check if it's not already in predefined or custom materials
-        if (!materialOptions.find(m => m.value.toLowerCase() === trimmedMaterial.toLowerCase()) &&
+        if (!productCategoryOptions.find(m => m.value.toLowerCase() === trimmedMaterial.toLowerCase()) &&
             !customMaterials.find(m => m.toLowerCase() === trimmedMaterial.toLowerCase())) {
           setCustomMaterials(prev => [...prev, trimmedMaterial]);
           setSelectedMaterials(prev => [...prev, trimmedMaterial]);
@@ -940,6 +1273,8 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           longitude: locationData.longitude.toString(),
         }));
 
+        await autofillAddressFromCoordinates(locationData.latitude, locationData.longitude);
+
         // Fetch nearby stores with default radius
         await fetchNearbyStores(locationData.latitude, locationData.longitude, selectedRadius);
       } catch (error) {
@@ -955,7 +1290,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         console.log('🔍 [NEARBY STORES] Fetching stores near:', latitude, longitude);
         
         const response = await axios.get(
-          `https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByLocation?latitude=${latitude}&longitude=${longitude}&radiusInMeters=${radiusInMeters}`,
+          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getByLocation?latitude=${latitude}&longitude=${longitude}&radiusInMeters=${radiusInMeters}`,
           {
             headers: {
               Authorization: `Bearer ${authToken}`,
@@ -1000,12 +1335,14 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
           latitude: location.coords.latitude.toString(),
           longitude: location.coords.longitude.toString(),
         }));
+
+        await autofillAddressFromCoordinates(location.coords.latitude, location.coords.longitude);
         
         if (errors.gpsLocation) {
           setErrors(prev => ({ ...prev, gpsLocation: '' }));
         }
         
-        Alert.alert('Success', 'GPS coordinates captured successfully!');
+        Alert.alert('Success', 'GPS coordinates captured and location fields updated successfully!');
       } catch (error) {
         console.error('Error fetching location:', error);
         Alert.alert('Error', 'Failed to fetch GPS coordinates. Please try again.');
@@ -1018,14 +1355,14 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       const newErrors = {};
 
       // Required fields for all client types
-      const requiredFields = ['storeName', 'clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
+      const requiredFields = ['clientName', 'state', 'district', 'taluka', 'city', 'clientType'];
+      if (!isSiteVisitType(newCustomerDetails.clientType)) {
+        requiredFields.unshift('storeName');
+      }
       
       requiredFields.forEach(field => {
         if (!newCustomerDetails[field]) {
-          const label = field === 'taluka'
-            ? 'Taluka / Village'
-            : field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
-          newErrors[field] = `${label} is required`;
+          newErrors[field] = `${getFieldLabel(field)} is required`;
         }
       });
   
@@ -1060,7 +1397,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         if (!newCustomerDetails.dealerType) {
           newErrors.dealerType = 'Dealer type is required';
         }
-        if (!newCustomerDetails.dealerSubType) {
+        if (newCustomerDetails.dealerType === 'ICON' && !newCustomerDetails.dealerSubType) {
           newErrors.dealerSubType = 'Dealer sub-type is required';
         }
       }
@@ -1085,7 +1422,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         // Check if customer already exists (only if phone number is provided)
         if (newCustomerDetails.primaryContact) {
           try {
-            const response = await axios.get(`https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
+            const response = await axios.get(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getByPhone?phone=${newCustomerDetails.primaryContact}`, {
               headers: {
                 Authorization: `Bearer ${authToken}`,
               },
@@ -1161,7 +1498,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       
       // Prepare the payload according to API structure
       const payload = {
-        storeName: newCustomerDetails.storeName,
+        storeName: isSiteVisitType(newCustomerDetails.clientType)
+          ? getSiteVisitFallbackName(newCustomerDetails)
+          : newCustomerDetails.storeName,
         clientFirstName: firstName,
         clientLastName: lastName,
         primaryContact: newCustomerDetails.primaryContact ? parseInt(newCustomerDetails.primaryContact) : null,
@@ -1184,9 +1523,8 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         clientType: newCustomerDetails.clientType,
         employeeId: parseInt(employeeId),
         brandProCons: [], // Empty array for now, can be added later
-        // Product categories for store creation (only for Dealers)
         productCategories:
-          isDealerType(newCustomerDetails.clientType) && selectedMaterials.length > 0
+          selectedMaterials.length > 0
             ? Array.from(new Set(selectedMaterials.map(c => c?.toString().toLowerCase())))
             : null,
       };
@@ -1202,7 +1540,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
         if (newCustomerDetails.dealerType) {
           payload.dealerType = newCustomerDetails.dealerType;
         }
-        if (newCustomerDetails.dealerSubType) {
+        if (newCustomerDetails.dealerType === 'ICON' && newCustomerDetails.dealerSubType) {
           payload.dealerSubType = newCustomerDetails.dealerSubType;
         }
       }
@@ -1232,7 +1570,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
       console.log('Creating customer with payload:', payload);
 
       // Step 1: Create Store
-      const createResponse = await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/store/create', payload, {
+      const createResponse = await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/create', payload, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -1255,7 +1593,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
           console.log('🔵 [PROFESSIONAL] Creating professional record with payload:', professionalPayload);
 
-          await axios.post('https://unbalkingly-uncharged-elizabet.ngrok-free.dev/professionals/addForStore', professionalPayload, {
+          await axios.post('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/professionals/addForStore', professionalPayload, {
             headers: {
               Authorization: `Bearer ${authToken}`,
             },
@@ -1633,9 +1971,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
               {/* Basic Information */}
               <Text style={styles.sectionTitle}>Basic Information</Text>
-              {renderInput('storeName', 'Store Name*')}
-              {renderInput('clientName', 'Client Name*')}
-              {renderInput('primaryContact', 'Primary Contact (Optional)', 'phone-pad')}
+              {renderInput('storeName', clientSpecificLabels.storeName)}
+              {renderInput('clientName', clientSpecificLabels.clientName)}
+              {renderInput('primaryContact', 'Primary Contact', 'phone-pad')}
              
               
               {/* Location Fields */}
@@ -1682,9 +2020,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
               {renderInput('city', 'City*')}
 
-              {renderInput('addressLine1', 'Address Line 1 (Optional)')}
+              {renderInput('addressLine1', 'Address Line 1')}
               
-              {renderInput('pincode', 'Pincode (Optional)', 'numeric')}
+              {renderInput('pincode', 'Pincode', 'numeric')}
 
               {/*
              
@@ -1746,7 +2084,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                     
                     {/* Engineer Name Dropdown */}
                     <View style={styles.inputContainer}>
-                      <Text style={styles.label}>Engineer Name (Optional)</Text>
+                      <Text style={styles.label}>Engineer Name</Text>
                       <View style={styles.dropdownWithCreateContainer}>
                         <CustomDropdown
                           options={engineersList.map(eng => ({ label: eng.name, value: eng.id }))}
@@ -1777,7 +2115,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
 
                     {/* Contractor Name Dropdown */}
                     <View style={styles.inputContainer}>
-                      <Text style={styles.label}>Contractor Name (Optional)</Text>
+                      <Text style={styles.label}>Contractor Name</Text>
                       <View style={styles.dropdownWithCreateContainer}>
                         <CustomDropdown
                           options={contractorsList.map(con => ({ label: con.name, value: con.id }))}
@@ -1807,11 +2145,11 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                     </View>
 
                     {/* Area Field */}
-                    {renderInput('area', 'Area (Optional)')}
+                    {renderInput('area', 'Area')}
 
                     {/* Project Type */}
                     <View style={styles.inputContainer}>
-                      <Text style={styles.label}>Project Type (Optional)</Text>
+                      <Text style={styles.label}>Project Type</Text>
                       <CustomDropdown
                         options={projectTypeOptions}
                         placeholder="Select project type"
@@ -1824,7 +2162,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                       {errors.projectType && <Text style={styles.errorText}>{errors.projectType}</Text>}
                     </View>
                     
-                    {renderInput('projectSize', 'Project Size in sq ft (Optional)', 'numeric')}
+                    {renderInput('projectSize', 'Project Size in sq ft', 'numeric')}
                   </View>
                 </>
               )}
@@ -1835,7 +2173,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                   <View style={styles.professionalSection}>
                     <Text style={styles.sectionTitle}>Professional Details</Text>
                     
-                    {renderInput('firmName', 'Firm Name (Optional)')}
+                    {renderInput('firmName', 'Firm Name')}
                     
                     <View style={styles.inputContainer}>
                       <Text style={styles.label}>Date of Birth*</Text>
@@ -1851,7 +2189,7 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                       {errors.dateOfBirth && <Text style={styles.errorText}>{errors.dateOfBirth}</Text>}
                     </View>
 
-                    {renderInput('email', 'Email (Optional)')}
+                    {renderInput('email', 'Email')}
                     
                     {renderInput('yearsOfExperience', 'Years of Experience*', 'numeric')}
                   </View>
@@ -1887,6 +2225,9 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                         placeholder="Select dealer type"
                         onSelect={(option) => {
                           setSelectedDealerType(option);
+                          if (option?.value === 'NON_ICON') {
+                            setSelectedDealerSubType(null);
+                          }
                           handleInputChange('dealerType', option ? option.value : '');
                         }}
                         selectedOption={selectedDealerType}
@@ -1894,31 +2235,33 @@ const CreateCustomerComponent = ({ isVisible, onClose, authToken, onCustomerCrea
                       {errors.dealerType && <Text style={styles.errorText}>{errors.dealerType}</Text>}
                     </View>
                     
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.label}>Dealer Sub-Type*</Text>
-                      <CustomDropdown
-                        options={dealerSubTypeOptions}
-                        placeholder="Select dealer sub-type"
-                        onSelect={(option) => {
-                          setSelectedDealerSubType(option);
-                          handleInputChange('dealerSubType', option ? option.value : '');
-                        }}
-                        selectedOption={selectedDealerSubType}
-                      />
-                      {errors.dealerSubType && <Text style={styles.errorText}>{errors.dealerSubType}</Text>}
-                    </View>
+                    {newCustomerDetails.dealerType === 'ICON' && (
+                      <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Dealer Sub-Type*</Text>
+                        <CustomDropdown
+                          options={dealerSubTypeOptions}
+                          placeholder="Select dealer sub-type"
+                          onSelect={(option) => {
+                            setSelectedDealerSubType(option);
+                            handleInputChange('dealerSubType', option ? option.value : '');
+                          }}
+                          selectedOption={selectedDealerSubType}
+                        />
+                        {errors.dealerSubType && <Text style={styles.errorText}>{errors.dealerSubType}</Text>}
+                      </View>
+                    )}
                   </View>
                 </>
               )}
 
-              {/* Product Categories Section - Only for Dealer/Shop */}
-              {isDealerType(selectedClientType) && (
+              {/* Product Categories Section */}
+              {selectedClientType && productCategoryOptions.length > 0 && (
                 <View style={styles.materialsSection}>
-                  <Text style={styles.sectionTitle}>Product Categories</Text>
-                  <Text style={styles.sectionSubtitle}>Select all relevant categories. This helps tailor future follow-ups.</Text>
+                  <Text style={styles.sectionTitle}>Products</Text>
+                  <Text style={styles.sectionSubtitle}>Select all relevant products for this client type. This helps tailor future follow-ups.</Text>
                   
                   <View style={styles.materialsGrid}>
-                    {materialOptions.map((material) => (
+                    {productCategoryOptions.map((material) => (
                       <TouchableOpacity
                         key={material.value}
                         style={[
