@@ -71,6 +71,10 @@ export default function MobileBottomNav({ sidebarCategories, isAdmin, isManager,
         { name: "Approvals", href: "/dashboard/approvals", icon: FileText },
       ];
 
+      if (isAdmin) {
+        importantPages.push({ name: "Documents", href: "/dashboard/documents", icon: FileText });
+      }
+
       // Add important pages that are allowed for the current role
       importantPages.forEach(page => {
         const isAllowed = sidebarCategories.some(category => 

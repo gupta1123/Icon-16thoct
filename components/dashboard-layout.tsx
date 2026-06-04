@@ -91,6 +91,7 @@ const allSidebarCategories = [
     items: [
       { name: "Approvals", href: "/dashboard/approvals", icon: FileText },
       { name: "Reports", href: "/dashboard/reports", icon: BarChart },
+      { name: "Documents", href: "/dashboard/documents", icon: FileText },
     ]
   }
 ];

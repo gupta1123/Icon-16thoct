@@ -49,6 +49,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       heading: "Monthly Target Report",
       subheading: "Track city-wise targets, achievements, and team member performance"
     },
+    "/dashboard/documents": {
+      heading: "Documents",
+      subheading: "Upload, manage, and download shared PDF documents"
+    },
     "/dashboard/customers": {
       heading: "Customers",
       subheading: "Manage your customer relationships"
