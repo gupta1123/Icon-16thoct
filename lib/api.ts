@@ -1665,7 +1665,7 @@ export class API {
     const queryParams = new URLSearchParams();
     
     if (params.storeName) queryParams.append('storeName', params.storeName);
-    if (params.ownerName) queryParams.append('clientName', params.ownerName);
+    if (params.ownerName) queryParams.append('ownerName', params.ownerName);
     if (params.city && params.city !== 'all') queryParams.append('city', params.city);
     if (params.state && params.state !== 'all') queryParams.append('state', params.state);
     if (params.clientType && params.clientType !== 'all') queryParams.append('clientType', params.clientType);
@@ -1678,7 +1678,8 @@ export class API {
     queryParams.append('sortBy', sortBy);
     queryParams.append('sortOrder', sortOrder);
 
-    const response = await this.makeRequest<StoreResponse>(`/store/filteredValues?${queryParams.toString()}`);
+    const queryString = queryParams.toString().replace(/\+/g, '%20');
+    const response = await this.makeRequest<StoreResponse>(`/store/filteredValues?${queryString}`);
     return response.content;
   }
 
@@ -1700,7 +1701,7 @@ export class API {
     const queryParams = new URLSearchParams();
     
     if (params.storeName) queryParams.append('storeName', params.storeName);
-    if (params.ownerName) queryParams.append('clientFirstName', params.ownerName);
+    if (params.ownerName) queryParams.append('ownerName', params.ownerName);
     if (params.city) queryParams.append('city', params.city);
     if (params.state) queryParams.append('state', params.state);
     if (params.clientType) queryParams.append('clientType', params.clientType);
@@ -1727,7 +1728,8 @@ export class API {
       queryParams.append('sort', `${sortBy},${sortOrder}`);
     }
 
-    return this.makeRequest<StoreResponse>(`/store/filteredValues?${queryParams.toString()}`);
+    const queryString = queryParams.toString().replace(/\+/g, '%20');
+    return this.makeRequest<StoreResponse>(`/store/filteredValues?${queryString}`);
   }
 
   // Get a single store by ID

@@ -49,7 +49,8 @@ type Customer = StoreDto & {
     totalVisitCount: number;
 };
 
-const FILTER_KEYS = ['storeName', 'primaryContact', 'ownerName', 'city', 'state', 'clientType', 'dealerSubType'] as const;
+const FILTER_KEYS = ['storeName', 'primaryContact', 'ownerName', 'city', 'state', 'clientType', 'dealerSubType', 'employeeName'] as const;
+const REMOVED_FILTER_QUERY_KEYS = ['startDate', 'endDate'] as const;
 const FILTER_EXPANDED_PARAM = 'filters';
 type FilterKey = (typeof FILTER_KEYS)[number];
 type FiltersState = Record<FilterKey, string>;
@@ -61,13 +62,14 @@ const INITIAL_FILTERS: FiltersState = {
     state: '',
     clientType: '',
     dealerSubType: '',
+    employeeName: '',
 };
 
 function CustomerListContent() {
     const { token, userData } = useAuth();
     const [selectedColumns, setSelectedColumns] = useState<string[]>([
         'shopName', 'ownerName', 'city', 'state', 'storeLocation', 'phone', 'monthlySales',
-        'clientType', 'totalVisits', 'lastVisitDate',
+        'fieldOfficer', 'clientType', 'totalVisits', 'lastVisitDate',
     ]);
     const [desktopFilters, setDesktopFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
     const [mobileFilters, setMobileFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
@@ -204,6 +206,13 @@ function CustomerListContent() {
                     hasUpdates = true;
                 }
             } else if (params.has(key)) {
+                params.delete(key);
+                hasUpdates = true;
+            }
+        });
+
+        REMOVED_FILTER_QUERY_KEYS.forEach(key => {
+            if (params.has(key)) {
                 params.delete(key);
                 hasUpdates = true;
             }
@@ -387,17 +396,19 @@ function CustomerListContent() {
                 
                 // Add filters as query parameters
                 if (desktopFilters.storeName) queryParams.append('storeName', desktopFilters.storeName);
-                if (desktopFilters.ownerName) queryParams.append('clientFirstName', desktopFilters.ownerName);
+                if (desktopFilters.ownerName) queryParams.append('ownerName', desktopFilters.ownerName);
                 if (desktopFilters.city) queryParams.append('city', desktopFilters.city);
                 if (desktopFilters.state) queryParams.append('state', desktopFilters.state);
                 if (desktopFilters.clientType) queryParams.append('clientType', desktopFilters.clientType);
                 if (desktopFilters.dealerSubType) queryParams.append('dealerSubType', desktopFilters.dealerSubType);
+                if (desktopFilters.employeeName) queryParams.append('employeeName', desktopFilters.employeeName);
                 if (desktopFilters.primaryContact) {
                     const cleanedPhone = desktopFilters.primaryContact.replace(/\D/g, '');
                     if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
                 }
 
-                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryParams.toString()}`;
+                const queryString = queryParams.toString().replace(/\+/g, '%20');
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryString}`;
                 const headers: Record<string, string> = {
                     Authorization: token ? `Bearer ${token}` : '',
                     'Content-Type': 'application/json',
@@ -441,6 +452,8 @@ function CustomerListContent() {
                     city: desktopFilters.city || undefined,
                     state: desktopFilters.state || undefined,
                     clientType: desktopFilters.clientType || undefined,
+                    dealerSubType: desktopFilters.dealerSubType || undefined,
+                    employeeName: desktopFilters.employeeName || undefined,
                     primaryContact: desktopFilters.primaryContact || undefined,
                     page: currentPage - 1,
                     size: 10,
@@ -464,17 +477,19 @@ function CustomerListContent() {
                 
                 // Add filters as query parameters
                 if (desktopFilters.storeName) queryParams.append('storeName', desktopFilters.storeName);
-                if (desktopFilters.ownerName) queryParams.append('clientFirstName', desktopFilters.ownerName);
+                if (desktopFilters.ownerName) queryParams.append('ownerName', desktopFilters.ownerName);
                 if (desktopFilters.city) queryParams.append('city', desktopFilters.city);
                 if (desktopFilters.state) queryParams.append('state', desktopFilters.state);
                 if (desktopFilters.clientType) queryParams.append('clientType', desktopFilters.clientType);
                 if (desktopFilters.dealerSubType) queryParams.append('dealerSubType', desktopFilters.dealerSubType);
+                if (desktopFilters.employeeName) queryParams.append('employeeName', desktopFilters.employeeName);
                 if (desktopFilters.primaryContact) {
                     const cleanedPhone = desktopFilters.primaryContact.replace(/\D/g, '');
                     if (cleanedPhone) queryParams.append('primaryContact', cleanedPhone);
                 }
 
-                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryParams.toString()}`;
+                const queryString = queryParams.toString().replace(/\+/g, '%20');
+                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${queryString}`;
                 const headers: Record<string, string> = {
                     Authorization: token ? `Bearer ${token}` : '',
                     'Content-Type': 'application/json',
@@ -497,6 +512,7 @@ function CustomerListContent() {
                     state: desktopFilters.state || undefined,
                     clientType: desktopFilters.clientType || undefined,
                     dealerSubType: desktopFilters.dealerSubType || undefined,
+                    employeeName: desktopFilters.employeeName || undefined,
                     primaryContact: desktopFilters.primaryContact || undefined,
                     page: currentPage - 1,
                     size: 10,
@@ -542,32 +558,18 @@ function CustomerListContent() {
     };
 
     const handleDesktopFilterChange = (filterName: FilterKey, value: string) => {
-        if (filterName === 'ownerName') {
-            setDesktopFilters((prevFilters) => ({
-                ...prevFilters,
-                [filterName]: value.toLowerCase(),
-            }));
-        } else {
-            setDesktopFilters((prevFilters) => ({
-                ...prevFilters,
-                [filterName]: value,
-            }));
-        }
+        setDesktopFilters((prevFilters) => ({
+            ...prevFilters,
+            [filterName]: value,
+        }));
         setCurrentPage(1);
     };
 
     const handleMobileFilterChange = (filterName: FilterKey, value: string) => {
-        if (filterName === 'ownerName') {
-            setMobileFilters((prevFilters) => ({
-                ...prevFilters,
-                [filterName]: value.toLowerCase(),
-            }));
-        } else {
-            setMobileFilters((prevFilters) => ({
-                ...prevFilters,
-                [filterName]: value,
-            }));
-        }
+        setMobileFilters((prevFilters) => ({
+            ...prevFilters,
+            [filterName]: value,
+        }));
     };
 
     const handleFilterClear = (filterName: FilterKey) => {
@@ -818,12 +820,13 @@ function CustomerListContent() {
                                 <DropdownMenuSeparator />
                                 {[
                                     { value: 'shopName', label: 'Shop Name' },
-                                    { value: 'ownerName', label: 'Owner First Name' },
+                                    { value: 'ownerName', label: 'Owner Name' },
                                     { value: 'city', label: 'City' },
                                     { value: 'state', label: 'State' },
                                     { value: 'storeLocation', label: 'Store Location' },
                                     { value: 'phone', label: 'Phone' },
                                     { value: 'monthlySales', label: 'Monthly Sales' },
+                                    { value: 'fieldOfficer', label: 'Assigned Executive' },
                                     { value: 'clientType', label: 'Client Type' },
                                     { value: 'totalVisits', label: 'Total Visits' },
                                     { value: 'lastVisitDate', label: 'Last Visit Date' }
@@ -877,10 +880,11 @@ function CustomerListContent() {
                         <CardContent className="p-4">
                             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                 {renderFilterInput('storeName', 'Shop Name', <User className="h-4 w-4" />, false)}
-                                {renderFilterInput('ownerName', 'Owner First Name', <User className="h-4 w-4" />, false)}
+                                {renderFilterInput('ownerName', 'Owner Name', <User className="h-4 w-4" />, false)}
                                 {renderFilterInput('city', 'City', <Home className="h-4 w-4" />, false)}
                                 {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, false)}
                                 {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, false)}
+                                {renderFilterInput('employeeName', 'Assigned Executive', <User className="h-4 w-4" />, false)}
                                 {renderFilterInput('clientType', 'Client Type', <Target className="h-4 w-4" />, false)}
                                 {renderFilterInput('dealerSubType', 'Dealer Sub Type', <Briefcase className="h-4 w-4" />, false)}
                             </div>
@@ -901,10 +905,11 @@ function CustomerListContent() {
                         </SheetHeader>
                         <div className="py-4 space-y-4">
                             {renderFilterInput('storeName', 'Shop Name', <User className="h-4 w-4" />, true)}
-                            {renderFilterInput('ownerName', 'Owner First Name', <User className="h-4 w-4" />, true)}
+                            {renderFilterInput('ownerName', 'Owner Name', <User className="h-4 w-4" />, true)}
                             {renderFilterInput('city', 'City', <Home className="h-4 w-4" />, true)}
                             {renderFilterInput('state', 'State', <Home className="h-4 w-4" />, true)}
                             {renderFilterInput('primaryContact', 'Phone', <Phone className="h-4 w-4" />, true)}
+                            {renderFilterInput('employeeName', 'Assigned Executive', <User className="h-4 w-4" />, true)}
                             {renderFilterInput('clientType', 'Client Type', <Target className="h-4 w-4" />, true)}
                             {renderFilterInput('dealerSubType', 'Dealer Sub Type', <Briefcase className="h-4 w-4" />, true)}
                         </div>
@@ -1076,7 +1081,7 @@ function CustomerListContent() {
                                 )}
                                 {selectedColumns.includes('ownerName') && (
                                     <TableHead className="cursor-pointer" onClick={() => handleSort('ownerName')}>
-                                        Owner First Name
+                                        Owner Name
                                         {sortColumn === 'ownerFirstName' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}
@@ -1122,7 +1127,7 @@ function CustomerListContent() {
                                 {/* Intent Level column removed */}
                                 {selectedColumns.includes('fieldOfficer') && (
                                     <TableHead className="cursor-pointer" onClick={() => handleSort('employeeName')}>
-                                        Field Officer
+                                        Assigned Executive
                                         {sortColumn === 'employeeName' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}

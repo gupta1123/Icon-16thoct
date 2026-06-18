@@ -104,6 +104,12 @@ const INITIAL_MOBILE_FILTERS = {
   email: '',
 };
 
+const toSearchableText = (value: unknown) =>
+  value === null || value === undefined ? '' : String(value).toLowerCase();
+
+const getEmployeeFullName = (employee: Pick<User, 'firstName' | 'lastName'>) =>
+  [employee.firstName, employee.lastName].filter(Boolean).join(' ');
+
 export default function EmployeeList() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
@@ -1043,10 +1049,12 @@ export default function EmployeeList() {
       ...prev,
       [field]: value
     }));
+    setCurrentPage(1);
   };
 
   const clearMobileFilters = () => {
     setMobileFilters(INITIAL_MOBILE_FILTERS);
+    setCurrentPage(1);
   };
 
   const applyMobileFilters = () => {
@@ -1055,17 +1063,34 @@ export default function EmployeeList() {
 
   // Filtering and sorting logic
   const filteredUsers = useMemo(() => {
+    const normalizedSearchQuery = toSearchableText(searchQuery);
+    const normalizedMobileFilters = {
+      name: toSearchableText(mobileFilters.name),
+      role: toSearchableText(mobileFilters.role),
+      city: toSearchableText(mobileFilters.city),
+      state: toSearchableText(mobileFilters.state),
+      email: toSearchableText(mobileFilters.email),
+    };
+
     return users.filter((user) => {
-      const matchesSearchQuery = (`${user.firstName} ${user.lastName}`).toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        transformRole(user.role).toLowerCase().includes(searchQuery.toLowerCase());
+      const employeeName = toSearchableText(getEmployeeFullName(user));
+      const employeeEmail = toSearchableText(user.email);
+      const employeeRole = toSearchableText(transformRole(user.role));
+      const employeeCity = toSearchableText(user.city);
+      const employeeState = toSearchableText(user.state);
+
+      const matchesSearchQuery =
+        normalizedSearchQuery === '' ||
+        employeeName.includes(normalizedSearchQuery) ||
+        employeeEmail.includes(normalizedSearchQuery) ||
+        employeeRole.includes(normalizedSearchQuery);
       
       const matchesMobileFilters = 
-        (mobileFilters.name === '' || `${user.firstName} ${user.lastName}`.toLowerCase().includes(mobileFilters.name.toLowerCase())) &&
-        (mobileFilters.role === '' || transformRole(user.role).toLowerCase().includes(mobileFilters.role.toLowerCase())) &&
-        (mobileFilters.city === '' || user.city.toLowerCase().includes(mobileFilters.city.toLowerCase())) &&
-        (mobileFilters.state === '' || user.state.toLowerCase().includes(mobileFilters.state.toLowerCase())) &&
-        (mobileFilters.email === '' || user.email.toLowerCase().includes(mobileFilters.email.toLowerCase()));
+        (normalizedMobileFilters.name === '' || employeeName.includes(normalizedMobileFilters.name)) &&
+        (normalizedMobileFilters.role === '' || employeeRole.includes(normalizedMobileFilters.role)) &&
+        (normalizedMobileFilters.city === '' || employeeCity.includes(normalizedMobileFilters.city)) &&
+        (normalizedMobileFilters.state === '' || employeeState.includes(normalizedMobileFilters.state)) &&
+        (normalizedMobileFilters.email === '' || employeeEmail.includes(normalizedMobileFilters.email));
       
       return matchesSearchQuery && matchesMobileFilters;
     });
@@ -1094,11 +1119,13 @@ export default function EmployeeList() {
 
   const filteredArchivedEmployees = useMemo(() => {
     console.log('Filtering archived employees:', archivedEmployees.length, 'employees, search query:', archiveSearchQuery);
+    const normalizedArchiveSearchQuery = toSearchableText(archiveSearchQuery);
     const filtered = archivedEmployees.filter((employee) =>
-      `${employee.firstName} ${employee.lastName}`.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
-      employee.role.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
-      employee.departmentName.toLowerCase().includes(archiveSearchQuery.toLowerCase()) ||
-      employee.city.toLowerCase().includes(archiveSearchQuery.toLowerCase())
+      normalizedArchiveSearchQuery === '' ||
+      toSearchableText(getEmployeeFullName(employee)).includes(normalizedArchiveSearchQuery) ||
+      toSearchableText(employee.role).includes(normalizedArchiveSearchQuery) ||
+      toSearchableText(employee.departmentName).includes(normalizedArchiveSearchQuery) ||
+      toSearchableText(employee.city).includes(normalizedArchiveSearchQuery)
     );
     console.log('Filtered result:', filtered.length, 'employees');
     return filtered;
@@ -1115,7 +1142,10 @@ export default function EmployeeList() {
               type="text"
               placeholder="Search users..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full"
             />
           </div>
