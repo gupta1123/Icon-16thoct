@@ -63,6 +63,7 @@ const allSidebarCategories = [
     icon: Users,
     items: [
       { name: "Customers", href: "/dashboard/customers", icon: Users },
+      { name: "Dealer Survey", href: "/dashboard/dealer-survey", icon: FileSearch },
       { name: "Complaints", href: "/dashboard/complaints", icon: ThumbsUp },
     ]
   },
@@ -99,6 +100,7 @@ const allSidebarCategories = [
 // Manager allowed pages
 const managerAllowedPages = [
   "/dashboard/customers",
+  "/dashboard/dealer-survey",
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",
@@ -117,6 +119,7 @@ const hrAllowedPages = [
 // Coordinator allowed pages - All except HR functions and Attendance, restricted to team
 const coordinatorAllowedPages = [
   "/dashboard/customers",
+  "/dashboard/dealer-survey",
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",
@@ -132,6 +135,7 @@ const coordinatorAllowedPages = [
 // Data Manager allowed pages - Full access except HR functions
 const dataManagerAllowedPages = [
   "/dashboard/customers",
+  "/dashboard/dealer-survey",
   "/dashboard/complaints",
   "/dashboard/visits",
   "/dashboard/assign-visits",
@@ -324,7 +328,7 @@ export default function DashboardLayout({
   };
 
   const isActive = (path: string) => {
-    return pathname === path;
+    return pathname === path || pathname.startsWith(`${path}/`);
   };
 
   const handleLogout = async () => {

@@ -105,7 +105,7 @@ export default function MoreNavSheet({
   );
 
   const isActive = (path: string) => {
-    return pathname === path;
+    return pathname === path || pathname.startsWith(`${path}/`);
   };
 
   if (!isOpen) return null;

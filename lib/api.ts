@@ -56,6 +56,56 @@ export interface VisitBrandPurchase {
   purchasedFrom?: string;
 }
 
+export interface ActivityBrandPurchase {
+  id?: number;
+  brandName?: string | null;
+  primaryBrand?: string | null;
+  localBrand?: string | null;
+  purchasedFrom?: string | null;
+  category?: string | null;
+  steelQuantitySold?: number | null;
+  cementQuantitySold?: number | null;
+}
+
+export interface SurveyDealerBrandDetail {
+  brandName?: string | null;
+  category?: string | null;
+}
+
+export interface SurveyDealerDto {
+  id: number;
+  dealerName?: string | null;
+  ownerFirstName?: string | null;
+  ownerLastName?: string | null;
+  primaryContact?: number | string | null;
+  secondaryContact?: number | string | null;
+  email?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  landmark?: string | null;
+  city?: string | null;
+  district?: string | null;
+  subDistrict?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: number | string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  dealerType?: string | null;
+  dealerSubType?: string | null;
+  monthlySale?: number | null;
+  brandsInUse?: string[];
+  productCategories?: string[];
+  brandDetails?: SurveyDealerBrandDetail[];
+  notes?: string | null;
+  employeeId?: number | null;
+  employeeName?: string | null;
+  createdAt?: string | null;
+  createdTime?: string | null;
+  updatedAt?: string | null;
+  updatedTime?: string | null;
+}
+
 export interface VisitDto {
   id: number;
   storeId: number;
@@ -966,6 +1016,32 @@ export interface ActivityDto {
   title?: string;
   description?: string;
   activityDate?: string;
+  startTime?: string | null;
+  endDate?: string | null;
+  endTime?: string | null;
+  status?: string | null;
+  checkinDate?: string | null;
+  checkinTime?: string | null;
+  checkoutDate?: string | null;
+  checkoutTime?: string | null;
+  checkinLatitude?: number | null;
+  checkinLongitude?: number | null;
+  checkoutLatitude?: number | null;
+  checkoutLongitude?: number | null;
+  feedback?: string | null;
+  outcome?: string | null;
+  rating?: number | null;
+  constructionStage?: string | null;
+  purchasedFrom?: string | null;
+  requirementText?: string | null;
+  requirementDays?: number | null;
+  stockLeftDays?: number | null;
+  steelStockAvailable?: number | null;
+  steelStockRequired?: number | null;
+  cementStockAvailable?: number | null;
+  cementStockRequired?: number | null;
+  upcomingSiteCount?: number | null;
+  brandPurchases?: ActivityBrandPurchase[];
   employeeId?: number;
   employeeName?: string;
   employeeRole?: string;
@@ -1096,6 +1172,22 @@ export class API {
   
   static async getCombinedTimeline(params: CombinedTimelineParams): Promise<CombinedTimelineResponse> {
     return apiService.getCombinedTimeline(params);
+  }
+
+  static async getActivityById(id: number): Promise<ActivityDto> {
+    return apiService.getActivityById(id);
+  }
+
+  static async getAllSurveyDealers(): Promise<SurveyDealerDto[]> {
+    return apiService.getAllSurveyDealers();
+  }
+
+  static async getSurveyDealerById(id: number): Promise<SurveyDealerDto> {
+    return apiService.getSurveyDealerById(id);
+  }
+
+  static async getSurveyDealersByEmployee(employeeId: number): Promise<SurveyDealerDto[]> {
+    return apiService.getSurveyDealersByEmployee(employeeId);
   }
 
   static async getDashboardOverview(startDate?: string, endDate?: string): Promise<DashboardOverviewResponse> {
@@ -1538,6 +1630,22 @@ export class API {
     
     console.log('Combined Timeline URL:', `${this.baseUrl}${url}`);
     return this.makeRequest<CombinedTimelineResponse>(url);
+  }
+
+  async getActivityById(id: number): Promise<ActivityDto> {
+    return this.makeRequest<ActivityDto>(`/activity/getById?id=${id}`);
+  }
+
+  async getAllSurveyDealers(): Promise<SurveyDealerDto[]> {
+    return this.makeRequest<SurveyDealerDto[]>('/surveyDealer/getAll');
+  }
+
+  async getSurveyDealerById(id: number): Promise<SurveyDealerDto> {
+    return this.makeRequest<SurveyDealerDto>(`/surveyDealer/getById?id=${id}`);
+  }
+
+  async getSurveyDealersByEmployee(employeeId: number): Promise<SurveyDealerDto[]> {
+    return this.makeRequest<SurveyDealerDto[]>(`/surveyDealer/getByEmployee?employeeId=${employeeId}`);
   }
 
   // Visit detail APIs

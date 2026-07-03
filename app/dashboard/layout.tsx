@@ -57,6 +57,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       heading: "Customers",
       subheading: "Manage your customer relationships"
     },
+    "/dashboard/dealer-survey": {
+      heading: "Dealer Survey",
+      subheading: "Review surveyed dealers and brand details"
+    },
     "/dashboard/employees": {
       heading: "Employees",
       subheading: "Manage employee information"
@@ -108,10 +112,22 @@ export default function Layout({ children }: { children: ReactNode }) {
         subheading: "View and manage visit information"
       };
     }
+    if (pathname.match(/^\/dashboard\/activities\/\d+/)) {
+      return {
+        heading: "Activity Detail",
+        subheading: "View activity information and completion details"
+      };
+    }
     if (pathname.match(/^\/dashboard\/customers\/\d+/)) {
       return {
         heading: "Customer Detail",
         subheading: "View and manage customer information"
+      };
+    }
+    if (pathname.match(/^\/dashboard\/dealer-survey\/\d+/)) {
+      return {
+        heading: "Survey Dealer Detail",
+        subheading: "View surveyed dealer information"
       };
     }
     if (pathname.match(/^\/dashboard\/employees\/\d+/)) {

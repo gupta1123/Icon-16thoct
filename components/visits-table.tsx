@@ -496,6 +496,11 @@ export default function VisitsTable() {
     setIsNavigating(true);
     router.push(`/dashboard/visits/${id}`);
   };
+
+  const viewActivityDetails = (id: number) => {
+    setIsNavigating(true);
+    router.push(`/dashboard/activities/${id}`);
+  };
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const applyQuickRange = (range: string) => {
     const today = new Date();
@@ -719,18 +724,23 @@ export default function VisitsTable() {
     };
   };
 
-  const mapActivityToRow = (activity: ActivityDto, fallbackIndex: number): ActivityRow => ({
-    id: activity.id ?? fallbackIndex,
-    type: 'activity',
-    title: activity.title ?? 'Activity',
-    description: activity.description ?? '',
-    executive: activity.employeeName ?? '',
-    date: activity.activityDate ?? '',
-    startTime: formatTime(activity.createdTime),
-    endTime: formatTime(activity.updatedTime),
-    status: undefined,
-    location: undefined,
-  });
+  const mapActivityToRow = (activity: ActivityDto, fallbackIndex: number): ActivityRow => {
+    const startTime = activity.startTime ?? activity.checkinTime ?? activity.createdTime;
+    const endTime = activity.endTime ?? activity.checkoutTime ?? undefined;
+
+    return {
+      id: activity.id ?? fallbackIndex,
+      type: 'activity',
+      title: activity.title ?? 'Activity',
+      description: activity.description ?? '',
+      executive: activity.employeeName ?? '',
+      date: activity.activityDate ?? '',
+      startTime: startTime ? formatTime(startTime) : undefined,
+      endTime: endTime ? formatTime(endTime) : undefined,
+      status: activity.status ?? undefined,
+      location: undefined,
+    };
+  };
 
   useEffect(() => {
     if (!startDate || !endDate) return;
@@ -1267,7 +1277,11 @@ export default function VisitsTable() {
               {combinedRows.filter(row => row.type === 'ACTIVITY').map((row) => {
                 const activity = row.data;
                 return (
-              <Card key={`activity-${activity.id}`} className="overflow-hidden shadow-sm border-l-4 border-l-purple-500">
+              <Card
+                key={`activity-${activity.id}`}
+                className="overflow-hidden shadow-sm border-l-4 border-l-purple-500 hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => viewActivityDetails(activity.id)}
+              >
                   <CardHeader className="pb-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-base font-semibold line-clamp-2 flex-1" title={activity.title}>
@@ -1331,6 +1345,20 @@ export default function VisitsTable() {
                         </div>
                       </div>
                     )}
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full flex items-center justify-center gap-2"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          viewActivityDetails(activity.id);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                        View Details
+                      </Button>
+                    </div>
                 </CardContent>
                 </Card>
                 );
@@ -1455,7 +1483,8 @@ export default function VisitsTable() {
                       return (
                         <TableRow
                           key={`activity-${activity.id}-${index}`}
-                          className="bg-purple-50/50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/35"
+                          className="bg-purple-50/50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/35 cursor-pointer"
+                          onClick={() => viewActivityDetails(activity.id)}
                         >
                           <TableCell className="w-16">
                             <div className="flex items-center justify-center">
@@ -1486,7 +1515,18 @@ export default function VisitsTable() {
                           <TableCell className="w-20">{activity.endTime || "—"}</TableCell>
                           <TableCell className="w-32">—</TableCell>
                           <TableCell className="w-24">
-                            <span className="text-xs text-muted-foreground">No action</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="p-2"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                viewActivityDetails(activity.id);
+                              }}
+                              title="View Details"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -1557,7 +1597,7 @@ export default function VisitsTable() {
           <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
             <div className="flex items-center gap-3 rounded-md border bg-card px-4 py-3 shadow-sm">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Opening visit…</span>
+              <span className="text-sm text-muted-foreground">Opening details…</span>
             </div>
           </div>
         )}
