@@ -9,26 +9,141 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Save, X, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { apiService, type EmployeeDto, type StoreDto, type VisitDto, type TeamHierarchyResponse, type ScopedEmployee } from "@/lib/api";
+import {
+  apiService,
+  type BulkVisitCreateResult,
+  type BulkVisitResultDetail,
+  type EmployeeDto,
+  type StoreDto,
+  type VisitDto,
+  type VisitGridCell,
+  type VisitGridV2Response,
+  type TeamHierarchyResponse,
+  type ScopedEmployee,
+} from "@/lib/api";
 
 // Using the actual types from API
 type Store = StoreDto;
 
 function formatDateKey(d: Date) {
-  return d.toISOString().slice(0, 10); // yyyy-MM-dd
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeKey(d: Date) {
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const seconds = String(d.getSeconds()).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
 }
 
 function formatDayLabel(d: Date) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+type VisitGridState = Record<number, Record<string, VisitDto[]>>;
+type CellKey = string;
+type AssignmentSaveStatus = "pending" | "skipped" | "failed";
+type Assignment = {
+  employeeId: number;
+  dateKey: string;
+  store: Store;
+  saveStatus?: AssignmentSaveStatus;
+  saveReason?: string;
+};
+type SaveReason = {
+  key?: CellKey;
+  status: "skipped" | "failed" | "info";
+  message: string;
+};
+type SaveSummary = {
+  created: number;
+  skipped: number;
+  failed: number;
+  reasons: SaveReason[];
+  message?: string;
+};
+
+const ASSIGNMENT_SOURCE = "WEB_ASSIGN_VISITS";
+
+const normalizeStatusLabel = (value?: string | null) => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (!normalized || normalized === "SCHEDULED") return "Assigned";
+  if (normalized === "ONGOING" || normalized === "ON_GOING" || normalized === "IN_PROGRESS") return "On Going";
+  if (normalized === "CHECKED_OUT") return "Checked Out";
+  if (normalized === "COMPLETE") return "Completed";
+  return normalized
+    .toLowerCase()
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const getVisitStatusLabel = (visit: VisitDto) => {
+  if (visit.status) return normalizeStatusLabel(visit.status);
+  if (visit.checkinDate && visit.checkinTime && visit.checkoutDate && visit.checkoutTime) return "Completed";
+  if (visit.checkoutDate && visit.checkoutTime) return "Checked Out";
+  if (visit.checkinDate && visit.checkinTime) return "On Going";
+  return "Assigned";
+};
+
+const getVisitAssignmentMeta = (visit: VisitDto) => {
+  const assignedBy = visit.assignedByName
+    ? `Assigned by ${visit.assignedByName}`
+    : visit.assignedById
+      ? `Assigned by #${visit.assignedById}`
+      : "";
+  const assignedTimestamp =
+    visit.assignedAt ||
+    [visit.assignedDate, visit.assignedTime].filter(Boolean).join(" ");
+  const source = visit.assignmentSource ? `Source: ${visit.assignmentSource}` : "";
+  return [assignedBy, assignedTimestamp, source].filter(Boolean).join(" • ");
+};
+
+const getVisitAssignmentLines = (visit: VisitDto) => {
+  const assignedBy = visit.assignedByName
+    ? `By ${visit.assignedByName}`
+    : visit.assignedById
+      ? `By #${visit.assignedById}`
+      : "";
+  const assignedTimestamp =
+    visit.assignedAt ||
+    [visit.assignedDate, visit.assignedTime].filter(Boolean).join(" ");
+  const assignedAt = assignedTimestamp ? `At ${assignedTimestamp.replace("T", " ")}` : "";
+  const source = visit.assignmentSource ? `Source ${visit.assignmentSource.replace(/_/g, " ")}` : "";
+  return [assignedBy, assignedAt, source].filter(Boolean);
+};
+
+const normalizeGridCell = (cell: VisitGridCell | VisitDto[] | VisitDto | null | undefined): VisitDto[] => {
+  if (!cell) return [];
+  if (Array.isArray(cell)) return cell.filter(Boolean);
+  if ("visits" in cell && Array.isArray(cell.visits)) return cell.visits.filter(Boolean);
+  if ("id" in cell || "storeId" in cell || "storeName" in cell) return [cell as VisitDto];
+  return [];
+};
+
+const normalizeGridResponse = (response: VisitGridV2Response): VisitGridState => {
+  return Object.entries(response ?? {}).reduce<VisitGridState>((acc, [employeeId, byDate]) => {
+    const numericEmployeeId = Number(employeeId);
+    if (!Number.isFinite(numericEmployeeId)) return acc;
+    acc[numericEmployeeId] = Object.entries(byDate ?? {}).reduce<Record<string, VisitDto[]>>((dateAcc, [dateKey, cell]) => {
+      dateAcc[dateKey] = normalizeGridCell(cell);
+      return dateAcc;
+    }, {});
+    return acc;
+  }, {});
+};
+
 export default function AssignVisitsPage() {
-  const { userRole, currentUser, isLoading: authLoading, isAuthenticated, token } = useAuth();
+  const { userRole, userData, currentUser, isLoading: authLoading, isAuthenticated, token } = useAuth();
   
   // State for real data
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
   const [stores, setStores] = useState<StoreDto[]>([]);
-  const [existingVisits, setExistingVisits] = useState<Record<number, Record<string, VisitDto | null>>>({});
+  const [existingVisits, setExistingVisits] = useState<VisitGridState>({});
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -221,8 +336,8 @@ export default function AssignVisitsPage() {
         const startKey = dateCols[0]?.key;
         const endKey = dateCols[dateCols.length - 1]?.key;
         if (startKey && endKey) {
-          const visitsData = await apiService.bulkGetForGrid(employeeIds, startKey, endKey);
-          setExistingVisits(visitsData);
+          const visitsData = await apiService.bulkGetForGridV2(employeeIds, startKey, endKey);
+          setExistingVisits(normalizeGridResponse(visitsData));
         } else {
           setExistingVisits({});
         }
@@ -244,9 +359,7 @@ export default function AssignVisitsPage() {
     }
   }, [loadEmployees, authLoading, userRole]);
 
-  // Assignments state: key = `${empId}-${dateKey}` => store
-  type CellKey = string;
-  type Assignment = { employeeId: number; dateKey: string; store: Store };
+  // Assignments state: key = `${empId}-${dateKey}` => pending store assignment.
   const [assignments, setAssignments] = useState<Record<CellKey, Assignment>>({});
   const [dirty, setDirty] = useState(false);
 
@@ -284,7 +397,7 @@ export default function AssignVisitsPage() {
       activeFilters.every(dateKey => {
         const assignmentKey = `${emp.id}-${dateKey}`;
         const hasAssignment = Boolean(assignments[assignmentKey]);
-        const hasExistingVisit = Boolean(existingVisits[emp.id]?.[dateKey]);
+        const hasExistingVisit = (existingVisits[emp.id]?.[dateKey]?.length ?? 0) > 0;
         return !hasAssignment && !hasExistingVisit;
       })
     );
@@ -328,79 +441,65 @@ export default function AssignVisitsPage() {
   const [modalCell, setModalCell] = useState<{ employee: EmployeeDto; dateKey: string } | null>(null);
   const [storeQuery, setStoreQuery] = useState('');
   const [loadingStores, setLoadingStores] = useState(false);
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  const openCellModal = async (employee: EmployeeDto, dateKey: string) => {
+  const loadStoresForEmployee = useCallback(async (employeeId: number, search: string) => {
+    setLoadingStores(true);
+    try {
+      const employeeStores = await apiService.getDealersForEmployee(employeeId, {
+        search,
+        page: 0,
+        size: 50,
+      });
+      setStores(employeeStores);
+    } catch (err) {
+      console.error('Error loading stores for employee:', err);
+      setStores([]);
+      setError('Failed to load stores for this employee');
+    } finally {
+      setLoadingStores(false);
+    }
+  }, []);
+
+  const openCellModal = (employee: EmployeeDto, dateKey: string) => {
     const column = dateCols.find((col) => col.key === dateKey);
     if (column?.isSunday) {
       return; // Do not allow adding on Sundays
     }
     setModalCell({ employee, dateKey });
     setStoreQuery('');
-    setLoadingStores(true);
+    setStores([]);
+    setError(null);
     setModalOpen(true);
-    
-    try {
-      // Load stores for this specific employee
-      const employeeStores = await apiService.getDealersForEmployee(employee.id);
-      setStores(employeeStores);
-    } catch (err) {
-      console.error('Error loading stores for employee:', err);
-      setError('Failed to load stores for this employee');
-    } finally {
-      setLoadingStores(false);
-    }
   };
 
-  // Debounced search with better filtering
-  const filteredStores = useMemo(() => {
-    const q = storeQuery.trim().toLowerCase();
-    if (!q) return stores.slice(0, 50); // Show first 50 stores by default
-    
-    return stores
-      .filter(s => {
-        const storeName = s.storeName.toLowerCase();
-        const city = s.city.toLowerCase();
-        const clientType = (s.clientType || '').toLowerCase();
-        
-        return storeName.includes(q) || 
-               city.includes(q) || 
-               clientType.includes(q);
-      })
-      .slice(0, 100); // Limit to 100 results for performance
-  }, [stores, storeQuery]);
-
-  // Handle search input with debouncing
   const handleSearchChange = (value: string) => {
     setStoreQuery(value);
-    
-    // Clear existing timeout
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-    
-    // Set new timeout for debouncing
-    const timeout = setTimeout(() => {
-      // Search is automatically handled by the useMemo above
-    }, 300);
-    
-    setSearchTimeout(timeout);
   };
 
-  // Cleanup timeout on unmount
   useEffect(() => {
-    return () => {
-      if (searchTimeout) {
-        clearTimeout(searchTimeout);
-      }
-    };
-  }, [searchTimeout]);
+    if (!modalOpen || !modalCell) return;
+
+    const timeout = window.setTimeout(() => {
+      void loadStoresForEmployee(modalCell.employee.id, storeQuery);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [loadStoresForEmployee, modalCell, modalOpen, storeQuery]);
 
   const assignStore = (store: Store) => {
     if (!modalCell) return;
     const key = `${modalCell.employee.id}-${modalCell.dateKey}`;
-    setAssignments(prev => ({ ...prev, [key]: { employeeId: modalCell.employee.id, dateKey: modalCell.dateKey, store } }));
+    setAssignments(prev => ({
+      ...prev,
+      [key]: {
+        employeeId: modalCell.employee.id,
+        dateKey: modalCell.dateKey,
+        store,
+        saveStatus: "pending",
+      },
+    }));
     setDirty(true);
+    setSaveSummary(null);
     setModalOpen(false);
     setModalCell(null);
   };
@@ -415,7 +514,7 @@ export default function AssignVisitsPage() {
   };
 
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveSummary, setSaveSummary] = useState<SaveSummary | null>(null);
   
   // Check permissions after all hooks
   const isAdmin = userRole === 'ADMIN' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_ADMIN');
@@ -432,34 +531,200 @@ export default function AssignVisitsPage() {
                     userRole === 'OFFICE MANAGER' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_OFFICE MANAGER') ||
                     userRole === 'AVP' || currentUser?.authorities?.some((a: { authority: string }) => a.authority === 'ROLE_AVP');
 
+  const getAssignmentKey = (employeeId: number, dateKey: string, storeId?: number) => {
+    return storeId ? `${employeeId}-${dateKey}-${storeId}` : `${employeeId}-${dateKey}`;
+  };
+
+  const getCurrentEmployeeId = () => {
+    if (typeof userData?.employeeId === "number" && Number.isFinite(userData.employeeId)) {
+      return userData.employeeId;
+    }
+
+    if (typeof window !== "undefined") {
+      const localValue = Number(localStorage.getItem("employeeId"));
+      if (Number.isFinite(localValue) && localValue > 0) return localValue;
+    }
+
+    return null;
+  };
+
+  const getReasonText = (detail: string | BulkVisitResultDetail, fallback: string) => {
+    if (typeof detail === "string") return detail;
+    return detail.reason || detail.message || detail.error || fallback;
+  };
+
+  const getDetailKey = (detail: BulkVisitResultDetail, allAssignments: Assignment[]) => {
+    const employeeId = typeof detail.employeeId === "number" ? detail.employeeId : Number(detail.employeeId);
+    const storeId = typeof detail.storeId === "number" ? detail.storeId : Number(detail.storeId);
+    const dateKey = detail.visitDate || detail.visit_date || detail.date;
+
+    if (Number.isFinite(employeeId) && dateKey) {
+      return getAssignmentKey(employeeId, dateKey, Number.isFinite(storeId) ? storeId : undefined);
+    }
+
+    const searchableText = [detail.reason, detail.message, detail.error].filter(Boolean).join(" ").toLowerCase();
+    if (!searchableText) return undefined;
+
+    const matched = allAssignments.find((assignment) => {
+      const employee = employees.find((item) => item.id === assignment.employeeId);
+      const employeeName = `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim().toLowerCase();
+      return (
+        searchableText.includes(String(assignment.store.storeId)) ||
+        searchableText.includes((assignment.store.storeName || "").toLowerCase()) ||
+        searchableText.includes(assignment.dateKey) ||
+        (employeeName && searchableText.includes(employeeName))
+      );
+    });
+
+    return matched ? getAssignmentKey(matched.employeeId, matched.dateKey, matched.store.storeId) : undefined;
+  };
+
+  const normalizeSaveResult = (result: BulkVisitCreateResult, allAssignments: Assignment[]): SaveSummary => {
+    const created = typeof result.created === "number" ? result.created : 0;
+    const skipped = typeof result.skipped === "number" ? result.skipped : 0;
+    const failed = typeof result.failed === "number" ? result.failed : 0;
+
+    const reasons: SaveReason[] = [];
+
+    result.results?.forEach((detail) => {
+      const status = String(detail.status || "").toLowerCase();
+      if (status.includes("skip") || status.includes("fail") || detail.reason || detail.message || detail.error) {
+        reasons.push({
+          key: getDetailKey(detail, allAssignments),
+          status: status.includes("skip") ? "skipped" : status.includes("fail") ? "failed" : "info",
+          message: getReasonText(detail, "Visit was not created."),
+        });
+      }
+    });
+
+    result.skippedVisits?.forEach((detail) => {
+      reasons.push({
+        key: typeof detail === "string" ? undefined : getDetailKey(detail, allAssignments),
+        status: "skipped",
+        message: getReasonText(detail, "Visit was skipped."),
+      });
+    });
+
+    result.failedVisits?.forEach((detail) => {
+      reasons.push({
+        key: typeof detail === "string" ? undefined : getDetailKey(detail, allAssignments),
+        status: "failed",
+        message: getReasonText(detail, "Visit failed."),
+      });
+    });
+
+    result.errors?.forEach((detail) => {
+      reasons.push({
+        key: typeof detail === "string" ? undefined : getDetailKey(detail, allAssignments),
+        status: "failed",
+        message: getReasonText(detail, "Visit failed."),
+      });
+    });
+
+    if ((skipped > 0 || failed > 0) && reasons.length === 0) {
+      reasons.push({
+        status: "info",
+        message: "The API returned skipped or failed counts without item-level reasons. Selections were preserved for review.",
+      });
+    }
+
+    return {
+      created,
+      skipped,
+      failed,
+      reasons,
+      message: result.message,
+    };
+  };
+
   const saveChanges = async () => {
     setSaving(true);
-    setSaveMessage(null);
+    setSaveSummary(null);
     setError(null);
     
     try {
       const toCreate = Object.values(assignments);
+      if (toCreate.length === 0) {
+        setDirty(false);
+        setSaveSummary({
+          created: 0,
+          skipped: 0,
+          failed: 0,
+          reasons: [{ status: "info", message: "No pending assignments to save." }],
+        });
+        return;
+      }
+
+      const assignedById = getCurrentEmployeeId();
+      if (!assignedById) {
+        throw new Error("Unable to identify the assigning manager. Please sign in again.");
+      }
+
+      const now = new Date();
+      const assignedDate = formatDateKey(now);
+      const assignedTime = formatTimeKey(now);
+      const assignedAt = `${assignedDate}T${assignedTime}`;
       
-      // Convert assignments to VisitDto format
       const visitDtos: VisitDto[] = toCreate.map(assignment => ({
         employeeId: assignment.employeeId,
         storeId: assignment.store.storeId,
         visit_date: assignment.dateKey,
-        scheduledStartTime: '10:00:00', // Default time
-        scheduledEndTime: '11:00:00',   // Default time
-        purpose: 'Assigned Visit',
-        priority: 'MEDIUM',
         isSelfGenerated: false,
+        assignedById,
+        assignedAt,
+        assignedDate,
+        assignedTime,
+        assignmentSource: ASSIGNMENT_SOURCE,
+        status: "ASSIGNED",
       } as VisitDto));
       
-      // Call the bulk create API
       const result = await apiService.bulkCreateVisits(visitDtos);
+      const summary = normalizeSaveResult(result, toCreate);
+      setSaveSummary(summary);
       
-      setDirty(false);
-      setSaveMessage(`Successfully created ${result.created} visits${result.failed > 0 ? `, ${result.failed} failed` : ''}`);
-      
-      // Clear assignments and reload data
-      setAssignments({});
+      if (summary.skipped === 0 && summary.failed === 0) {
+        setAssignments({});
+        setDirty(false);
+      } else {
+        const problemKeys = new Map<CellKey, AssignmentSaveStatus>();
+        const reasonByKey = new Map<CellKey, string>();
+
+        summary.reasons.forEach((reason) => {
+          if (!reason.key) return;
+          const status: AssignmentSaveStatus = reason.status === "skipped" ? "skipped" : "failed";
+          problemKeys.set(reason.key, status);
+          reasonByKey.set(reason.key, reason.message);
+        });
+
+        setAssignments(prev => {
+          if (problemKeys.size === 0) {
+            return Object.entries(prev).reduce<Record<CellKey, Assignment>>((acc, [key, assignment]) => {
+              acc[key] = {
+                ...assignment,
+                saveStatus: "failed",
+                saveReason: "The API did not identify which selected visits were skipped or failed.",
+              };
+              return acc;
+            }, {});
+          }
+
+          return Object.entries(prev).reduce<Record<CellKey, Assignment>>((acc, [key, assignment]) => {
+            const detailedKey = getAssignmentKey(assignment.employeeId, assignment.dateKey, assignment.store.storeId);
+            const status = problemKeys.get(detailedKey) ?? problemKeys.get(key);
+            const reason = reasonByKey.get(detailedKey) ?? reasonByKey.get(key);
+            if (status) {
+              acc[key] = {
+                ...assignment,
+                saveStatus: status,
+                saveReason: reason || "Visit was not created.",
+              };
+            }
+            return acc;
+          }, {});
+        });
+        setDirty(true);
+      }
+
       await loadEmployees();
       
     } catch (err) {
@@ -560,8 +825,31 @@ export default function AssignVisitsPage() {
         />
       </div>
 
-      {saveMessage && (
-        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">{saveMessage}</div>
+      {saveSummary && (
+        <div
+          className={[
+            "rounded border p-3 text-sm",
+            saveSummary.failed > 0 || saveSummary.skipped > 0
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-green-200 bg-green-50 text-green-900",
+          ].join(" ")}
+        >
+          <div className="font-medium">
+            Save result: {saveSummary.created} created, {saveSummary.skipped} skipped, {saveSummary.failed} failed
+          </div>
+          {saveSummary.message && (
+            <div className="mt-1 text-xs opacity-80">{saveSummary.message}</div>
+          )}
+          {saveSummary.reasons.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              {saveSummary.reasons.map((reason, index) => (
+                <li key={`${reason.status}-${index}`}>
+                  <span className="font-medium capitalize">{reason.status}:</span> {reason.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {error && (
@@ -628,7 +916,7 @@ export default function AssignVisitsPage() {
                       {dateCols.map(col => {
                         const key = `${emp.id}-${col.key}`;
                         const assigned = assignments[key];
-                        const existingVisit = existingVisits[emp.id]?.[col.key];
+                        const existingVisitList = existingVisits[emp.id]?.[col.key] ?? [];
                         const isNoVisitActive = Boolean(noVisitFilters[col.key]);
                         
                         return (
@@ -640,22 +928,54 @@ export default function AssignVisitsPage() {
                               isNoVisitActive ? "bg-primary/5" : "",
                             ].join(" ").trim()}
                           >
-                            {existingVisit ? (
-                              <div className="flex items-center justify-center">
-                                <div 
-                                  className="max-w-[180px] px-2 py-1 bg-secondary text-secondary-foreground rounded-md text-xs font-medium truncate cursor-help"
-                                  title={existingVisit.storeName}
-                                >
-                                  {existingVisit.storeName}
-                                </div>
+                            {existingVisitList.length > 0 ? (
+                              <div className="flex flex-col items-center justify-center gap-1">
+                                {existingVisitList.map((visit, index) => {
+                                  const visitName = visit.storeName || (visit.storeId ? `Store #${visit.storeId}` : "Visit");
+                                  const statusLabel = getVisitStatusLabel(visit);
+                                  const meta = getVisitAssignmentMeta(visit);
+                                  const metaLines = getVisitAssignmentLines(visit);
+                                  const title = [visitName, statusLabel, meta].filter(Boolean).join("\n");
+
+                                  return (
+                                    <div
+                                      key={`${visit.id ?? visit.storeId ?? visitName}-${index}`}
+                                      className="w-full max-w-[190px] rounded-md bg-secondary px-2 py-1 text-left text-xs text-secondary-foreground cursor-help"
+                                      title={title}
+                                    >
+                                      <div className="truncate font-medium">{visitName}</div>
+                                      <div className="text-[10px] opacity-80">{statusLabel}</div>
+                                      {metaLines.map((line) => (
+                                        <div key={line} className="truncate text-[10px] opacity-70">{line}</div>
+                                      ))}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : assigned ? (
                               <div className="flex items-center justify-center gap-1">
-                                <div 
-                                  className="max-w-[160px] px-2 py-1 bg-outline text-foreground rounded-md text-xs font-medium truncate cursor-help"
-                                  title={assigned.store.storeName}
+                                <div
+                                  className={[
+                                    "max-w-[170px] rounded-md px-2 py-1 text-left text-xs cursor-help",
+                                    assigned.saveStatus === "failed"
+                                      ? "bg-red-50 text-red-700"
+                                      : assigned.saveStatus === "skipped"
+                                        ? "bg-amber-50 text-amber-800"
+                                        : "bg-muted text-foreground",
+                                  ].join(" ")}
+                                  title={[assigned.store.storeName, assigned.saveReason].filter(Boolean).join("\n")}
                                 >
-                                  {assigned.store.storeName}
+                                  <div className="truncate font-medium">{assigned.store.storeName}</div>
+                                  <div className="text-[10px] opacity-80">
+                                    {assigned.saveStatus === "failed"
+                                      ? "Failed"
+                                      : assigned.saveStatus === "skipped"
+                                        ? "Skipped"
+                                        : "Pending save"}
+                                  </div>
+                                  {assigned.saveReason && (
+                                    <div className="truncate text-[10px] opacity-75">{assigned.saveReason}</div>
+                                  )}
                                 </div>
                                 <Button size="icon" variant="ghost" onClick={() => removeAssignment(emp.id, col.key)}>
                                   <X className="h-4 w-4" />
@@ -696,8 +1016,7 @@ export default function AssignVisitsPage() {
             <div className="space-y-2">
               {storeQuery && (
                 <div className="text-xs text-muted-foreground">
-                  {filteredStores.length} stores found
-                  {stores.length > filteredStores.length && ` (showing first ${filteredStores.length})`}
+                  {stores.length} stores found
                 </div>
               )}
               <div className="max-h-64 overflow-auto border rounded p-2 space-y-1">
@@ -706,12 +1025,12 @@ export default function AssignVisitsPage() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span className="ml-2 text-sm">Loading stores...</span>
                   </div>
-                ) : filteredStores.length === 0 ? (
+                ) : stores.length === 0 ? (
                   <div className="text-sm text-muted-foreground">
                     {storeQuery ? 'No stores match your search.' : 'No stores available for this employee.'}
                   </div>
                 ) : (
-                  filteredStores.map(s => (
+                  stores.map(s => (
                     <div key={s.storeId} className="flex items-center justify-between py-1 px-2 rounded hover:bg-muted cursor-pointer" onClick={() => assignStore(s)}>
                       <div>
                         <div className="font-medium text-sm">{s.storeName}</div>

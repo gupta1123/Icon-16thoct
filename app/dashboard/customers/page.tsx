@@ -26,8 +26,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, DollarSign, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2, MapPin, ExternalLink } from "lucide-react";
-import { API, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/api";
+import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, Package, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2, MapPin, ExternalLink } from "lucide-react";
+import { API, formatStockQuantity, getStock, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/api";
 import AddCustomerModal from "@/components/AddCustomerModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
@@ -68,7 +68,7 @@ const INITIAL_FILTERS: FiltersState = {
 function CustomerListContent() {
     const { token, userData } = useAuth();
     const [selectedColumns, setSelectedColumns] = useState<string[]>([
-        'shopName', 'ownerName', 'city', 'state', 'storeLocation', 'phone', 'monthlySales',
+        'shopName', 'ownerName', 'city', 'state', 'storeLocation', 'phone', 'stock',
         'fieldOfficer', 'clientType', 'totalVisits', 'lastVisitDate',
     ]);
     const [desktopFilters, setDesktopFilters] = useState<FiltersState>(() => ({ ...INITIAL_FILTERS }));
@@ -679,7 +679,10 @@ function CustomerListContent() {
                 return;
             }
     
-            const csvContent = await response.text();
+            const csvContent = (await response.text())
+                .replace(/Monthly Sales?/g, 'Stock')
+                .replace(/monthlySale/g, 'stock')
+                .replace(/monthly_sales/g, 'stock');
             console.log('CSV content received, length:', csvContent.length);
     
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -825,7 +828,7 @@ function CustomerListContent() {
                                     { value: 'state', label: 'State' },
                                     { value: 'storeLocation', label: 'Store Location' },
                                     { value: 'phone', label: 'Phone' },
-                                    { value: 'monthlySales', label: 'Monthly Sales' },
+                                    { value: 'stock', label: 'Stock' },
                                     { value: 'fieldOfficer', label: 'Assigned Executive' },
                                     { value: 'clientType', label: 'Client Type' },
                                     { value: 'totalVisits', label: 'Total Visits' },
@@ -1026,11 +1029,11 @@ function CustomerListContent() {
                                                 <span className="font-medium">Phone:</span>
                                                 <span>{customer.primaryContact}</span>
                                             </div>
-                                            {customer.monthlySale && (
+                                            {getStock(customer) !== null && getStock(customer) !== undefined && (
                                                 <div className="flex items-center space-x-2">
-                                                    <DollarSign className="text-yellow-500" />
-                                                    <span className="font-medium">Monthly Sales:</span>
-                                                    <span>{customer.monthlySale.toLocaleString()} tonnes</span>
+                                                    <Package className="text-yellow-500" />
+                                                    <span className="font-medium">Stock:</span>
+                                                    <span>{formatStockQuantity(getStock(customer))}</span>
                                                 </div>
                                             )}
                                             {/* Intent removed */}
@@ -1116,10 +1119,10 @@ function CustomerListContent() {
                                         )}
                                     </TableHead>
                                 )}
-                                {selectedColumns.includes('monthlySales') && (
-                                    <TableHead className="cursor-pointer" onClick={() => handleSort('monthlySale')}>
-                                        Monthly Sales
-                                        {sortColumn === 'monthlySale' && (
+                                {selectedColumns.includes('stock') && (
+                                    <TableHead className="cursor-pointer" onClick={() => handleSort('stock')}>
+                                        Stock
+                                        {sortColumn === 'stock' && (
                                             <span className="text-black text-sm">{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
                                         )}
                                     </TableHead>
@@ -1192,7 +1195,7 @@ function CustomerListContent() {
                                             {selectedColumns.includes('phone') && (
                                                 <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                                             )}
-                                            {selectedColumns.includes('monthlySales') && (
+                                            {selectedColumns.includes('stock') && (
                                                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                                             )}
                                             {selectedColumns.includes('intentLevel') && (
@@ -1254,11 +1257,9 @@ function CustomerListContent() {
                                                 </TableCell>
                                             )}
                                             {selectedColumns.includes('phone') && <TableCell>{customer.primaryContact || ''}</TableCell>}
-                                            {selectedColumns.includes('monthlySales') && (
+                                            {selectedColumns.includes('stock') && (
                                                 <TableCell>
-                                                    {customer.monthlySale !== null && customer.monthlySale !== undefined
-                                                        ? `${customer.monthlySale.toLocaleString()} tonnes`
-                                                        : ''}
+                                                    {formatStockQuantity(getStock(customer))}
                                                 </TableCell>
                                             )}
                                             {/* Intent value removed */}

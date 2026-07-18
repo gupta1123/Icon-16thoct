@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus, ChevronDown, Check, ChevronsUpDown } from "lucide-react";
+import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus, ChevronDown, Check, ChevronsUpDown, Image as ImageIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import {
@@ -312,9 +312,15 @@ type ActivityRow = {
   endTime?: string;
   status?: string;
   location?: string;
+  imageCount?: number | null;
 };
 
 type CombinedDisplayRow = { type: 'VISIT'; data: Row } | { type: 'ACTIVITY'; data: ActivityRow };
+
+const formatActivityPhotoCount = (count?: number | null) => {
+  if (!count || count <= 0) return null;
+  return `${count} ${count === 1 ? "photo" : "photos"}`;
+};
 
 // Helper function to format time to 12-hour format
 const formatTime = (timeStr?: string): string => {
@@ -727,6 +733,11 @@ export default function VisitsTable() {
   const mapActivityToRow = (activity: ActivityDto, fallbackIndex: number): ActivityRow => {
     const startTime = activity.startTime ?? activity.checkinTime ?? activity.createdTime;
     const endTime = activity.endTime ?? activity.checkoutTime ?? undefined;
+    const attachmentCount = Array.isArray(activity.attachmentResponse) ? activity.attachmentResponse.length : 0;
+    const imageCount =
+      typeof activity.imageCount === 'number' && Number.isFinite(activity.imageCount)
+        ? activity.imageCount
+        : attachmentCount;
 
     return {
       id: activity.id ?? fallbackIndex,
@@ -739,6 +750,7 @@ export default function VisitsTable() {
       endTime: endTime ? formatTime(endTime) : undefined,
       status: activity.status ?? undefined,
       location: undefined,
+      imageCount,
     };
   };
 
@@ -1276,6 +1288,7 @@ export default function VisitsTable() {
               {/* Activity Cards */}
               {combinedRows.filter(row => row.type === 'ACTIVITY').map((row) => {
                 const activity = row.data;
+                const photoLabel = formatActivityPhotoCount(activity.imageCount);
                 return (
               <Card
                 key={`activity-${activity.id}`}
@@ -1294,6 +1307,12 @@ export default function VisitsTable() {
                         <Badge className="shrink-0 bg-purple-100 text-purple-800 hover:bg-black hover:text-white cursor-pointer transition-colors">
                           Activity
                         </Badge>
+                        {photoLabel && (
+                          <Badge variant="outline" className="shrink-0 gap-1 border-purple-200 text-purple-800 dark:border-purple-900/60 dark:text-purple-200">
+                            <ImageIcon className="h-3 w-3" />
+                            {photoLabel}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1480,6 +1499,7 @@ export default function VisitsTable() {
                   combinedRows.map((row, index) => {
                     if (row.type === 'ACTIVITY') {
                       const activity = row.data;
+                      const photoLabel = formatActivityPhotoCount(activity.imageCount);
                       return (
                         <TableRow
                           key={`activity-${activity.id}-${index}`}
@@ -1504,9 +1524,17 @@ export default function VisitsTable() {
                           </TableCell>
                           <TableCell className="w-24">{activity.date || "—"}</TableCell>
                           <TableCell className="w-20">
-                            <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors">
-                              Activity
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors">
+                                Activity
+                              </span>
+                              {photoLabel && (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-purple-200 px-2 py-0.5 text-xs text-purple-800 dark:border-purple-900/60 dark:text-purple-200">
+                                  <ImageIcon className="h-3 w-3" />
+                                  {photoLabel}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="w-40">
                             <TruncatedWithTooltip value={activity.description} emptyFallback="—" />

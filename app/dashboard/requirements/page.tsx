@@ -15,13 +15,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
-import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, Image } from 'lucide-react';
-import SearchableSelect from "@/components/searchable-select";
+import { CalendarIcon, MoreHorizontal, PlusCircle, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, Target, Trash2, Calendar as CalendarIcon2, Image } from 'lucide-react';
+import RequirementCreationForm from "@/components/RequirementCreationForm";
+import {
+    RequirementPhotoUploadError,
+    createRequirementWithPhotos,
+    loadTaskImageUrls,
+    revokeTaskImageUrls,
+    type RequirementCreatePayload,
+} from "@/lib/requirements";
 
 interface Task {
     id: number;
@@ -55,6 +61,9 @@ interface Store {
     city?: string;
 }
 
+const FILTER_SELECT_CONTENT_CLASS = "z-[70] min-w-[var(--radix-select-trigger-width)]";
+const FILTER_SELECT_CONTENT_STYLE = { maxHeight: "18rem" };
+
 const Requirements = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
@@ -78,7 +87,6 @@ const Requirements = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [initializedFromQuery, setInitializedFromQuery] = useState(false);
-    const [activeTab, setActiveTab] = useState('general');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [filters, setFilters] = useState({
@@ -100,14 +108,16 @@ const Requirements = () => {
     const [teamId, setTeamId] = useState<number | null>(null);
     const [isManager, setIsManager] = useState(false);
     const [teamMembers, setTeamMembers] = useState<Employee[]>([]);
-    const [isTabLoading, setIsTabLoading] = useState(false);
     const [isStoresLoading, setIsStoresLoading] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
     const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
     const [isMobileStartDatePickerOpen, setIsMobileStartDatePickerOpen] = useState(false);
     const [isMobileEndDatePickerOpen, setIsMobileEndDatePickerOpen] = useState(false);
-    const [isDueDatePickerOpen, setIsDueDatePickerOpen] = useState(false);
+    const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+    const [isLoadingImages, setIsLoadingImages] = useState(false);
+    const [taskImages, setTaskImages] = useState<string[]>([]);
+    const [pendingRequirementUpload, setPendingRequirementUpload] = useState<{ taskId: number; nextPhotoIndex: number } | null>(null);
 
     const { token, userRole, userData, currentUser } = useAuth();
 
@@ -181,19 +191,6 @@ const Requirements = () => {
     const handleDateChange = (key: string, value: string) => {
         const newFilters = { ...filters, [key]: value };
         setFilters(newFilters);
-    };
-
-    const handleNext = () => {
-        setIsTabLoading(true);
-   
-        setTimeout(() => {
-            setActiveTab('details');
-            setIsTabLoading(false);
-        }, 500);
-    };
-
-    const handleBack = () => {
-        setActiveTab('general');
     };
 
     const handleViewStore = (storeId: number) => {
@@ -502,7 +499,7 @@ const Requirements = () => {
         setFilteredTasks(filtered);
     };
 
-    const createTask = async () => {
+    const createTask = async (photos: File[] = []) => {
         if (!token) return;
         
         // Validate required fields similar to Complaints fix
@@ -528,7 +525,7 @@ const Requirements = () => {
 
             const due = newTask.dueDate.includes('T') ? newTask.dueDate.split('T')[0] : newTask.dueDate;
 
-            const apiPayload = {
+            const apiPayload: RequirementCreatePayload = {
                 taskTitle: newTask.taskTitle?.trim() || '',
                 taskDesciption: newTask.taskDescription?.trim() || '',
                 dueDate: due,
@@ -540,21 +537,13 @@ const Requirements = () => {
                 priority: newTask.priority || 'low',
             };
 
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(apiPayload),
+            await createRequirementWithPhotos({
+                token,
+                payload: apiPayload,
+                photos,
+                taskId: pendingRequirementUpload?.taskId,
+                startPhotoIndex: pendingRequirementUpload?.nextPhotoIndex ?? 0,
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Failed to create requirement:', response.status, errorText);
-                setErrorMessage(errorText || 'Failed to create requirement');
-                return;
-            }
 
             // Refresh list from server
             await fetchTasks();
@@ -577,9 +566,16 @@ const Requirements = () => {
                 taskType: 'requirement'
             });
             setIsModalOpen(false);
+            setPendingRequirementUpload(null);
         } catch (error) {
             console.error('Error creating requirement:', error);
-            setErrorMessage('Unexpected error while creating requirement');
+            if (error instanceof RequirementPhotoUploadError) {
+                setPendingRequirementUpload({
+                    taskId: error.taskId,
+                    nextPhotoIndex: error.nextPhotoIndex,
+                });
+            }
+            setErrorMessage(error instanceof Error ? error.message : 'Unexpected error while creating requirement');
         } finally {
             setIsCreating(false);
         }
@@ -634,6 +630,7 @@ const Requirements = () => {
     const fetchTaskImages = async (taskId: number) => {
         if (!token) return;
         
+        setIsLoadingImages(true);
         try {
             // First, fetch the task details
             const taskResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getById?id=${taskId}`, {
@@ -645,24 +642,21 @@ const Requirements = () => {
                 throw new Error('Failed to fetch task details');
             }
             const taskData = await taskResponse.json();
-    
-            // Extract fileDownloadUri from the attachmentResponse
-            const imageUrls = taskData.attachmentResponse
-                .filter((attachment: { tag: string }) => attachment.tag === 'check-in')
-                .map((attachment: { tag: string; fileName: string }) => {
-                    try {
-                        // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
-                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
-                    } catch {
-                        // Fallback: use fileName to construct URL
-                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
-                    }
-                });
-    
-            // For now, just log the images - you can implement modal display later
-            console.log('Task images:', imageUrls);
+            const imageUrls = await loadTaskImageUrls({
+                token,
+                taskId,
+                attachmentResponse: taskData.attachmentResponse,
+            });
+
+            setTaskImages((previous) => {
+                revokeTaskImageUrls(previous);
+                return imageUrls;
+            });
+            setIsImagePreviewOpen(true);
         } catch (error) {
             console.error('Error fetching task images:', error);
+        } finally {
+            setIsLoadingImages(false);
         }
     };
 
@@ -705,7 +699,11 @@ const Requirements = () => {
                 </div>
                 <div className="flex items-center gap-2">
                     <Button 
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => {
+                            setErrorMessage(null);
+                            setPendingRequirementUpload(null);
+                            setIsModalOpen(true);
+                        }}
                         size="sm"
                         className="text-sm"
                     >
@@ -730,7 +728,7 @@ const Requirements = () => {
                         <SelectTrigger className="w-[180px] text-sm bg-background border-border">
                             <SelectValue placeholder="Filter by employee" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                             <SelectItem value="all">All Employees</SelectItem>
                             {filterEmployees
                                 .filter((employee) => employee.id != null && employee.id !== 0)
@@ -745,7 +743,7 @@ const Requirements = () => {
                         <SelectTrigger className="w-[160px] text-sm bg-background border-border">
                             <SelectValue placeholder="Filter by priority" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                             <SelectItem value="all">All Priorities</SelectItem>
                             <SelectItem value="low">Low</SelectItem>
                             <SelectItem value="medium">Medium</SelectItem>
@@ -756,7 +754,7 @@ const Requirements = () => {
                         <SelectTrigger className="w-[160px] text-sm bg-background border-border">
                             <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                             <SelectItem value="all">All Statuses</SelectItem>
                             <SelectItem value="Assigned">Assigned</SelectItem>
                             <SelectItem value="Work In Progress">Work In Progress</SelectItem>
@@ -767,7 +765,7 @@ const Requirements = () => {
                         <SelectTrigger className="w-[180px] text-sm bg-background border-border">
                             <SelectValue placeholder="Filter by district" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                             <SelectItem value="all">All Districts</SelectItem>
                             {filterDistricts.map((district) => (
                                 <SelectItem key={district} value={district}>
@@ -874,7 +872,7 @@ const Requirements = () => {
                                 <SelectTrigger className="w-full text-sm bg-background border-border">
                                     <SelectValue placeholder="Filter by employee" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                                     <SelectItem value="all">All Employees</SelectItem>
                                     {filterEmployees
                                         .filter(employee => employee.id != null && employee.id !== 0) // Additional safety check
@@ -892,7 +890,7 @@ const Requirements = () => {
                                 <SelectTrigger className="w-full text-sm bg-background border-border">
                                     <SelectValue placeholder="Filter by priority" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                                     <SelectItem value="all">All Priorities</SelectItem>
                                     <SelectItem value="low">Low</SelectItem>
                                     <SelectItem value="medium">Medium</SelectItem>
@@ -906,7 +904,7 @@ const Requirements = () => {
                                 <SelectTrigger className="w-full bg-background border-border">
                                     <SelectValue placeholder="Filter by status" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                                     <SelectItem value="all">All Open Statuses</SelectItem>
                                     <SelectItem value="Assigned">Assigned</SelectItem>
                                     <SelectItem value="Work In Progress">Work In Progress</SelectItem>
@@ -920,7 +918,7 @@ const Requirements = () => {
                                 <SelectTrigger className="w-full bg-background border-border">
                                     <SelectValue placeholder="Filter by district" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
                                     <SelectItem value="all">All Districts</SelectItem>
                                     {filterDistricts.map((district) => (
                                         <SelectItem key={district} value={district}>
@@ -1020,229 +1018,45 @@ const Requirements = () => {
                 </SheetContent>
             </Sheet>
 
-            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                <DialogContent>
+            <Dialog
+                open={isModalOpen}
+                onOpenChange={(open) => {
+                    if (!isCreating) {
+                        setIsModalOpen(open);
+                    }
+                }}
+            >
+                <DialogContent className="max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Create New Requirement</DialogTitle>
                         <DialogDescription>Fill in the details to create a new requirement.</DialogDescription>
                     </DialogHeader>
-                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="general" disabled={isTabLoading}>General</TabsTrigger>
-                            <TabsTrigger value="details" disabled={isTabLoading}>Details</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="general">
-                            <div className="grid gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="taskTitle">Requirement Title</Label>
-                                    <Input
-                                        id="taskTitle"
-                                        placeholder="Enter requirement title"
-                                        value={newTask.taskTitle}
-                                        onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="taskDescription">Requirement Description</Label>
-                                    <Input
-                                        id="taskDescription"
-                                        placeholder="Enter requirement description"
-                                        value={newTask.taskDescription}
-                                        onChange={(e) => setNewTask({ ...newTask, taskDescription: e.target.value })}
-                                    />
-          </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="category">Category</Label>
-                                    <Select value={newTask.category} onValueChange={(value) => setNewTask({ ...newTask, category: value })}>
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder="Select a category" />
-              </SelectTrigger>
-              <SelectContent position="popper" sideOffset={4}>
-                                            <SelectItem value="Requirement">Requirement</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-                                <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-                                    <Button onClick={handleNext} disabled={isTabLoading}>
-                                        {isTabLoading ? (
-                                            <>
-                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
-                                                Loading...
-                                            </>
-                                        ) : (
-                                            'Next'
-                                        )}
-                                    </Button>
-                                </div>
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="details">
-                            <div className="grid gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="dueDate">Due Date</Label>
-                                    <Popover open={isDueDatePickerOpen} onOpenChange={setIsDueDatePickerOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                className={`w-[280px] justify-start text-left font-normal ${!newTask.dueDate && 'text-muted-foreground'}`}
-                                            >
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {newTask.dueDate ? format(new Date(newTask.dueDate + 'T00:00:00'), 'PPP') : <span>Pick a date</span>}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                            <Calendar
-                                                mode="single"
-                                                selected={newTask.dueDate ? new Date(newTask.dueDate + 'T00:00:00') : undefined}
-                                                onSelect={(date) => {
-                                                    if (date) {
-                                                        const year = date.getFullYear();
-                                                        const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                        const day = String(date.getDate()).padStart(2, '0');
-                                                        setNewTask({ ...newTask, dueDate: `${year}-${month}-${day}` });
-                                                        setIsDueDatePickerOpen(false);
-                                                    } else {
-                                                        setNewTask({ ...newTask, dueDate: '' });
-                                                    }
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="assignedToId">
-                                        Assigned To {isManager && teamMembers.length > 0 && <span className="text-xs text-muted-foreground">(Team Members Only)</span>}
-                                    </Label>
-                                    <SearchableSelect<Employee>
-                                        options={assignmentEmployees.map((employee) => ({
-                                            value: employee.id.toString(),
-                                            label: `${employee.firstName} ${employee.lastName}`.trim(),
-                                            data: employee,
-                                        }))}
-                                        value={newTask.assignedToId ? newTask.assignedToId.toString() : undefined}
-                                        onSelect={(option) => {
-                                            if (!option) {
-                                                setNewTask({
-                                                    ...newTask,
-                                                    assignedToId: 0,
-                                                    assignedToName: '',
-                                                    storeId: 0,
-                                                    storeName: ''
-                                                });
-                                                setStores([]);
-                                                return;
-                                            }
-
-                                            const selectedEmployee = option.data ?? assignmentEmployees.find(emp => emp.id === parseInt(option.value, 10));
-                                            if (!selectedEmployee) {
-                                                return;
-                                            }
-
-                                            setNewTask({
-                                                ...newTask,
-                                                assignedToId: parseInt(option.value, 10),
-                                                assignedToName: `${selectedEmployee.firstName} ${selectedEmployee.lastName}`.trim(),
-                                                storeId: 0,
-                                                storeName: ''
-                                            });
-                                            setStores([]);
-                                        }}
-                                        placeholder={
-                                            assignmentEmployees.length === 0
-                                                ? (isManager ? "No team members available" : "No employees available")
-                                                : "Select an employee"
-                                        }
-                                        emptyMessage={isManager ? "No team members available" : "No employees available"}
-                                        noResultsMessage="No employees match your search"
-                                        searchPlaceholder="Search employees..."
-                                        disabled={assignmentEmployees.length === 0}
-                                        allowClear={newTask.assignedToId > 0}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="priority">Priority</Label>
-                                    <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value })}>
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder="Select a priority" />
-                                        </SelectTrigger>
-                                        <SelectContent position="popper" sideOffset={4}>
-                                            <SelectItem value="low">Low</SelectItem>
-                                            <SelectItem value="medium">Medium</SelectItem>
-                                            <SelectItem value="high">High</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="storeId">Store</Label>
-                                    <SearchableSelect<Store>
-                                        options={stores.map((store) => ({
-                                            value: store.id.toString(),
-                                            label: (store.storeCity || store.city)
-                                                ? `${store.storeName} (${store.storeCity || store.city})`
-                                                : store.storeName,
-                                            data: store,
-                                        }))}
-                                        value={newTask.storeId ? newTask.storeId.toString() : undefined}
-                                        onSelect={(option) => {
-                                            if (!option) {
-                                                setNewTask({
-                                                    ...newTask,
-                                                    storeId: 0,
-                                                    storeName: ''
-                                                });
-                                                return;
-                                            }
-
-                                            const selectedStore = option.data ?? stores.find(store => store.id === parseInt(option.value, 10));
-                                            if (!selectedStore) {
-                                                return;
-                                            }
-
-                                            setNewTask({
-                                                ...newTask,
-                                                storeId: parseInt(option.value, 10),
-                                                storeName: selectedStore.storeName
-                                            });
-                                        }}
-                                        placeholder={
-                                            !newTask.assignedToId
-                                                ? "Select employee first"
-                                                : stores.length === 0
-                                                ? "Search stores..."
-                                                : "Select a store"
-                                        }
-                                        emptyMessage="No stores available for this employee"
-                                        noResultsMessage="No stores match your search"
-                                        searchPlaceholder="Search stores..."
-                                        disabled={!newTask.assignedToId}
-                                        allowClear={newTask.storeId > 0}
-                                        loading={isStoresLoading}
-                                        loadingMessage="Loading stores..."
-                                        onOpenChange={(open) => {
-                                            if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) {
-                                                fetchStores(newTask.assignedToId);
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={handleBack}>Back</Button>
-                                    <Button onClick={createTask} disabled={isCreating}>
-                                        {isCreating ? (
-                                            <>
-                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
-                                                Creating...
-                                            </>
-                                        ) : (
-                                            'Create Requirement'
-                                        )}
-                                    </Button>
-          </div>
-        </div>
-                        </TabsContent>
-                    </Tabs>
+                    <RequirementCreationForm
+                        value={{
+                            ...newTask,
+                            taskType: 'requirement',
+                        }}
+                        onChange={(nextTask) => {
+                            setNewTask((prev) => ({ ...prev, ...nextTask }));
+                            if (nextTask.assignedToId !== newTask.assignedToId) {
+                                setStores([]);
+                            }
+                        }}
+                        employees={assignmentEmployees}
+                        stores={stores}
+                        storeMode="select"
+                        isStoresLoading={isStoresLoading}
+                        isSubmitting={isCreating}
+                        error={errorMessage}
+                        employeeHint={isManager && teamMembers.length > 0 ? <span className="text-xs text-muted-foreground">(Team Members Only)</span> : null}
+                        onStoreOpenChange={(open) => {
+                            if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) {
+                                fetchStores(newTask.assignedToId);
+                            }
+                        }}
+                        onCancel={() => setIsModalOpen(false)}
+                        onSubmit={createTask}
+                    />
                 </DialogContent>
             </Dialog>
 
@@ -1387,6 +1201,43 @@ const Requirements = () => {
                     </PaginationContent>
                 </Pagination>
             </div>
+
+            <Dialog
+                open={isImagePreviewOpen}
+                onOpenChange={(open) => {
+                    setIsImagePreviewOpen(open);
+                    if (!open) {
+                        setTaskImages((previous) => {
+                            revokeTaskImageUrls(previous);
+                            return [];
+                        });
+                    }
+                }}
+            >
+                <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Requirement Photos</DialogTitle>
+                    </DialogHeader>
+                    {isLoadingImages ? (
+                        <div className="flex h-48 items-center justify-center gap-2 text-muted-foreground">
+                            <Loader className="h-5 w-5 animate-spin" />
+                            Loading images...
+                        </div>
+                    ) : taskImages.length > 0 ? (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {taskImages.map((imageUrl, index) => (
+                                <a key={`${imageUrl}-${index}`} href={imageUrl} target="_blank" rel="noopener noreferrer" className="overflow-hidden rounded-lg border bg-muted">
+                                    <img src={imageUrl} alt={`Requirement photo ${index + 1}`} className="h-full max-h-[420px] w-full object-contain" />
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+                            No requirement photos found.
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

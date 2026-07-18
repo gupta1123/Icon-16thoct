@@ -6,11 +6,13 @@ import {
   AlertCircle,
   Building2,
   Calendar,
+  CheckCircle,
+  Clock,
   Eye,
+  Image as ImageIcon,
   Loader2,
   MapPin,
   Phone,
-  Tag,
   User,
 } from "lucide-react";
 
@@ -37,6 +39,11 @@ import { API, type EmployeeDto, type SurveyDealerDto } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 const EMPTY_VALUE = "-";
+const STATUS_FILTERS = [
+  { value: "all", label: "All statuses" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "COMPLETED", label: "Completed" },
+] as const;
 
 const isPresent = (value: unknown) =>
   value !== null && value !== undefined && String(value).trim() !== "";
@@ -68,9 +75,27 @@ const formatDate = (value?: string | null) => {
   });
 };
 
-const formatCurrency = (value?: number | null) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return EMPTY_VALUE;
-  return `Rs. ${value.toLocaleString("en-IN")}`;
+const formatDateTime = (dateValue?: string | null, timeValue?: string | null) => {
+  if (!isPresent(dateValue)) return EMPTY_VALUE;
+
+  const dateText = String(dateValue);
+  const timeText = isPresent(timeValue) ? String(timeValue).split(".")[0] : "";
+  const parsedDate = dateText.includes("T")
+    ? new Date(dateText)
+    : new Date(`${dateText}T${timeText || "00:00:00"}`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return [dateText, timeText].filter(isPresent).join(" - ") || EMPTY_VALUE;
+  }
+
+  return parsedDate.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    ...(timeText || dateText.includes("T")
+      ? { hour: "numeric", minute: "2-digit", hour12: true }
+      : {}),
+  });
 };
 
 const getOwnerName = (dealer: SurveyDealerDto) => {
@@ -96,6 +121,37 @@ const getBrandNames = (dealer: SurveyDealerDto) => {
 const getEmployeeName = (employee: EmployeeDto) => {
   const fullName = [employee.firstName, employee.lastName].filter(isPresent).join(" ");
   return fullName || employee.employeeId || employee.email || `Employee #${employee.id}`;
+};
+
+const normalizeSurveyStatus = (status?: string | null) => {
+  const normalized = String(status ?? "").trim().toUpperCase();
+  if (normalized === "DRAFT" || normalized === "COMPLETED") {
+    return normalized;
+  }
+
+  return null;
+};
+
+const getStatusClassName = (status?: string | null) => {
+  const normalized = normalizeSurveyStatus(status);
+
+  if (normalized === "COMPLETED") {
+    return "border-green-200 bg-green-100 text-green-800 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-200";
+  }
+
+  if (normalized === "DRAFT") {
+    return "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200";
+  }
+
+  return "border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200";
+};
+
+const getPhotoCount = (dealer: SurveyDealerDto) => {
+  if (typeof dealer.imageCount === "number" && Number.isFinite(dealer.imageCount)) {
+    return dealer.imageCount;
+  }
+
+  return dealer.photoResponse?.fileDownloadUri ? 1 : 0;
 };
 
 function StatCard({
@@ -145,6 +201,20 @@ function BrandBadges({ dealer }: { dealer: SurveyDealerDto }) {
   );
 }
 
+function StatusBadge({ status }: { status?: string | null }) {
+  const normalized = normalizeSurveyStatus(status);
+
+  if (!normalized) {
+    return <span className="text-muted-foreground">{EMPTY_VALUE}</span>;
+  }
+
+  return (
+    <Badge variant="outline" className={getStatusClassName(normalized)}>
+      {formatLabel(normalized)}
+    </Badge>
+  );
+}
+
 export default function DealerSurveyListPage() {
   const router = useRouter();
   const [dealers, setDealers] = useState<SurveyDealerDto[]>([]);
@@ -153,6 +223,7 @@ export default function DealerSurveyListPage() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
   const fetchDealers = useCallback(async () => {
@@ -202,7 +273,13 @@ export default function DealerSurveyListPage() {
     };
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(dealers.length / PAGE_SIZE));
+  const filteredDealers = useMemo(() => {
+    if (selectedStatus === "all") return dealers;
+
+    return dealers.filter((dealer) => normalizeSurveyStatus(dealer.status) === selectedStatus);
+  }, [dealers, selectedStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDealers.length / PAGE_SIZE));
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -210,23 +287,19 @@ export default function DealerSurveyListPage() {
 
   const visibleDealers = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return dealers.slice(start, start + PAGE_SIZE);
-  }, [dealers, currentPage]);
+    return filteredDealers.slice(start, start + PAGE_SIZE);
+  }, [filteredDealers, currentPage]);
 
   const stats = useMemo(() => {
-    const cities = new Set(
-      dealers.map((dealer) => dealer.city).filter(isPresent).map((city) => String(city))
-    );
-    const exclusiveCount = dealers.filter(
-      (dealer) => String(dealer.dealerSubType ?? "").toUpperCase() === "EXCLUSIVE"
-    ).length;
-    const monthlySale = dealers.reduce((sum, dealer) => sum + (dealer.monthlySale ?? 0), 0);
+    const completed = dealers.filter((dealer) => normalizeSurveyStatus(dealer.status) === "COMPLETED").length;
+    const draft = dealers.filter((dealer) => normalizeSurveyStatus(dealer.status) === "DRAFT").length;
+    const withPhoto = dealers.filter((dealer) => getPhotoCount(dealer) > 0).length;
 
     return {
       total: dealers.length,
-      cities: cities.size,
-      exclusiveCount,
-      monthlySale: formatCurrency(monthlySale),
+      completed,
+      draft,
+      withPhoto,
     };
   }, [dealers]);
 
@@ -239,20 +312,20 @@ export default function DealerSurveyListPage() {
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={Building2} label="Survey Dealers" value={stats.total} />
-        <StatCard icon={MapPin} label="Cities" value={stats.cities} />
-        <StatCard icon={Tag} label="Exclusive" value={stats.exclusiveCount} />
-        <StatCard icon={Calendar} label="Monthly Sale" value={stats.monthlySale} />
+        <StatCard icon={CheckCircle} label="Completed" value={stats.completed} />
+        <StatCard icon={Clock} label="Draft" value={stats.draft} />
+        <StatCard icon={ImageIcon} label="With Photo" value={stats.withPhoto} />
       </div>
 
       <Card>
-        <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="space-y-4">
           <div>
             <CardTitle>Dealer Survey</CardTitle>
             <Text tone="muted" size="sm" className="mt-1">
               Survey dealer records captured separately from customer stores.
             </Text>
           </div>
-          <div className="w-full sm:max-w-xs">
+          <div className="relative z-20 grid w-full gap-3 sm:grid-cols-[minmax(180px,220px)_minmax(160px,200px)]">
             <Select
               value={selectedEmployeeId}
               onValueChange={(value) => {
@@ -260,14 +333,32 @@ export default function DealerSurveyListPage() {
                 setCurrentPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Filter by employee" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[100] max-h-72" sideOffset={8}>
                 <SelectItem value="all">All employees</SelectItem>
                 {employees.map((employee) => (
                   <SelectItem key={employee.id} value={String(employee.id)}>
                     {getEmployeeName(employee)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={selectedStatus}
+              onValueChange={(value) => {
+                setSelectedStatus(value);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent className="z-[100] max-h-60" sideOffset={8}>
+                {STATUS_FILTERS.map((status) => (
+                  <SelectItem key={status.value} value={status.value}>
+                    {status.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -285,17 +376,17 @@ export default function DealerSurveyListPage() {
             </div>
           )}
 
-          <div className="hidden overflow-hidden rounded-md border md:block">
-            <Table>
+          <div className="relative z-0 hidden overflow-x-auto rounded-md border md:block">
+            <Table className="min-w-[1020px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Dealer</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Location</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Brands</TableHead>
-                  <TableHead>Employee</TableHead>
+                  <TableHead>Surveyed By</TableHead>
+                  <TableHead>Completed</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-20">Action</TableHead>
                 </TableRow>
@@ -318,23 +409,14 @@ export default function DealerSurveyListPage() {
                       onClick={() => openDetail(dealer.id)}
                     >
                       <TableCell className="font-medium">{formatText(dealer.dealerName)}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={dealer.status} />
+                      </TableCell>
                       <TableCell>{getOwnerName(dealer)}</TableCell>
                       <TableCell>{formatText(dealer.primaryContact)}</TableCell>
                       <TableCell>{[dealer.city, dealer.state].filter(isPresent).join(", ") || EMPTY_VALUE}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {isPresent(dealer.dealerType) && (
-                            <Badge variant="outline">{formatLabel(dealer.dealerType)}</Badge>
-                          )}
-                          {isPresent(dealer.dealerSubType) && (
-                            <Badge variant="secondary">{formatLabel(dealer.dealerSubType)}</Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <BrandBadges dealer={dealer} />
-                      </TableCell>
                       <TableCell>{formatText(dealer.employeeName)}</TableCell>
+                      <TableCell>{formatDateTime(dealer.completedAt, dealer.completedTime)}</TableCell>
                       <TableCell>{formatDate(dealer.createdAt)}</TableCell>
                       <TableCell>
                         <Button
@@ -384,9 +466,7 @@ export default function DealerSurveyListPage() {
                           {getOwnerName(dealer)}
                         </Text>
                       </div>
-                      {isPresent(dealer.dealerSubType) && (
-                        <Badge variant="secondary">{formatLabel(dealer.dealerSubType)}</Badge>
-                      )}
+                      <StatusBadge status={dealer.status} />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 text-sm">
@@ -404,7 +484,7 @@ export default function DealerSurveyListPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{formatDate(dealer.createdAt)}</span>
+                        <span className="truncate">{formatDateTime(dealer.completedAt, dealer.completedTime)}</span>
                       </div>
                     </div>
 
@@ -434,7 +514,7 @@ export default function DealerSurveyListPage() {
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Text size="sm" tone="muted">
-              Showing {visibleDealers.length} of {dealers.length} survey dealers
+              Showing {visibleDealers.length} of {filteredDealers.length} survey dealers
             </Text>
             <div className="flex items-center gap-2">
               <Button
