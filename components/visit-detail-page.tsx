@@ -36,11 +36,11 @@ import {
   Navigation,
   TrendingUp,
   TrendingDown,
-  DollarSign,
   ArrowLeft,
   Store,
   CheckCircle,
   Loader2,
+  Package,
   ExternalLink,
   ClipboardList,
   ListTodo,
@@ -81,7 +81,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
-import { API, BrandProCon, IntentAuditLog, MonthlySaleChange, Task, Note as ApiNote, VisitDto } from "@/lib/api";
+import { API, formatStockQuantity, getStock, IntentAuditLog, MonthlySaleChange as StockChange, Task, Note as ApiNote, VisitDto, VisitBrandPurchase, type StoreDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { normalizeRoleValue, extractAuthorityRoles, hasAnyRole } from "@/lib/role-utils";
 import BrandTab from './BrandTab';
@@ -144,12 +144,11 @@ type VisitDetail = {
   brandsInUse: string[];
   purchasedFrom?: string | null;
   constructionStage?: string | null;
-  brandProCons: {
-    id: number;
-    brandName: string;
-    pros: string[];
-    cons: string[];
-  }[];
+  steelStockAvailable?: number | null;
+  steelStockRequired?: number | null;
+  cementStockAvailable?: number | null;
+  cementStockRequired?: number | null;
+  brandPurchases: VisitBrandPurchase[];
   createdAt: string;
   updatedAt: string;
   storeId: number;
@@ -187,9 +186,9 @@ interface Visit {
   feedback?: string;
   priority?: string;
   intent?: number;
+  stock?: number;
   monthlySale?: number;
   brandsInUse?: string[];
-  brandProCons?: BrandProCon[];
   attachmentResponse?: unknown[];
   intentAuditLogDto?: unknown;
   storeId?: number;
@@ -406,6 +405,28 @@ const keyMetrics = {
   lastVisit: "2023-06-15"
 };
 
+const joinDefined = (parts: Array<string | number | null | undefined>, separator = ', ') =>
+  parts
+    .map((part) => (part === null || part === undefined ? '' : String(part).trim()))
+    .filter(Boolean)
+    .join(separator);
+
+const getStoreOwnerName = (store: StoreDto | null | undefined) =>
+  joinDefined([store?.clientFirstName, store?.clientLastName], ' ');
+
+const getStoreAddress = (store: StoreDto | null | undefined) =>
+  joinDefined([
+    store?.addressLine1,
+    store?.addressLine2,
+    store?.landmark,
+    store?.subDistrict,
+    store?.district,
+    store?.city,
+    store?.state,
+    store?.country,
+    store?.pincode,
+  ]);
+
 export default function VisitDetailPage({ 
   searchParams: propSearchParams 
 }: { 
@@ -477,9 +498,8 @@ export default function VisitDetailPage({
   const [activeTab, setActiveTab] = useState("metrics");
   const [activeInfoTab, setActiveInfoTab] = useState("visit-info");
   const [metrics, setMetrics] = useState<Metric[]>([]);
-  const [brandProCons, setBrandProCons] = useState<BrandProCon[]>([]);
   const [intentAuditLogs, setIntentAuditLogs] = useState<IntentAuditLog[]>([]);
-  const [monthlySaleChanges, setMonthlySaleChanges] = useState<MonthlySaleChange[]>([]);
+  const [stockChanges, setStockChanges] = useState<StockChange[]>([]);
   const [requirements, setRequirements] = useState<TaskWithAttachments[]>([]);
   const [complaints, setComplaints] = useState<TaskWithAttachments[]>([]);
   const [notes, setNotes] = useState<ApiNote[]>([]);
@@ -559,7 +579,10 @@ export default function VisitDetailPage({
     updatedTime: '',
   });
   const [storeDetails, setStoreDetails] = useState<{
+    storeName: string;
+    ownerName: string;
     contactNumber: string;
+    email: string;
     city: string;
     address: string;
   } | null>(null);
@@ -575,14 +598,6 @@ export default function VisitDetailPage({
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [editingNoteDetails, setEditingNoteDetails] = useState<{ employeeId: number; storeId: number } | null>(null);
   
-  // Brand functionality
-  const [isAddBrandModalVisible, setIsAddBrandModalVisible] = useState(false);
-  const [newBrandName, setNewBrandName] = useState('');
-  const [newPros, setNewPros] = useState<string[]>([]);
-  const [newCons, setNewCons] = useState<string[]>([]);
-  const [currentPro, setCurrentPro] = useState('');
-  const [currentCon, setCurrentCon] = useState('');
-
   // Helper functions
   const getOutcomeStatus = (visit: VisitDetail | null): { emoji: React.ReactNode; status: string; color: string; isOngoing: boolean } => {
     if (visit?.checkinTime && visit?.checkoutTime) {
@@ -763,6 +778,11 @@ export default function VisitDetailPage({
     return Number.isFinite(n) ? n : null;
   };
 
+  const formatStockValue = (value: unknown, unit: string) => {
+    if (value == null || String(value).trim() === '') return '—';
+    return `${String(value).trim()} ${unit}`;
+  };
+
   const fetchVisitDetail = useCallback(async (visitId: string) => {
     if (isFetchingRef.current || !visitId) {
       return;
@@ -783,11 +803,12 @@ export default function VisitDetailPage({
       console.log('📊 Visit data received:', visitData);
       setVisitDetail({
         ...visitData,
+        status: visitData.status ?? undefined,
         purpose: visitData.purpose || '',
         priority: visitData.priority || 'low',
         outcome: visitData.outcome || null,
         brandsInUse: (visitData.brandsInUse as string[]) || [],
-        brandProCons: (visitData.brandProCons as BrandProCon[]) || [],
+        brandPurchases: Array.isArray(visitData.brandPurchases) ? visitData.brandPurchases : [],
         purchasedFrom: (visitData as unknown as { purchasedFrom?: string | null }).purchasedFrom ?? null,
         constructionStage: (visitData as unknown as { constructionStage?: string | null }).constructionStage ?? null,
         createdAt: visitData.createdAt || '',
@@ -796,6 +817,7 @@ export default function VisitDetailPage({
         employeeId: visitData.employeeId || 0,
       });
       setStoreClientType(null);
+      setStoreDetails(null);
       setGiftImageUrl(null);
       setUpcomingSitesCount(null);
 
@@ -820,6 +842,14 @@ export default function VisitDetailPage({
             if (visitData.storeId) {
               const store = await api.getStoreById(visitData.storeId);
               resolvedClientType = store?.clientType ?? null;
+              setStoreDetails({
+                storeName: store?.storeName || visitData.storeName || '',
+                ownerName: getStoreOwnerName(store),
+                contactNumber: store?.primaryContact ? String(store.primaryContact) : '',
+                email: store?.email || '',
+                city: store?.city || '',
+                address: getStoreAddress(store),
+              });
               const storeAny = store as unknown as Record<string, unknown> | null;
               if (storeAny) {
                 resolvedUpcomingSites =
@@ -861,15 +891,13 @@ export default function VisitDetailPage({
           }
 
           const [
-            proConsData,
             intentAuditData,
-            monthlySaleData,
+            stockData,
             requirementsData,
             complaintsData,
             notesData,
             storeVisitsData,
           ] = await Promise.all([
-            api.getVisitProCons(Number(visitId)),
             api.getIntentAuditByVisit(Number(visitId)),
             api.getMonthlySaleByVisit(Number(visitId)),
             Promise.resolve([]),
@@ -879,18 +907,16 @@ export default function VisitDetailPage({
           ]);
           
           console.log('📈 Auxiliary data loaded:', {
-            proCons: proConsData?.length || 0,
             intentAudit: intentAuditData?.length || 0,
-            monthlySale: monthlySaleData?.length || 0,
+            stock: stockData?.length || 0,
             requirements: requirementsData?.length || 0,
             complaints: complaintsData?.length || 0,
             notes: notesData?.length || 0,
             storeVisits: storeVisitsData?.length || 0,
           });
 
-          setBrandProCons(proConsData || []);
           setIntentAuditLogs(intentAuditData || []);
-          setMonthlySaleChanges(monthlySaleData || []);
+          setStockChanges(stockData || []);
           // Normalize tasks for UI (use consistent keys)
           const normalizedReqs: TaskWithAttachments[] = (requirementsData || []).map((t: RawTaskData) => ({
             id: t.id,
@@ -941,11 +967,14 @@ export default function VisitDetailPage({
 
           // Derive metrics from fetched data (intent level removed)
 
-          if (monthlySaleData && monthlySaleData.length > 0) {
-            const recentSales = `${monthlySaleData[0].newMonthlySale.toLocaleString()} tons`;
+          if (stockData && stockData.length > 0) {
+            const recentStock = formatStockQuantity(
+              getStock({ stock: stockData[0].newStock, monthlySale: stockData[0].newMonthlySale }),
+              'N/A'
+            );
             setMetrics((prev) => {
-              const filtered = prev.filter((m) => m.title !== 'Monthly Sales');
-              return [...filtered, { title: 'Monthly Sales', value: recentSales }];
+              const filtered = prev.filter((m) => m.title !== 'Stock');
+              return [...filtered, { title: 'Stock', value: recentStock }];
             });
           }
 
@@ -961,13 +990,17 @@ export default function VisitDetailPage({
           // Store details
           if (storeVisitsData && storeVisitsData.length > 0) {
             const firstVisit = storeVisitsData[0];
-            setStoreDetails({
-              contactNumber: firstVisit.storePrimaryContact?.toString() || 'Not available',
-              city: firstVisit.city || 'Not available',
-              address:
+            const fallbackAddress =
                 `${firstVisit.subDistrict || ''}, ${firstVisit.district || ''}, ${firstVisit.state || ''}`
-                  .replace(/^[, ]+|[, ]+$/g, '') || 'Not available',
-            });
+                  .replace(/^[, ]+|[, ]+$/g, '');
+            setStoreDetails((prev) => ({
+              storeName: prev?.storeName || visitData.storeName || '',
+              ownerName: prev?.ownerName || '',
+              contactNumber: prev?.contactNumber || firstVisit.storePrimaryContact?.toString() || '',
+              email: prev?.email || '',
+              city: prev?.city || firstVisit.city || '',
+              address: prev?.address || fallbackAddress || '',
+            }));
           }
         } catch (innerErr) {
           console.error('Error loading visit auxiliary data:', innerErr);
@@ -1026,20 +1059,22 @@ export default function VisitDetailPage({
 
   // fetchIntentLevel removed (intent level no longer displayed)
 
-  const fetchMonthlySales = async (visitId: string) => {
+  const fetchStockHistory = async (visitId: string) => {
     try {
       const api = new API();
       const data = await api.getMonthlySaleByVisit(Number(visitId));
-      const recentSales = data.length > 0 ? `${data[0].newMonthlySale.toLocaleString()} tons` : 'N/A';
+      const recentStock = data.length > 0
+        ? formatStockQuantity(getStock({ stock: data[0].newStock, monthlySale: data[0].newMonthlySale }), 'N/A')
+        : 'N/A';
       setMetrics((prevMetrics) => {
-        const updatedMetrics = prevMetrics.filter(metric => metric.title !== 'Monthly Sales');
+        const updatedMetrics = prevMetrics.filter(metric => metric.title !== 'Stock');
         return [
           ...updatedMetrics,
-          { title: 'Monthly Sales', value: recentSales.toString() },
+          { title: 'Stock', value: recentStock.toString() },
         ];
       });
     } catch (error) {
-      console.error('Error fetching monthly sales:', error);
+      console.error('Error fetching stock history:', error);
     }
   };
 
@@ -1225,6 +1260,10 @@ export default function VisitDetailPage({
   }, [requirements, complaints, priorityFilter, filterTasks]);
 
   const visitStatus = getOutcomeStatus(visitDetail);
+  const storeProjectName = storeDetails?.storeName || visitDetail?.storeName || "N/A";
+  const ownerCustomerName = storeDetails?.ownerName || "";
+  const storeContactNumber = storeDetails?.contactNumber || "";
+  const storeEmail = storeDetails?.email || "";
 
   const infoItems = [
     {
@@ -1233,16 +1272,18 @@ export default function VisitDetailPage({
       value: visitDetail ? `${format(new Date(visitDetail.visit_date), "MMM d, yyyy")} at ${visitDetail.checkinTime || "N/A"}` : "N/A",
     },
     { icon: User, label: "Visited by", value: visitDetail?.employeeName || "N/A" },
-    { icon: Phone, label: "Phone", value: storeDetails?.contactNumber || "N/A" },
-    { icon: Mail, label: "Email", value: "N/A" },
+    { icon: Store, label: "Store/Project", value: storeProjectName },
+    { icon: User, label: "Owner/Customer", value: ownerCustomerName || "N/A" },
+    { icon: Phone, label: "Contact", value: storeContactNumber || "N/A" },
+    { icon: Mail, label: "Email", value: storeEmail || "N/A" },
     { icon: MapPin, label: "Address", value: storeDetails?.address || "N/A" },
   ];
 
-  const monthlySaleValue = metrics.find(m => m.title === 'Monthly Sales')?.value;
+  const stockValue = metrics.find(m => m.title === 'Stock')?.value;
   
   const displayMetrics = [
     { label: "Total Visits", value: storeVisits.length || "N/A" },
-    { label: "Monthly Sale", value: monthlySaleValue || "" },
+    { label: "Stock", value: stockValue || "" },
     {
       label: "Priority",
       value: visitDetail?.priority || "N/A",
@@ -1422,81 +1463,6 @@ export default function VisitDetailPage({
       setNotes(notes.filter((note) => note.id !== id));
     } catch (error) {
       console.error('Error deleting note:', error);
-    }
-  };
-
-  // Brands functionality
-  const handleAddBrandProCon = async (brandName: string, pros: string[], cons: string[]) => {
-    try {
-      const api = new API();
-      await api.addBrandProCons(Number(visitId), [{
-        brandName,
-        pros,
-        cons,
-      }]);
-      
-      // Refresh brand data
-      const updatedBrands = await api.getVisitProCons(Number(visitId));
-      setBrandProCons(updatedBrands);
-    } catch (error) {
-      console.error('Error adding brand Pro/Con:', error);
-    }
-  };
-
-  const handleDeleteBrandProCon = async (brandName: string) => {
-    try {
-      const api = new API();
-      await api.deleteBrandProCons(Number(visitId), [{
-        brandName,
-      }]);
-      
-      // Refresh brand data
-      const updatedBrands = await api.getVisitProCons(Number(visitId));
-      setBrandProCons(updatedBrands);
-    } catch (error) {
-      console.error('Error deleting brand Pro/Con:', error);
-    }
-  };
-
-  const openAddBrandModal = () => {
-    setNewBrandName('');
-    setNewPros([]);
-    setNewCons([]);
-    setCurrentPro('');
-    setCurrentCon('');
-    setIsAddBrandModalVisible(true);
-  };
-
-  const addPro = () => {
-    if (currentPro.trim()) {
-      setNewPros([...newPros, currentPro.trim()]);
-      setCurrentPro('');
-    }
-  };
-
-  const addCon = () => {
-    if (currentCon.trim()) {
-      setNewCons([...newCons, currentCon.trim()]);
-      setCurrentCon('');
-    }
-  };
-
-  const removePro = (index: number) => {
-    setNewPros(newPros.filter((_, i) => i !== index));
-  };
-
-  const removeCon = (index: number) => {
-    setNewCons(newCons.filter((_, i) => i !== index));
-  };
-
-  const saveBrand = async () => {
-    if (!newBrandName.trim()) return;
-
-    try {
-      await handleAddBrandProCon(newBrandName.trim(), newPros, newCons);
-      setIsAddBrandModalVisible(false);
-    } catch (error) {
-      console.error('Error saving brand:', error);
     }
   };
 
@@ -1711,15 +1677,19 @@ export default function VisitDetailPage({
               <div className="flex items-start gap-3">
                 <div className="h-10 w-10 rounded-lg border border-dashed bg-muted flex items-center justify-center">
                   <span className="text-sm font-medium text-muted-foreground">
-                    {getInitials(visitDetail?.storeName || '')}
+                    {getInitials(ownerCustomerName || storeProjectName || '')}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <h3 className="text-sm font-medium text-foreground truncate">
-                    {visitDetail?.storeName || 'Store not available'}
+                    {storeProjectName || 'Store not available'}
                   </h3>
                   <p className="text-xs text-muted-foreground truncate">
-                    {visitDetail?.employeeName ? `Visited by ${visitDetail.employeeName}` : 'Field officer not available'}
+                    {ownerCustomerName
+                      ? `Owner/Customer: ${ownerCustomerName}`
+                      : visitDetail?.employeeName
+                        ? `Visited by ${visitDetail.employeeName}`
+                        : 'Field officer not available'}
                   </p>
                 </div>
               </div>
@@ -1862,9 +1832,22 @@ export default function VisitDetailPage({
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
                         <Store className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-foreground">{visitDetail?.storeName || 'N/A'}</h3>
-                        <p className="text-xs text-muted-foreground">{storeDetails?.city || 'N/A'}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-muted-foreground">Store/Project</p>
+                        <h3 className="text-sm font-medium text-foreground truncate">{storeProjectName}</h3>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {ownerCustomerName ? `Owner/Customer: ${ownerCustomerName}` : storeDetails?.city || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+                        <User className="h-3 w-3 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground">Owner/Customer</p>
+                        <p className="text-xs text-muted-foreground">{ownerCustomerName || 'N/A'}</p>
                       </div>
                     </div>
 
@@ -1874,12 +1857,31 @@ export default function VisitDetailPage({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-foreground">Contact</p>
-                        {storeDetails?.contactNumber ? (
+                        {storeContactNumber ? (
                           <a 
-                            href={`tel:${storeDetails.contactNumber}`}
+                            href={`tel:${storeContactNumber}`}
                             className="text-xs text-foreground hover:text-muted-foreground transition-colors"
                           >
-                            {storeDetails.contactNumber}
+                            {storeContactNumber}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+                        <Mail className="h-3 w-3 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground">Email</p>
+                        {storeEmail ? (
+                          <a
+                            href={`mailto:${storeEmail}`}
+                            className="text-xs text-foreground hover:text-muted-foreground transition-colors break-all"
+                          >
+                            {storeEmail}
                           </a>
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>
@@ -1905,7 +1907,7 @@ export default function VisitDetailPage({
                             </button>
                           ) : storeDetails?.city ? (
                             <button
-                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${visitDetail?.storeName} ${storeDetails?.address}`)}`, "_blank")}
+                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${storeProjectName} ${storeDetails?.address}`)}`, "_blank")}
                               className="text-foreground hover:text-muted-foreground transition-colors mt-1 inline-flex items-center gap-1 text-xs"
                             >
                               <ExternalLink className="w-2 h-2" />
@@ -2091,7 +2093,7 @@ export default function VisitDetailPage({
               </TabsContent>
             )}
 
-            <TabsContent value="metrics">
+            <TabsContent value="metrics" className="space-y-4">
               <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium text-foreground">Visit Metrics</CardTitle>
@@ -2104,6 +2106,43 @@ export default function VisitDetailPage({
                         <div className="text-sm font-medium text-foreground truncate">{metric.value || "-"}</div>
                       </div>
                     ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                    <CardTitle className="text-sm font-medium text-foreground">Stock</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">Steel Available</p>
+                      <p className="mt-1 text-sm font-medium text-foreground">
+                        {formatStockValue(visitDetail?.steelStockAvailable, 'tons')}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">Steel Required</p>
+                      <p className="mt-1 text-sm font-medium text-foreground">
+                        {formatStockValue(visitDetail?.steelStockRequired, 'tons')}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">Cement Available</p>
+                      <p className="mt-1 text-sm font-medium text-foreground">
+                        {formatStockValue(visitDetail?.cementStockAvailable, 'bags')}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">Cement Required</p>
+                      <p className="mt-1 text-sm font-medium text-foreground">
+                        {formatStockValue(visitDetail?.cementStockRequired, 'bags')}
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -2174,17 +2213,7 @@ export default function VisitDetailPage({
 
             {!isProfessionalClient && (
             <TabsContent value="brands">
-              <BrandTab
-                brands={brandProCons}
-                setBrands={setBrandProCons}
-                visitId={visitId}
-                token={typeof window !== 'undefined' ? localStorage.getItem('authToken') : null}
-                fetchVisitDetail={async () => {
-                  if (visitId) {
-                    await fetchVisitDetail(visitId);
-                  }
-                }}
-              />
+              <BrandTab brandPurchases={visitDetail?.brandPurchases ?? []} />
             </TabsContent>
             )}
 

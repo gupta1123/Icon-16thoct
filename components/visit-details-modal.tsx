@@ -30,6 +30,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 export interface VisitDetail {
     id: number;
     storeName?: string;
+    clientFirstName?: string;
+    clientLastName?: string;
+    ownerName?: string;
+    customerName?: string;
+    clientName?: string;
+    professionalName?: string;
+    engineerName?: string;
+    contractorName?: string;
     purpose?: string;
     checkinDate?: string;
     checkinTime?: string;
@@ -45,7 +53,8 @@ interface CustomerVisitDetail {
     completedVisitCount: number;
     customerType: string;
     avgIntentLevel: number;
-    avgMonthlySales: number;
+    avgStock?: number;
+    avgMonthlySales?: number;
     visitCount: number;
     lastVisited: string;
     city: string;
@@ -111,6 +120,33 @@ const formatDateTime = (dateString: string, timeString: string) => {
     });
     // Format like "Aug 1 '25 04:01 PM"
     return `${month} ${day} '${year} ${time}`;
+};
+
+const getOwnerCustomerName = (visit?: VisitDetail | null) => {
+    if (!visit) return '';
+    const firstLastName = [visit.clientFirstName, visit.clientLastName]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(' ');
+
+    return (
+        firstLastName ||
+        visit.ownerName?.trim() ||
+        visit.customerName?.trim() ||
+        visit.clientName?.trim() ||
+        visit.professionalName?.trim() ||
+        visit.engineerName?.trim() ||
+        visit.contractorName?.trim() ||
+        ''
+    );
+};
+
+const shouldShowOwnerCustomer = (visit: VisitDetail) => {
+    const ownerCustomerName = getOwnerCustomerName(visit);
+    return Boolean(
+        ownerCustomerName &&
+        ownerCustomerName.toLowerCase() !== (visit.storeName ?? '').trim().toLowerCase()
+    );
 };
 
 const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName, hideViewAction = false, customerVisitDetails = [], activities = [] }) => {
@@ -262,7 +298,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                 <Table className="w-full min-w-[1200px] table-fixed">
                                                     <TableHeader>
                                                         <TableRow className="bg-muted hover:bg-muted/80">
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[20%]">Customer Name</TableHead>
+                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[20%]">Store/Project</TableHead>
                                                             <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Executive</TableHead>
                                                             <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[10%]">Date</TableHead>
                                                             <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[12%]">Status</TableHead>
@@ -280,8 +316,13 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                             if (v.isCustomerSummary) {
                                                                 return (
                                                                     <TableRow key={`customer-${v.id}`} className="hover:bg-muted/40">
-                                                                        <TableCell className="text-center font-medium px-3 py-3 w-[20%] truncate">
-                                                                            {v.storeName ?? ''}
+                                                                        <TableCell className="text-center px-3 py-3 w-[20%]">
+                                                                            <div className="truncate font-medium">{v.storeName ?? ''}</div>
+                                                                            {shouldShowOwnerCustomer(v) && (
+                                                                                <div className="truncate text-xs text-muted-foreground">
+                                                                                    {getOwnerCustomerName(v)}
+                                                                                </div>
+                                                                            )}
                                                                         </TableCell>
                                                                         <TableCell className="text-center px-3 py-3 w-[15%] truncate">
                                                                             {employeeName || ''}
@@ -326,8 +367,13 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                                             const { emoji, status, color } = getOutcomeStatus(v);
                                                             return (
                                                                 <TableRow key={v.id} className="hover:bg-muted/40">
-                                                                    <TableCell className="text-center font-medium px-3 py-3 w-[20%] truncate">
-                                                                        {v.storeName ?? ''}
+                                                                    <TableCell className="text-center px-3 py-3 w-[20%]">
+                                                                        <div className="truncate font-medium">{v.storeName ?? ''}</div>
+                                                                        {shouldShowOwnerCustomer(v) && (
+                                                                            <div className="truncate text-xs text-muted-foreground">
+                                                                                {getOwnerCustomerName(v)}
+                                                                            </div>
+                                                                        )}
                                                                     </TableCell>
                                                                     <TableCell className="text-center px-3 py-3 w-[15%] truncate">
                                                                         {employeeName || ''}
@@ -546,8 +592,12 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                             </DialogHeader>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <p className="font-semibold">Customer Name:</p>
+                                    <p className="font-semibold">Store/Project:</p>
                                     <p>{selectedVisit.storeName ?? ''}</p>
+                                </div>
+                                <div>
+                                    <p className="font-semibold">Owner/Customer:</p>
+                                    <p>{shouldShowOwnerCustomer(selectedVisit) ? getOwnerCustomerName(selectedVisit) : '-'}</p>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Executive:</p>

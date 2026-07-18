@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,7 +35,15 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { API, type StoreDto, type VisitDto, type Note as ApiNote, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
+import { ProfessionalSelector } from "@/components/ProfessionalSelector";
+import RequirementCreationForm from "@/components/RequirementCreationForm";
+import { API, getStock, type StoreDto, type VisitBrandPurchase, type Note as ApiNote, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto, type ProfessionalDto } from "@/lib/api";
+import {
+    RequirementPhotoUploadError,
+    createRequirementWithPhotos,
+    loadTaskImageUrls,
+    revokeTaskImageUrls,
+} from "@/lib/requirements";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import './CustomerDetail.css';
@@ -84,6 +92,47 @@ const parseCategoryList = (value: unknown): string[] => {
 
 const toApiCategoryValue = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, '_');
 
+const formatMaterialDetail = (value: unknown): string => {
+    if (value == null) return '—';
+    const text = String(value).trim();
+    return text || '—';
+};
+
+const formatSteelQuantityDetail = (value: unknown): string => {
+    const text = formatMaterialDetail(value);
+    return text === '—' ? text : `${text} tons`;
+};
+
+const formatAreaDetail = (value: unknown): string => {
+    const text = formatMaterialDetail(value);
+    return text === '—' ? text : `${text} sq ft`;
+};
+
+const toNumericValue = (value: unknown): number | null => {
+    if (value == null || String(value).trim() === '') return null;
+    const numeric = Number(String(value).trim());
+    return Number.isFinite(numeric) ? numeric : null;
+};
+
+const isSiteCompleted = (value: unknown): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === 'completed' || normalized === 'complete';
+    }
+    return false;
+};
+
+const isEngineerProfessional = (professional: ProfessionalDto): boolean => {
+    return (professional.role ?? '').toLowerCase().includes('engineer');
+};
+
+const toOptionalNumber = (value: unknown): number | null => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+};
+
 const extractCategoriesFromResponse = (data: unknown): string[] => {
     if (!data || typeof data !== 'object') return [];
     const record = data as Record<string, unknown>;
@@ -100,6 +149,7 @@ interface CustomerData {
     clientFirstName: string;
     clientLastName: string;
     primaryContact: number;
+    stock: number | null;
     monthlySale: number | null;
     intent: number | null;
     employeeName: string;
@@ -125,7 +175,11 @@ interface CustomerData {
     dateOfBirth?: string;
     yearsOfExperience?: string;
     contractorName?: string;
+    contractorId?: number | null;
     engineerName?: string;
+    engineerId?: number | null;
+    engineerContact?: string | number | null;
+    engineerCity?: string | null;
     projectType?: string;
     projectSizeSquareFeet?: number;
 }
@@ -139,6 +193,33 @@ interface Visit {
     checkinTime?: string;
     checkoutTime?: string;
     state?: string;
+    brandPurchases?: VisitBrandPurchase[];
+}
+
+interface BrandMaterialHistory {
+    id?: number;
+    visitId: number;
+    visitDate?: string;
+    brandName: string;
+    category?: string | null;
+    purchasedFrom?: string | null;
+    steelQuantity?: number | string | null;
+    cementQuantitySold?: number | string | null;
+}
+
+interface SiteRecord {
+    id?: number;
+    siteName?: string | null;
+    completionStatus?: boolean | string | null;
+    address?: string | null;
+    addressLine1?: string | null;
+    city?: string | null;
+    state?: string | null;
+    pincode?: string | number | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    requirement?: string | number | null;
+    completed?: string | number | null;
 }
 
 interface Note {
@@ -197,10 +278,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
     }`;
     const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
-    const [brandsData, setBrandsData] = useState<unknown[]>([]);
-    const [isLoadingBrands, setIsLoadingBrands] = useState(false);
     const [sitesData, setSitesData] = useState<unknown[]>([]);
     const [isLoadingSites, setIsLoadingSites] = useState(false);
+    const [professionals, setProfessionals] = useState<ProfessionalDto[]>([]);
+    const [isLoadingProfessionals, setIsLoadingProfessionals] = useState(false);
+    const [professionalsError, setProfessionalsError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState("basic-info");
     const [formData, setFormData] = useState<Partial<CustomerData>>({
         storeId: 0,
@@ -218,6 +300,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         city: '',
         state: '',
         pincode: '',
+        stock: null,
         monthlySale: null,
         // Dealer/Shop specific fields
         shopAgeYears: undefined,
@@ -229,10 +312,19 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         yearsOfExperience: '',
         // Site Visit specific fields
         contractorName: '',
+        contractorId: null,
         engineerName: '',
+        engineerId: null,
+        engineerContact: null,
+        engineerCity: null,
         projectType: '',
         projectSizeSquareFeet: undefined,
     });
+
+    const engineerOptions = useMemo(
+        () => professionals.filter(isEngineerProfessional),
+        [professionals]
+    );
 
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -273,7 +365,6 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         category: '',
         storeName: ''
     });
-    const [requirementActiveTab, setRequirementActiveTab] = useState('general');
     const [complaintTask, setComplaintTask] = useState({
         taskTitle: '',
         taskDesciption: '',
@@ -349,7 +440,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const [filteredVisitsData, setFilteredVisitsData] = useState<Visit[]>([]);
     const [intentData, setIntentData] = useState<unknown[]>([]);
-    const [salesData, setSalesData] = useState<unknown[]>([]);
+    const [stockHistoryData, setStockHistoryData] = useState<unknown[]>([]);
 
     const { token: authToken, userData, currentUser } = useAuth();
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -358,6 +449,38 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     // State for role checking
     const [isDataManager, setIsDataManager] = useState(false);
     const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!isEditCustomerModalVisible || formData.clientType !== 'Site Visit' || !token) return;
+
+        let isCancelled = false;
+        const fetchProfessionals = async () => {
+            try {
+                setIsLoadingProfessionals(true);
+                setProfessionalsError(null);
+                const professionalsData = await API.getAllProfessionals();
+                if (!isCancelled) {
+                    setProfessionals(professionalsData);
+                }
+            } catch (error) {
+                console.error('Error fetching professionals:', error);
+                if (!isCancelled) {
+                    setProfessionals([]);
+                    setProfessionalsError('Unable to load engineers');
+                }
+            } finally {
+                if (!isCancelled) {
+                    setIsLoadingProfessionals(false);
+                }
+            }
+        };
+
+        fetchProfessionals();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isEditCustomerModalVisible, formData.clientType, token]);
     
     // Fetch current user data to determine role
     useEffect(() => {
@@ -407,7 +530,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         }
     }, [token]);
 
-    const fetchSalesData = useCallback(async (id: string) => {
+    const fetchStockHistoryData = useCallback(async (id: string) => {
         try {
             const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/monthly-sale/getByStore?storeId=${id}`, {
                 headers: {
@@ -415,9 +538,9 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 },
             });
             const data = await response.json();
-            setSalesData(data);
+            setStockHistoryData(data);
         } catch (error) {
-            console.error('Error fetching sales data:', error);
+            console.error('Error fetching stock history data:', error);
         }
     }, [token]);
 
@@ -701,23 +824,6 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         }
     }, [token]);
 
-    const fetchBrandsData = useCallback(async (id: string) => {
-        try {
-            setIsLoadingBrands(true);
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getProConsByStore?storeId=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setBrandsData(data);
-        } catch (error) {
-            console.error('Error fetching brands data:', error);
-        } finally {
-            setIsLoadingBrands(false);
-        }
-    }, [token]);
-
     const fetchSitesData = useCallback(async (id: string) => {
         try {
             setIsLoadingSites(true);
@@ -736,6 +842,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     }, [token]);
 
     const fetchTaskImages = useCallback(async (taskId: number) => {
+        if (!token) return;
+
         setIsLoadingImages(true);
         try {
             // First, fetch the task details
@@ -748,21 +856,18 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 throw new Error('Failed to fetch task details');
             }
             const taskData = await taskResponse.json();
+
+            const imageUrls = await loadTaskImageUrls({
+                token,
+                taskId,
+                attachmentResponse: taskData.attachmentResponse,
+            });
     
-            // Extract fileDownloadUri from the attachmentResponse
-            const imageUrls = taskData.attachmentResponse
-                .filter((attachment: { tag: string }) => attachment.tag === 'check-in')
-                .map((attachment: { tag: string; fileName: string }) => {
-                    try {
-                        // Use the correct backend endpoint pattern: /task/downloadFile/{taskId}/{tag}/{fileName}
-                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
-                    } catch {
-                        // Fallback: use fileName to construct URL
-                        return `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/downloadFile/${taskId}/${attachment.tag}/${attachment.fileName}`;
-                    }
-                });
-    
-            setTaskImages(imageUrls);
+            setTaskImages((previous) => {
+                revokeTaskImageUrls(previous);
+                return imageUrls;
+            });
+            setCurrentImageIndex(0);
             setIsImagePreviewOpen(true);
         } catch (error) {
             console.error('Error fetching task images:', error);
@@ -1047,6 +1152,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             };
 
             // Include all fields from formData
+            const stockValue = cleanDigits(data.stock ?? data.monthlySale);
+
             const requestData = {
                 storeName: data.storeName,
                 clientFirstName: data.clientFirstName,
@@ -1063,7 +1170,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 state: data.state || undefined,
                 country: data.country || 'India',
                 pincode: cleanDigits(data.pincode),
-                monthlySale: cleanDigits(data.monthlySale),
+                stock: stockValue,
+                monthlySale: stockValue,
                 // Dealer/Shop specific fields
                 shopAgeYears: data.shopAgeYears ? parseInt(data.shopAgeYears.toString(), 10) : undefined,
                 ownershipType: data.ownershipType || undefined,
@@ -1074,7 +1182,9 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 yearsOfExperience: data.yearsOfExperience || undefined,
                 // Site Visit specific fields
                 contractorName: data.contractorName || undefined,
+                contractorId: data.contractorId ?? undefined,
                 engineerName: data.engineerName || undefined,
+                engineerId: data.engineerId ?? undefined,
                 projectType: data.projectType || undefined,
                 projectSizeSquareFeet: data.projectSizeSquareFeet ? parseFloat(data.projectSizeSquareFeet.toString()) : undefined,
                 // GPS coordinates and employee
@@ -1083,7 +1193,6 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 employeeId: customerData?.employeeId ?? undefined,
                 // Additional fields (empty for now)
                 brandsInUse: [], // Empty array for now
-                brandProsCons: [], // Empty array for now
                 likes: {}, // Empty object for now
             };
 
@@ -1123,6 +1232,16 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData((prev) => ({ ...prev, [name]: value }));
+    };
+
+    const handleEngineerSelect = (engineer: ProfessionalDto | null) => {
+        setFormData((prev) => ({
+            ...prev,
+            engineerId: engineer?.id ?? null,
+            engineerName: engineer?.name ?? '',
+            engineerContact: engineer?.contact ?? null,
+            engineerCity: engineer?.city ?? null,
+        }));
     };
 
     const handleClientTypeChange = (value: string) => {
@@ -1234,18 +1353,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         setIsCreatingComplaint(false);
     };
 
-    const handleRequirementNext = () => {
-        setRequirementActiveTab('details');
-    };
-
-    const handleRequirementBack = () => {
-        setRequirementActiveTab('general');
-    };
-
     const [isCreatingRequirement, setIsCreatingRequirement] = useState(false);
     const [requirementError, setRequirementError] = useState<string | null>(null);
+    const [pendingRequirementUpload, setPendingRequirementUpload] = useState<{ taskId: number; nextPhotoIndex: number } | null>(null);
 
-    const handleCreateRequirement = async () => {
+    const handleCreateRequirement = async (photos: File[] = []) => {
         setRequirementError(null);
         // Validate required fields
         const missing: string[] = [];
@@ -1256,6 +1368,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         if (!requirementTask.storeId) missing.push('Store');
         if (missing.length) {
             setRequirementError(`Please provide: ${missing.join(', ')}`);
+            return;
+        }
+        if (!token) {
+            setRequirementError('You are not logged in. Please refresh the page and try again.');
             return;
         }
         setIsCreatingRequirement(true);
@@ -1269,13 +1385,9 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 return;
             }
             
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
+            await createRequirementWithPhotos({
+                token,
+                payload: {
                     taskTitle: requirementTask.taskTitle?.trim() || '',
                     taskDesciption: requirementTask.taskDesciption?.trim() || '',
                     dueDate: requirementTask.dueDate.includes('T') ? requirementTask.dueDate.split('T')[0] : requirementTask.dueDate,
@@ -1285,39 +1397,43 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                     taskType: 'requirement',
                     status: requirementTask.status || 'Assigned',
                     priority: requirementTask.priority || 'low',
-                }),
+                },
+                photos,
+                taskId: pendingRequirementUpload?.taskId,
+                startPhotoIndex: pendingRequirementUpload?.nextPhotoIndex ?? 0,
             });
 
-            if (response.ok) {
-                console.log('Requirement created successfully!');
-                await createTask();
-                setIsRequirementModalOpen(false);
-                // Reset form
-                setRequirementTask({
-                    taskTitle: '',
-                    taskDesciption: '',
-                    dueDate: '',
-                    assignedToId: 0,
-                    assignedToName: '',
-                    assignedById: localEmpId,
-                    status: 'Assigned',
-                    priority: 'low',
-                    taskType: 'requirement',
-                    storeId: parseInt(storeId as string),
-                    category: '',
-                    storeName: ''
-                });
-                setRequirementActiveTab('general');
-            } else {
-                const errorText = await response.text();
-                console.error('Failed to create requirement:', response.status, errorText);
-                setRequirementError(errorText || 'Failed to create requirement');
-            }
+            console.log('Requirement created successfully!');
+            await createTask();
+            setIsRequirementModalOpen(false);
+            // Reset form
+            setRequirementTask({
+                taskTitle: '',
+                taskDesciption: '',
+                dueDate: '',
+                assignedToId: 0,
+                assignedToName: '',
+                assignedById: localEmpId,
+                status: 'Assigned',
+                priority: 'low',
+                taskType: 'requirement',
+                storeId: parseInt(storeId as string),
+                category: '',
+                storeName: ''
+            });
+            setPendingRequirementUpload(null);
         } catch (error) {
             console.error('Error creating requirement:', error);
-            setRequirementError('Unexpected error while creating requirement');
+            if (error instanceof RequirementPhotoUploadError) {
+                setPendingRequirementUpload({
+                    taskId: error.taskId,
+                    nextPhotoIndex: error.nextPhotoIndex,
+                });
+            }
+            setRequirementError(error instanceof Error ? error.message : 'Unexpected error while creating requirement');
+        } finally {
+            setIsCreatingRequirement(false);
         }
-        setIsCreatingRequirement(false);
     };
 
     const calculateIntentTrend = () => {
@@ -1326,14 +1442,20 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         return { dates, intentLevels };
     };
 
-    const calculateSalesTrend = () => {
-        const dates = salesData.map(item => (item as Record<string, unknown>).visitDate);
-        const salesAmounts = salesData.map(item => (item as Record<string, unknown>).newMonthlySale);
-        return { dates, salesAmounts };
+    const calculateStockTrend = () => {
+        const dates = stockHistoryData.map(item => (item as Record<string, unknown>).visitDate);
+        const stockAmounts = stockHistoryData.map((item) => {
+            const record = item as Record<string, unknown>;
+            return getStock({
+                stock: record.newStock as number | string | null | undefined,
+                monthlySale: record.newMonthlySale as number | string | null | undefined,
+            });
+        });
+        return { dates, stockAmounts };
     };
 
     const { dates: intentDates, intentLevels } = calculateIntentTrend();
-    const { dates: salesDates, salesAmounts } = calculateSalesTrend();
+    const { dates: stockDates, stockAmounts } = calculateStockTrend();
 
     const intentChartData = {
         labels: intentDates,
@@ -1348,18 +1470,54 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         ],
     };
 
-    const salesChartData = {
-        labels: salesDates,
+    const stockChartData = {
+        labels: stockDates,
         datasets: [
             {
-                label: 'Monthly Sales',
-                data: salesAmounts,
+                label: 'Stock',
+                data: stockAmounts,
                 borderColor: 'rgba(153, 102, 255, 1)',
                 backgroundColor: 'rgba(153, 102, 255, 0.2)',
                 fill: true,
             },
         ],
     };
+
+    const brandMaterialsData = useMemo<BrandMaterialHistory[]>(() => {
+        const hasValue = (value: unknown): boolean => value != null && String(value).trim() !== '';
+
+        return visitsData.flatMap((visit) => {
+            const purchases = Array.isArray(visit.brandPurchases) ? visit.brandPurchases : [];
+
+            return purchases
+                .map((purchase, index) => {
+                    const brandName = (
+                        purchase.brandName ||
+                        purchase.primaryBrand ||
+                        purchase.localBrand ||
+                        ''
+                    ).trim();
+
+                    return {
+                        id: purchase.id ?? index,
+                        visitId: visit.id,
+                        visitDate: visit.visit_date,
+                        brandName,
+                        category: purchase.category ?? null,
+                        purchasedFrom: purchase.purchasedFrom ?? null,
+                        steelQuantity: purchase.steelQuantity ?? purchase.steelQuantitySold ?? null,
+                        cementQuantitySold: purchase.cementQuantitySold ?? null,
+                    };
+                })
+                .filter((purchase) =>
+                    hasValue(purchase.brandName) ||
+                    hasValue(purchase.category) ||
+                    hasValue(purchase.purchasedFrom) ||
+                    hasValue(purchase.steelQuantity) ||
+                    hasValue(purchase.cementQuantitySold)
+                );
+        });
+    }, [visitsData]);
 
     useEffect(() => {
         if (token && storeId) {
@@ -1368,14 +1526,13 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             fetchVisitsData(storeId as string);
             fetchRequirementsData(storeId as string, startDate, endDate);
             fetchComplaintsData(storeId as string, startDate, endDate);
-            fetchBrandsData(storeId as string);
             fetchSitesData(storeId as string);
             fetchEmployees();
             fetchStores();
             fetchIntentData(storeId as string);
-            fetchSalesData(storeId as string);
+            fetchStockHistoryData(storeId as string);
         }
-    }, [token, storeId, startDate, endDate, fetchCustomerData, fetchNotesData, fetchVisitsData, fetchRequirementsData, fetchComplaintsData, fetchBrandsData, fetchSitesData, fetchEmployees, fetchStores, fetchIntentData, fetchSalesData]);
+    }, [token, storeId, startDate, endDate, fetchCustomerData, fetchNotesData, fetchVisitsData, fetchRequirementsData, fetchComplaintsData, fetchSitesData, fetchEmployees, fetchStores, fetchIntentData, fetchStockHistoryData]);
 
     useEffect(() => {
         if (customerData) {
@@ -1405,7 +1562,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 city: customerData.city as string,
                 state: customerData.state as string,
                 pincode: String(customerData.pincode || ''),
-                monthlySale: customerData.monthlySale as number | null,
+                stock: getStock(customerData) as number | null,
+                monthlySale: getStock(customerData) as number | null,
                 // Additional fields from customer data
                 shopAgeYears: customerData.shopAgeYears as number | undefined,
                 ownershipType: String(customerData.ownershipType || ''),
@@ -1414,7 +1572,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 dateOfBirth: String(customerData.dateOfBirth || ''),
                 yearsOfExperience: String(customerData.yearsOfExperience || ''),
                 contractorName: String(customerData.contractorName || ''),
+                contractorId: toOptionalNumber(customerData.contractorId),
                 engineerName: String(customerData.engineerName || ''),
+                engineerId: toOptionalNumber(customerData.engineerId),
+                engineerContact: (customerData.engineerContact as string | number | null | undefined) ?? null,
+                engineerCity: String(customerData.engineerCity || ''),
                 projectType: String(customerData.projectType || ''),
                 projectSizeSquareFeet: customerData.projectSizeSquareFeet as number | undefined,
             });
@@ -1788,7 +1950,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             <Button 
                                                 className="flex-1" 
                                                 variant="outline" 
-                                                onClick={() => setIsRequirementModalOpen(true)}
+                                                onClick={() => {
+                                                    setRequirementError(null);
+                                                    setPendingRequirementUpload(null);
+                                                    setIsRequirementModalOpen(true);
+                                                }}
                                             >
                                                 <Plus className="h-4 w-4" />
                                 </Button>
@@ -2400,55 +2566,44 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </div>
                                         )}
                                         
-                                        {isLoadingBrands ? (
-                                            <div className="flex items-center justify-center py-8">
-                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                                                <span className="ml-2 text-sm text-muted-foreground">Loading brands...</span>
-                                            </div>
-                                        ) : brandsData.length > 0 ? (
+                                        {brandMaterialsData.length > 0 ? (
                                             <div className="space-y-4">
-                                                {(brandsData as { id?: number; brandName: string; status: string; pros: string[]; cons: string[]; purchasedFrom?: string }[]).map((brand, index: number) => (
-                                                    <Card key={brand.id || index} className="border border-border/50">
+                                                {brandMaterialsData.map((brand, index: number) => (
+                                                    <Card key={`${brand.visitId}-${brand.id ?? index}`} className="border border-border/50">
                                                         <CardContent className="p-4">
                                                             <div className="space-y-3">
-                                                                <div className="flex items-center justify-between">
-                                                                    <h3 className="text-lg font-semibold text-foreground">{brand.brandName}</h3>
+                                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                    <div className="space-y-1">
+                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                            <h3 className="text-lg font-semibold text-foreground">
+                                                                                {brand.brandName || 'Unnamed brand'}
+                                                                            </h3>
+                                                                            {brand.category && (
+                                                                                <Badge variant="secondary" className="uppercase tracking-wide">
+                                                                                    {brand.category}
+                                                                                </Badge>
+                                                                            )}
+                                                                        </div>
+                                                                        <p className="text-xs text-muted-foreground">
+                                                                            Visit #{brand.visitId}{brand.visitDate ? ` • ${new Date(brand.visitDate).toLocaleDateString()}` : ''}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
-                                                                
-                                                                {brand.purchasedFrom && (
-                                                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                                        <i className="fas fa-store text-primary"></i>
-                                                                        <span>Purchased from: <span className="font-medium text-foreground">{brand.purchasedFrom}</span></span>
+
+                                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                                                    <div className="rounded-md border bg-muted/20 p-3">
+                                                                        <p className="text-xs font-medium text-muted-foreground">Purchased From</p>
+                                                                        <p className="mt-1 text-sm text-foreground">{formatMaterialDetail(brand.purchasedFrom)}</p>
                                                                     </div>
-                                                                )}
-                                                                
-                                                                {brand.pros && brand.pros.length > 0 && (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-medium text-foreground mb-2">Pros:</h4>
-                                                                        <ul className="space-y-1">
-                                                                            {brand.pros.map((pro: string, proIndex: number) => (
-                                                                                <li key={proIndex} className="flex items-start gap-2 text-sm">
-                                                                                    <i className="fas fa-check-circle text-green-500 mt-0.5"></i>
-                                                                                    <span className="text-foreground">{pro}</span>
-                                                                                </li>
-                                                                            ))}
-                                                                        </ul>
+                                                                    <div className="rounded-md border bg-muted/20 p-3">
+                                                                        <p className="text-xs font-medium text-muted-foreground">Steel Quantity</p>
+                                                                        <p className="mt-1 text-sm text-foreground">{formatSteelQuantityDetail(brand.steelQuantity)}</p>
                                                                     </div>
-                                                                )}
-                                                                
-                                                                {brand.cons && brand.cons.length > 0 && (
-                                                                    <div>
-                                                                        <h4 className="text-sm font-medium text-foreground mb-2">Cons:</h4>
-                                                                        <ul className="space-y-1">
-                                                                            {brand.cons.map((con: string, conIndex: number) => (
-                                                                                <li key={conIndex} className="flex items-start gap-2 text-sm">
-                                                                                    <i className="fas fa-times-circle text-red-500 mt-0.5"></i>
-                                                                                    <span className="text-foreground">{con}</span>
-                                                                                </li>
-                                                                            ))}
-                                                                        </ul>
+                                                                    <div className="rounded-md border bg-muted/20 p-3">
+                                                                        <p className="text-xs font-medium text-muted-foreground">Cement Quantity</p>
+                                                                        <p className="mt-1 text-sm text-foreground">{formatMaterialDetail(brand.cementQuantitySold)}</p>
                                                                     </div>
-                                                                )}
+                                                                </div>
                                                             </div>
                                                         </CardContent>
                                                     </Card>
@@ -2458,7 +2613,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             <div className="text-center py-8">
                                                 <i className="fas fa-tags text-4xl text-muted-foreground mb-4"></i>
                                                 <h3 className="text-lg font-medium text-foreground mb-2">No Brands Found</h3>
-                                                <p className="text-sm text-muted-foreground">No brand information available for this customer yet.</p>
+                                                <p className="text-sm text-muted-foreground">No brand or material purchase details are available for this customer yet.</p>
                                             </div>
                                         )}
                                     </div>
@@ -2473,83 +2628,86 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </div>
                                         ) : sitesData.length > 0 ? (
                                             <div className="space-y-4">
-                                                {(sitesData as { id?: number; siteName: string; status: string; address: string; city: string; state: string; pincode: string; startDate?: string; endDate?: string; requirement?: string; completed?: string; addressLine1?: string }[]).map((site, index: number) => (
-                                                    <Card key={site.id || index} className="border border-border/50">
-                                                        <CardContent className="p-4">
-                                                            <div className="space-y-3">
-                                                                <div className="flex items-center justify-between">
-                                                                    <h3 className="text-lg font-semibold text-foreground">{site.siteName}</h3>
-                                                                    <Badge variant={site.status === 'active' ? "default" : "secondary"} className="text-xs">
-                                                                        {site.status === 'active' ? 'Active' : 'Inactive'}
-                                                                    </Badge>
-                                                                </div>
-                                                                
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                                    <div className="space-y-2">
-                                                                        <div className="flex items-center gap-2 text-sm">
-                                                                            <i className="fas fa-map-marker-alt text-primary w-4"></i>
-                                                                            <span className="text-muted-foreground">City:</span>
-                                                                            <span className="font-medium text-foreground">{site.city}</span>
+                                                {(sitesData as SiteRecord[]).map((site, index: number) => {
+                                                    const completed = isSiteCompleted(site.completionStatus);
+                                                    const totalArea = toNumericValue(site.requirement);
+                                                    const completedArea = toNumericValue(site.completed);
+                                                    const progress =
+                                                        totalArea && completedArea != null
+                                                            ? Math.max(0, Math.min((completedArea / totalArea) * 100, 100))
+                                                            : null;
+                                                    const addressParts = [
+                                                        site.addressLine1,
+                                                        site.address,
+                                                        site.city,
+                                                        site.state,
+                                                        site.pincode,
+                                                    ]
+                                                        .filter((part) => part != null && String(part).trim() !== '')
+                                                        .map(String);
+                                                    const address = addressParts.length > 0 ? addressParts.join(', ') : '—';
+
+                                                    return (
+                                                        <Card key={site.id || index} className="border border-border/50">
+                                                            <CardContent className="p-4">
+                                                                <div className="space-y-4">
+                                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                        <div>
+                                                                            <h3 className="text-lg font-semibold text-foreground">{site.siteName || 'Unnamed site'}</h3>
+                                                                            <p className="text-xs text-muted-foreground">Site consumption details</p>
                                                                         </div>
-                                                                        
-                                                                        <div className="flex items-center gap-2 text-sm">
-                                                                            <i className="fas fa-calendar-alt text-primary w-4"></i>
-                                                                            <span className="text-muted-foreground">Start Date:</span>
-                                                                            <span className="font-medium text-foreground">{site.startDate ? new Date(site.startDate).toLocaleDateString() : 'N/A'}</span>
+                                                                        <Badge variant={completed ? "default" : "secondary"} className="w-fit text-xs">
+                                                                            {completed ? 'Completed' : 'Incomplete'}
+                                                                        </Badge>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                                        <div className="rounded-md border bg-muted/20 p-3">
+                                                                            <p className="text-xs font-medium text-muted-foreground">Total Area</p>
+                                                                            <p className="mt-1 text-sm font-medium text-foreground">{formatAreaDetail(site.requirement)}</p>
                                                                         </div>
-                                                                        
-                                                                        <div className="flex items-center gap-2 text-sm">
-                                                                            <i className="fas fa-calendar-check text-primary w-4"></i>
-                                                                            <span className="text-muted-foreground">End Date:</span>
-                                                                            <span className="font-medium text-foreground">{site.endDate ? new Date(site.endDate).toLocaleDateString() : 'N/A'}</span>
+                                                                        <div className="rounded-md border bg-muted/20 p-3">
+                                                                            <p className="text-xs font-medium text-muted-foreground">Completed Area</p>
+                                                                            <p className="mt-1 text-sm font-medium text-foreground">{formatAreaDetail(site.completed)}</p>
+                                                                        </div>
+                                                                        <div className="rounded-md border bg-muted/20 p-3">
+                                                                            <p className="text-xs font-medium text-muted-foreground">Start Date</p>
+                                                                            <p className="mt-1 text-sm font-medium text-foreground">
+                                                                                {site.startDate ? new Date(site.startDate).toLocaleDateString() : '—'}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="rounded-md border bg-muted/20 p-3">
+                                                                            <p className="text-xs font-medium text-muted-foreground">End Date</p>
+                                                                            <p className="mt-1 text-sm font-medium text-foreground">
+                                                                                {site.endDate ? new Date(site.endDate).toLocaleDateString() : '—'}
+                                                                            </p>
                                                                         </div>
                                                                     </div>
-                                                                    
-                                                                    <div className="space-y-2">
-                                                                        <div className="flex items-center gap-2 text-sm">
-                                                                            <i className="fas fa-ruler-combined text-primary w-4"></i>
-                                                                            <span className="text-muted-foreground">Total Area:</span>
-                                                                            <span className="font-medium text-foreground">{site.requirement || 'N/A'}</span>
-                                                                        </div>
-                                                                        
-                                                                        <div className="flex items-center gap-2 text-sm">
-                                                                            <i className="fas fa-check-circle text-primary w-4"></i>
-                                                                            <span className="text-muted-foreground">Completed Area:</span>
-                                                                            <span className="font-medium text-foreground">{site.completed || 'N/A'}</span>
-                                                                        </div>
-                                                                        
-                                                                        {site.addressLine1 && (
-                                                                            <div className="flex items-start gap-2 text-sm">
-                                                                                <i className="fas fa-map text-primary w-4 mt-0.5"></i>
-                                                                                <span className="text-muted-foreground">Address:</span>
-                                                                                <span className="font-medium text-foreground">{site.addressLine1}</span>
+
+                                                                    <div className="rounded-md border bg-muted/20 p-3">
+                                                                        <p className="text-xs font-medium text-muted-foreground">Address</p>
+                                                                        <p className="mt-1 text-sm font-medium text-foreground">{address}</p>
+                                                                    </div>
+
+                                                                    {progress != null && (
+                                                                        <div className="space-y-2">
+                                                                            <div className="flex items-center justify-between text-sm">
+                                                                                <span className="text-muted-foreground">Progress</span>
+                                                                                <span className="font-medium text-foreground">{Math.round(progress)}%</span>
                                                                             </div>
-                                                                        )}
-                                                                    </div>
+                                                                            <div className="h-2 w-full rounded-full bg-muted">
+                                                                                <div
+                                                                                    className="h-2 rounded-full bg-primary transition-all duration-300"
+                                                                                    style={{ width: `${progress}%` }}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                                
-                                                                {site.requirement && site.completed && (
-                                                                    <div className="mt-3">
-                                                                        <div className="flex items-center justify-between text-sm mb-1">
-                                                                            <span className="text-muted-foreground">Progress</span>
-                                                                            <span className="font-medium text-foreground">
-                                                                                {Math.round((parseFloat(site.completed) / parseFloat(site.requirement)) * 100)}%
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                                                            <div 
-                                                                                className="bg-primary h-2 rounded-full transition-all duration-300" 
-                                                                                style={{ 
-                                                                                    width: `${Math.min((parseFloat(site.completed) / parseFloat(site.requirement)) * 100, 100)}%` 
-                                                                                }}
-                                                                            ></div>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </CardContent>
-                                                    </Card>
-                                                ))}
+                                                            </CardContent>
+                                                        </Card>
+                                                    );
+                                                })}
                                             </div>
                                         ) : (
                                             <div className="text-center py-8">
@@ -2929,12 +3087,12 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                         {/* Common Fields */}
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-2">
-                                                <Label htmlFor="monthlySale">Monthly Sale</Label>
+                                                <Label htmlFor="stock">Stock</Label>
                                                 <Input
-                                                    id="monthlySale"
-                                                    name="monthlySale"
+                                                    id="stock"
+                                                    name="stock"
                                                     type="number"
-                                                    value={formData.monthlySale || ''}
+                                                    value={formData.stock ?? ''}
                                                     onChange={handleInputChange}
                                                 />
                                             </div>
@@ -3062,12 +3220,21 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                     </div>
                                                     <div className="space-y-2">
                                                         <Label htmlFor="engineerName">Engineer Name</Label>
-                                                        <Input
-                                                            id="engineerName"
-                                                            name="engineerName"
-                                                            value={formData.engineerName}
-                                                            onChange={handleInputChange}
+                                                        <ProfessionalSelector
+                                                            professionals={engineerOptions}
+                                                            value={formData.engineerId ?? null}
+                                                            onChange={handleEngineerSelect}
+                                                            isLoading={isLoadingProfessionals}
+                                                            placeholder="Select Engineer"
+                                                            searchPlaceholder="Search engineer by name, contact, or city"
+                                                            emptyMessage="No engineers found"
+                                                            legacyName={formData.engineerName}
+                                                            legacyContact={formData.engineerContact}
+                                                            legacyCity={formData.engineerCity}
                                                         />
+                                                        {professionalsError && (
+                                                            <p className="text-xs text-red-600">{professionalsError}</p>
+                                                        )}
                                                     </div>
                                                     <div className="space-y-2">
                                                         <Label htmlFor="projectType">Project Type</Label>
@@ -3122,7 +3289,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             {/* Log Complaint Modal */}
             {isComplaintModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="w-full max-w-2xl border shadow-lg bg-background">
+                    <Card className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border shadow-lg bg-background">
                         <CardHeader className="pb-4">
                             <CardTitle className="text-xl font-semibold text-foreground">Create Complaint</CardTitle>
                             <p className="text-sm text-muted-foreground">Fill in the complaint details</p>
@@ -3273,149 +3440,55 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             {/* Add Requirement Modal */}
             {isRequirementModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="w-full max-w-2xl border shadow-lg bg-background">
+                    <Card className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border shadow-lg bg-background">
                         <CardHeader className="pb-4">
                             <CardTitle className="text-xl font-semibold text-foreground">Create Requirement</CardTitle>
                             <p className="text-sm text-muted-foreground">Fill in the requirement details</p>
                 </CardHeader>
                 <CardContent>
-                            <Tabs value={requirementActiveTab} onValueChange={setRequirementActiveTab} className="w-full">
-                                <TabsList className="grid w-full grid-cols-2 mb-4">
-                                    <TabsTrigger value="general">General</TabsTrigger>
-                                    <TabsTrigger value="details">Details</TabsTrigger>
-                                </TabsList>
-                                <TabsContent value="general">
-                                    <div className="space-y-4 py-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="requirementTitle">Requirement Title</Label>
-                                            <Input
-                                                id="requirementTitle"
-                                                placeholder="Enter requirement title"
-                                                value={requirementTask.taskTitle}
-                                                onChange={(e) => setRequirementTask({ ...requirementTask, taskTitle: e.target.value })}
-                                                className="w-full"
-                                            />
-                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="requirementDescription">Requirement Description</Label>
-                                            <Input
-                                                id="requirementDescription"
-                                                placeholder="Enter requirement description"
-                                                value={requirementTask.taskDesciption}
-                                                onChange={(e) => setRequirementTask({ ...requirementTask, taskDesciption: e.target.value })}
-                                                className="w-full"
-                                            />
-                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="requirementStoreName">Store</Label>
-                                            <Input
-                                                id="requirementStoreName"
-                                                value={String(customerData?.storeName || 'Loading...')}
-                                                disabled
-                                                className="w-full bg-muted text-muted-foreground font-medium cursor-not-allowed"
-                                            />
-                                        </div>
-                                        <div className="flex justify-between mt-4">
-                                            <Button variant="outline" onClick={() => setIsRequirementModalOpen(false)}>Cancel</Button>
-                                            <Button onClick={handleRequirementNext}>Next</Button>
-                                        </div>
-                                    </div>
-                                </TabsContent>
-                                <TabsContent value="details">
-                                    {requirementError && (
-                                        <div className="mb-3 rounded border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                                            {requirementError}
-                                        </div>
-                                    )}
-                                    <div className="space-y-4 py-4">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="requirementDueDate">Due Date</Label>
-                                            <Popover modal={false}>
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        variant="outline"
-                                                        className={`w-full justify-start text-left font-normal ${!requirementTask.dueDate && 'text-muted-foreground'}`}
-                                                    >
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {requirementTask.dueDate ? format(new Date(requirementTask.dueDate), 'PPP') : <span>Pick a date</span>}
-                        </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={requirementTask.dueDate ? new Date(requirementTask.dueDate) : undefined}
-                                                        onSelect={(date) => setRequirementTask({ ...requirementTask, dueDate: date ? format(date, 'yyyy-MM-dd') : '' })}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="requirementPriority">Priority</Label>
-                                                <Select value={requirementTask.priority} onValueChange={(value) => setRequirementTask({ ...requirementTask, priority: value })}>
-                                                    <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Select a priority" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="low">Low</SelectItem>
-                                                        <SelectItem value="medium">Medium</SelectItem>
-                                                        <SelectItem value="high">High</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                      </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="requirementAssignedTo">Assigned To</Label>
-                                            {isLoadingEmployees ? (
-                                                <div className="w-full h-10 bg-gray-100 rounded-md flex items-center justify-center">
-                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                                                    <span className="ml-2 text-sm text-gray-600">Loading employees...</span>
-                                                </div>
-                                            ) : (
-                                                <Select 
-                                                    value={requirementTask.assignedToId.toString()} 
-                                                    onValueChange={(value) => {
-                                                        const selectedEmployee = employees.find(emp => (emp as { id: number }).id.toString() === value) as { firstName: string; lastName: string } | undefined;
-                                                        setRequirementTask({ 
-                                                            ...requirementTask, 
-                                                            assignedToId: parseInt(value),
-                                                            assignedToName: selectedEmployee ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}` : ''
-                                                        });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Select an employee" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {employees.map((employee) => {
-                                                            const emp = employee as { id: number; firstName: string; lastName: string; employeeId?: string };
-                                                            return (
-                                                            <SelectItem key={emp.id} value={emp.id.toString()}>
-                                                                {emp.firstName} {emp.lastName} ({emp.employeeId || ''})
-                                                            </SelectItem>
-                                                            );
-                                                        })}
-                                                    </SelectContent>
-                                                </Select>
-                                            )}
-                                        </div>
-                                        <div className="flex justify-between mt-4">
-                                            <Button variant="outline" onClick={handleRequirementBack}>Back</Button>
-                                            <Button onClick={handleCreateRequirement} disabled={isCreatingRequirement}>
-                                                {isCreatingRequirement ? (
-                                                    <>
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        Creating…
-                                                    </>
-                                                ) : (
-                                                    'Create Requirement'
-                                                )}
-                                            </Button>
-                                        </div>
-                                    </div>
-            </TabsContent>
-          </Tabs>
+                            <RequirementCreationForm
+                                value={{
+                                    taskTitle: requirementTask.taskTitle,
+                                    taskDescription: requirementTask.taskDesciption,
+                                    dueDate: requirementTask.dueDate,
+                                    assignedToId: requirementTask.assignedToId,
+                                    assignedToName: requirementTask.assignedToName,
+                                    assignedById: requirementTask.assignedById,
+                                    status: requirementTask.status,
+                                    priority: requirementTask.priority,
+                                    taskType: 'requirement',
+                                    storeId: requirementTask.storeId,
+                                    storeName: requirementTask.storeName,
+                                    category: requirementTask.category,
+                                }}
+                                onChange={(nextTask) => {
+                                    setRequirementTask((prev) => ({
+                                        ...prev,
+                                        taskTitle: nextTask.taskTitle,
+                                        taskDesciption: nextTask.taskDescription,
+                                        dueDate: nextTask.dueDate,
+                                        assignedToId: nextTask.assignedToId,
+                                        assignedToName: nextTask.assignedToName,
+                                        assignedById: nextTask.assignedById,
+                                        status: nextTask.status,
+                                        priority: nextTask.priority,
+                                        storeId: nextTask.storeId,
+                                        storeName: nextTask.storeName,
+                                        category: nextTask.category || '',
+                                    }));
+                                }}
+                                employees={employees.map((employee) => {
+                                    const emp = employee as { id: number; firstName: string; lastName: string; employeeId?: string };
+                                    return emp;
+                                })}
+                                storeMode="fixed"
+                                fixedStoreName={String(customerData?.storeName || 'Loading...')}
+                                isEmployeesLoading={isLoadingEmployees}
+                                isSubmitting={isCreatingRequirement}
+                                error={requirementError}
+                                onCancel={() => setIsRequirementModalOpen(false)}
+                                onSubmit={handleCreateRequirement}
+                            />
                         </CardContent>
                     </Card>
         </div>
@@ -3423,7 +3496,19 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
             {/* Image Preview Dialog */}
             {isImagePreviewOpen && (
-                <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+                <Dialog
+                    open={isImagePreviewOpen}
+                    onOpenChange={(open) => {
+                        setIsImagePreviewOpen(open);
+                        if (!open) {
+                            setTaskImages((previous) => {
+                                revokeTaskImageUrls(previous);
+                                return [];
+                            });
+                            setCurrentImageIndex(0);
+                        }
+                    }}
+                >
                     <DialogContent className="max-w-3xl">
                         <DialogHeader>
                             <DialogTitle>Image Preview</DialogTitle>
@@ -3433,7 +3518,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
                                 <span className="ml-2">Loading images...</span>
                             </div>
-                        ) : (
+                        ) : taskImages.length > 0 ? (
                             <>
                                 <div className="relative">
                                     <img
@@ -3466,6 +3551,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                     Image {currentImageIndex + 1} of {taskImages.length}
                                 </p>
                             </>
+                        ) : (
+                            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                                No requirement photos found.
+                            </div>
                         )}
                     </DialogContent>
                 </Dialog>

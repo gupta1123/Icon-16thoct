@@ -50,7 +50,8 @@ interface CustomerVisitDetail {
   completedVisitCount: number;
   customerType: string;
   avgIntentLevel: number;
-  avgMonthlySales: number;
+  avgStock?: number;
+  avgMonthlySales?: number;
   visitCount: number;
   lastVisited: string;
   city: string;

@@ -52,8 +52,14 @@ export interface ApprovalRequest {
 
 export interface VisitBrandPurchase {
   id?: number;
-  brandName: string;
-  purchasedFrom?: string;
+  brandName?: string | null;
+  primaryBrand?: string | null;
+  localBrand?: string | null;
+  purchasedFrom?: string | null;
+  category?: string | null;
+  steelQuantity?: number | string | null;
+  steelQuantitySold?: number | string | null;
+  cementQuantitySold?: number | string | null;
 }
 
 export interface ActivityBrandPurchase {
@@ -63,13 +69,30 @@ export interface ActivityBrandPurchase {
   localBrand?: string | null;
   purchasedFrom?: string | null;
   category?: string | null;
+  steelQuantity?: number | null;
   steelQuantitySold?: number | null;
   cementQuantitySold?: number | null;
+}
+
+export interface ActivityAttachmentResponse {
+  fileName: string;
+  fileDownloadUri: string;
+  fileType: string;
+  tag: string;
+  size: number;
 }
 
 export interface SurveyDealerBrandDetail {
   brandName?: string | null;
   category?: string | null;
+}
+
+export interface SurveyDealerPhotoResponse {
+  fileName: string;
+  fileDownloadUri: string;
+  fileType: string;
+  tag: string;
+  size: number;
 }
 
 export interface SurveyDealerDto {
@@ -91,8 +114,11 @@ export interface SurveyDealerDto {
   pincode?: number | string | null;
   latitude?: number | null;
   longitude?: number | null;
+  endLatitude?: number | null;
+  endLongitude?: number | null;
   dealerType?: string | null;
   dealerSubType?: string | null;
+  stock?: number | null;
   monthlySale?: number | null;
   brandsInUse?: string[];
   productCategories?: string[];
@@ -100,6 +126,11 @@ export interface SurveyDealerDto {
   notes?: string | null;
   employeeId?: number | null;
   employeeName?: string | null;
+  imageCount?: number | null;
+  photoResponse?: SurveyDealerPhotoResponse | null;
+  status?: "DRAFT" | "COMPLETED" | string | null;
+  completedAt?: string | null;
+  completedTime?: string | null;
   createdAt?: string | null;
   createdTime?: string | null;
   updatedAt?: string | null;
@@ -148,19 +179,58 @@ export interface VisitDto {
   salary?: number;
   isSelfGenerated?: boolean;
   brandsInUse?: string[];
-  brandProCons?: unknown[];
   brandPurchases?: VisitBrandPurchase[];
   constructionStage?: string;
   purchasedFrom?: string;
+  steelStockAvailable?: number | null;
+  steelStockRequired?: number | null;
+  cementStockAvailable?: number | null;
+  cementStockRequired?: number | null;
   assignedById?: number;
   assignedByName?: string;
+  assignedAt?: string | null;
+  assignedDate?: string | null;
+  assignedTime?: string | null;
+  assignmentSource?: string | null;
+  status?: string | null;
   statsDto?: unknown;
   createdAt?: string;
   createdTime?: string;
   updatedAt?: string;
   updatedTime?: string;
   intentAuditLogDto?: unknown;
+  stock?: number;
   monthlySale?: number;
+}
+
+export interface VisitGridCell {
+  visitCount?: number;
+  visits?: VisitDto[];
+}
+
+export type VisitGridV2Response = Record<number, Record<string, VisitGridCell | VisitDto[] | VisitDto | null>>;
+
+export interface BulkVisitResultDetail {
+  employeeId?: number;
+  storeId?: number;
+  visitDate?: string;
+  visit_date?: string;
+  date?: string;
+  status?: string;
+  reason?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface BulkVisitCreateResult {
+  created?: number;
+  skipped?: number;
+  failed?: number;
+  errors?: Array<string | BulkVisitResultDetail>;
+  skippedVisits?: Array<string | BulkVisitResultDetail>;
+  failedVisits?: Array<string | BulkVisitResultDetail>;
+  results?: BulkVisitResultDetail[];
+  message?: string;
 }
 
 export interface VisitResponse {
@@ -192,17 +262,6 @@ export interface VisitResponse {
   empty: boolean;
 }
 
-export interface BrandProCon {
-  id: number;
-  brandName: string;
-  pros: string[];
-  cons: string[];
-  category?: string | null;
-  purchasedFrom?: string | null;
-  steelQuantitySold?: number | null;
-  cementQuantitySold?: number | null;
-}
-
 export interface IntentAuditLog {
   id: number;
   storeId: number;
@@ -220,6 +279,8 @@ export interface MonthlySaleChange {
   id: number;
   storeId: number;
   storeName: string;
+  oldStock?: number;
+  newStock?: number;
   oldMonthlySale: number;
   newMonthlySale: number;
   visitId: number;
@@ -444,6 +505,7 @@ export interface StoreDto {
   clientFirstName: string;
   clientLastName: string;
   primaryContact: number;
+  stock?: number | null;
   monthlySale: number | null;
   intent: number | null;
   employeeName: string;
@@ -463,7 +525,6 @@ export interface StoreDto {
   longitude?: number | null;
   brandsInUse?: unknown[];
   employeeId?: number;
-  brandProCons?: unknown[];
   visitThisMonth?: number;
   outcomeLastVisit?: string;
   createdAt?: string;
@@ -477,8 +538,42 @@ export interface StoreDto {
   addressLine1?: string | null;
   addressLine2?: string | null;
   pincode?: number | null;
+  contractorName?: string | null;
+  contractorId?: number | null;
+  engineerName?: string | null;
+  engineerId?: number | null;
+  engineerContact?: string | number | null;
+  engineerCity?: string | null;
+  projectType?: string | null;
+  projectSizeSquareFeet?: number | null;
+  dateOfBirth?: string | null;
   likes?: unknown;
 }
+
+export type StockCompatible = {
+  stock?: number | string | null;
+  monthlySale?: number | string | null;
+  monthlySales?: number | string | null;
+};
+
+export const getStock = (data?: StockCompatible | null): number | string | null => {
+  return data?.stock ?? data?.monthlySale ?? data?.monthlySales ?? null;
+};
+
+export const formatStockQuantity = (value?: number | string | null, emptyValue = ''): string => {
+  if (value === null || value === undefined || value === '') return emptyValue;
+
+  const numericValue =
+    typeof value === 'number'
+      ? value
+      : Number(String(value).replace(/,/g, '').trim());
+
+  if (Number.isFinite(numericValue)) {
+    return `${numericValue.toLocaleString('en-IN')} tons`;
+  }
+
+  return String(value);
+};
 
 export interface StoreSummary {
   storeId: number;
@@ -1042,6 +1137,8 @@ export interface ActivityDto {
   cementStockRequired?: number | null;
   upcomingSiteCount?: number | null;
   brandPurchases?: ActivityBrandPurchase[];
+  imageCount?: number | null;
+  attachmentResponse?: ActivityAttachmentResponse[];
   employeeId?: number;
   employeeName?: string;
   employeeRole?: string;
@@ -1120,6 +1217,20 @@ export interface CityDto {
   subDistrictId: number;
   subDistrictName: string;
 }
+
+export interface ProfessionalDto {
+  id: number;
+  name?: string | null;
+  role?: string | null;
+  contact?: string | number | null;
+  city?: string | null;
+  storeId?: number | null;
+  storeName?: string | null;
+}
+
+type ApiRequestOptions = RequestInit & {
+  suppressErrorLog?: boolean;
+};
 
 // API Service Class
 export class API {
@@ -1405,6 +1516,10 @@ export class API {
     return apiService.getAllCities();
   }
 
+  static async getAllProfessionals(): Promise<ProfessionalDto[]> {
+    return apiService.getAllProfessionals();
+  }
+
   private loadToken(): void {
     if (typeof window !== 'undefined') {
       // Client-side: get from localStorage
@@ -1430,13 +1545,14 @@ export class API {
     return headers;
   }
 
-  private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async makeRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+    const { suppressErrorLog = false, ...requestOptions } = options;
     const config: RequestInit = {
-      ...options,
+      ...requestOptions,
       headers: {
         ...this.getHeaders(),
-        ...options.headers,
+        ...requestOptions.headers,
       },
     };
 
@@ -1499,8 +1615,9 @@ export class API {
 
       return await response.json();
     } catch (error) {
-      console.error(`🚨 API request failed for ${endpoint}:`, error);
-      console.error('🌐 Request details:', {
+      const log = suppressErrorLog ? console.warn : console.error;
+      log(`🚨 API request failed for ${endpoint}:`, error);
+      log('🌐 Request details:', {
         url,
         method: config.method || 'GET',
         hasToken: !!this.token,
@@ -1509,7 +1626,7 @@ export class API {
       
       // If it's a network error, provide more helpful error message
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.error('🌐 Network Error Details:', {
+        log('🌐 Network Error Details:', {
           url,
           baseUrl: this.baseUrl,
           error: error.message,
@@ -1651,30 +1768,6 @@ export class API {
   // Visit detail APIs
   async getVisitById(id: number): Promise<VisitDto> {
     return this.makeRequest<VisitDto>(`/visit/getById?id=${id}`);
-  }
-
-  async getVisitProCons(visitId: number): Promise<BrandProCon[]> {
-    return this.makeRequest<BrandProCon[]>(`/visit/getProCons?visitId=${visitId}`);
-  }
-
-  async addBrandProCons(visitId: number, brandData: {
-    brandName: string;
-    pros: string[];
-    cons: string[];
-  }[]): Promise<void> {
-    return this.makeRequest<void>(`/visit/addProCons?visitId=${visitId}`, {
-      method: 'PUT',
-      body: JSON.stringify(brandData),
-    });
-  }
-
-  async deleteBrandProCons(visitId: number, brandData: {
-    brandName: string;
-  }[]): Promise<void> {
-    return this.makeRequest<void>(`/visit/deleteProCons?visitId=${visitId}`, {
-      method: 'POST',
-      body: JSON.stringify(brandData),
-    });
   }
 
   async getIntentAuditByVisit(id: number): Promise<IntentAuditLog[]> {
@@ -2181,6 +2274,12 @@ export class API {
     return this.makeRequest<CityDto[]>('/location/allCities');
   }
 
+  async getAllProfessionals(): Promise<ProfessionalDto[]> {
+    const response = await this.makeRequest<ProfessionalDto[] | { content?: ProfessionalDto[] }>('/professionals/getAll');
+    if (Array.isArray(response)) return response;
+    return Array.isArray(response.content) ? response.content : [];
+  }
+
   // Bulk Visit Assignment APIs
   async getTeamFieldOfficers(): Promise<EmployeeDto[]> {
     return this.makeRequest<EmployeeDto[]>('/employee/getTeamFieldOfficers');
@@ -2206,12 +2305,43 @@ export class API {
     return this.makeRequest<Record<number, Record<string, VisitDto | null>>>(`/visit/bulkGetForGrid?${params.toString()}`);
   }
 
-  async getDealersForEmployee(employeeId: number): Promise<StoreDto[]> {
-    return this.makeRequest<StoreDto[]>(`/store/getDealersForEmployee?employeeId=${employeeId}`);
+  async bulkGetForGridV2(employeeIds: number[], startDate: string, endDate: string): Promise<VisitGridV2Response> {
+    const params = new URLSearchParams();
+    params.append('employeeIds', employeeIds.join(','));
+    params.append('startDate', startDate);
+    params.append('endDate', endDate);
+    try {
+      return await this.makeRequest<VisitGridV2Response>(`/visit/bulkGetForGridV2?${params.toString()}`, {
+        suppressErrorLog: true,
+      });
+    } catch (error) {
+      console.warn('bulkGetForGridV2 unavailable, falling back to legacy bulkGetForGrid.', error);
+      const legacyResponse = await this.bulkGetForGrid(employeeIds, startDate, endDate);
+      return legacyResponse as unknown as VisitGridV2Response;
+    }
   }
 
-  async bulkCreateVisits(visits: VisitDto[]): Promise<{ created: number; failed: number; errors: string[] }> {
-    return this.makeRequest<{ created: number; failed: number; errors: string[] }>('/visit/bulkCreate', {
+  async getDealersForEmployee(
+    employeeId: number,
+    options?: { search?: string; page?: number; size?: number }
+  ): Promise<StoreDto[]> {
+    const params = new URLSearchParams();
+    params.append('employeeId', String(employeeId));
+
+    if (options?.search?.trim()) params.append('search', options.search.trim());
+    if (options?.page !== undefined) params.append('page', String(options.page));
+    if (options?.size !== undefined) params.append('size', String(options.size));
+
+    const response = await this.makeRequest<StoreDto[] | { content?: StoreDto[] }>(
+      `/store/getDealersForEmployee?${params.toString()}`
+    );
+
+    if (Array.isArray(response)) return response;
+    return Array.isArray(response.content) ? response.content : [];
+  }
+
+  async bulkCreateVisits(visits: VisitDto[]): Promise<BulkVisitCreateResult> {
+    return this.makeRequest<BulkVisitCreateResult>('/visit/bulkCreate', {
       method: 'POST',
       body: JSON.stringify(visits),
     });
@@ -2223,7 +2353,12 @@ export class API {
       // Return a placeholder ID since the bulk API doesn't return individual IDs
       return 1;
     }
-    throw new Error(response.errors?.[0] || 'Failed to create visit');
+    const firstError = response.errors?.[0];
+    const message =
+      typeof firstError === 'string'
+        ? firstError
+        : firstError?.message || firstError?.reason || firstError?.error || 'Failed to create visit';
+    throw new Error(message);
   }
 
   // Attendance Request APIs

@@ -24,8 +24,9 @@ import {
   ChevronDown,
   ChevronUp,
   Calendar,
-  DollarSign
+  Package
 } from "lucide-react";
+import { formatStockQuantity } from '@/lib/api';
 import { Matcher } from "react-day-picker";
 import {
   Popover,
@@ -116,7 +117,8 @@ interface Employee {
 
 interface VisitDetail {
     avgIntentLevel: number;
-    avgMonthlySales: number;
+    avgStock?: number;
+    avgMonthlySales?: number;
     visitCount: number;
     lastVisited: string; 
     city: string;
@@ -196,20 +198,10 @@ const createEmptyRawGroups = (): Record<DisplayCustomerTypeKey, string[]> =>
         return acc;
     }, {} as Record<DisplayCustomerTypeKey, string[]>);
 
-const formatSalesNumber = (num: number): string => {
-    if (num >= 10000000) { // Crores
-        const val = num / 10000000;
-        return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + 'Cr';
-    }
-    if (num >= 100000) { // Lakhs
-        const val = num / 100000;
-        return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + 'L';
-    }
-    if (num >= 1000) { // Thousands
-        const val = num / 1000;
-        return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + 'K';
-    }
-    return num.toString();
+const formatAverageStock = (num: number): string => formatStockQuantity(num, '0 tons');
+
+const getAverageStock = (detail: VisitDetail): number => {
+    return detail.avgStock ?? detail.avgMonthlySales ?? 0;
 };
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = 6, delay = 1000): Promise<Response> {
@@ -962,7 +954,7 @@ const ReportsPage: React.FC = () => {
                                                         <TableHead>State</TableHead>
                                                         <TableHead>Last Visited</TableHead>
                                                         <TableHead>Visit Count</TableHead>
-                                                        <TableHead>Avg Monthly Sales</TableHead>
+                                                        <TableHead>Average Stock</TableHead>
                                                         <TableHead>Customer Type</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
@@ -991,10 +983,10 @@ const ReportsPage: React.FC = () => {
                                                                 <TableCell>{detail.visitCount}</TableCell>
                                                                 <TableCell>
                                                                     {(() => {
-                                                                        const val = detail.avgMonthlySales;
-                                                                        if (val % 1 === 0) return formatSalesNumber(val);
+                                                                        const val = getAverageStock(detail);
+                                                                        if (val % 1 === 0) return formatAverageStock(val);
                                                                         const rounded = Math.round(val * 10) / 10;
-                                                                        return formatSalesNumber(rounded);
+                                                                        return formatAverageStock(rounded);
                                                                     })()}
                                                                 </TableCell>
                                                                 <TableCell>
@@ -1078,15 +1070,15 @@ const ReportsPage: React.FC = () => {
                                                                             </div>
                                                                         </div>
                                                                         <div className="flex items-center space-x-2">
-                                                                            <DollarSign className="h-4 w-4 text-yellow-500" />
+                                                                            <Package className="h-4 w-4 text-yellow-500" />
                                                                             <div>
-                                                                                <p className="text-xs text-muted-foreground">Monthly Sales</p>
+                                                                                <p className="text-xs text-muted-foreground">Stock</p>
                                                                                 <p className="text-sm font-medium">
                                                                                     {(() => {
-                                                                                        const val = detail.avgMonthlySales;
-                                                                                        if (val % 1 === 0) return formatSalesNumber(val);
+                                                                                        const val = getAverageStock(detail);
+                                                                                        if (val % 1 === 0) return formatAverageStock(val);
                                                                                         const rounded = Math.round(val * 10) / 10;
-                                                                                        return formatSalesNumber(rounded);
+                                                                                        return formatAverageStock(rounded);
                                                                                     })()}
                                                                                 </p>
                                                                             </div>

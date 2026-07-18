@@ -16,8 +16,11 @@ import {
   CheckCircle,
   ClipboardList,
   Clock,
+  Download,
+  ExternalLink,
   FileText,
   Hash,
+  Image as ImageIcon,
   Loader2,
   Star,
   User,
@@ -26,9 +29,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Heading, Text } from "@/components/ui/typography";
-import { API, type ActivityDto } from "@/lib/api";
+import { API, API_BASE_URL, type ActivityAttachmentResponse, type ActivityDto } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type IconComponent = ComponentType<{ className?: string }>;
@@ -97,6 +107,31 @@ const formatNumber = (value?: number | null, suffix = "") => {
   if (typeof value !== "number" || !Number.isFinite(value)) return EMPTY_VALUE;
   return `${value.toLocaleString("en-IN")}${suffix}`;
 };
+
+const getAttachmentUrl = (attachment: ActivityAttachmentResponse) => {
+  const rawUrl = attachment.fileDownloadUri?.trim();
+  if (rawUrl) {
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    return `${API_BASE_URL}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
+  }
+
+  const fileName = attachment.fileName?.trim();
+  return fileName ? `${API_BASE_URL}/downloadFile/${encodeURIComponent(fileName)}` : "";
+};
+
+const isImageAttachment = (attachment: ActivityAttachmentResponse) => {
+  const fileType = attachment.fileType?.toLowerCase() ?? "";
+  return fileType.startsWith("image/");
+};
+
+const formatFileSize = (size?: number | null) => {
+  if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatPhotoCount = (count: number) => `${count} ${count === 1 ? "photo" : "photos"}`;
 
 const getStatusLabel = (activity: ActivityDto | null) => {
   if (activity?.status) return activity.status;
@@ -216,6 +251,7 @@ export default function ActivityDetailPage() {
   const [activity, setActivity] = useState<ActivityDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
 
   const fetchActivity = useCallback(async () => {
     if (!Number.isFinite(activityId)) {
@@ -252,6 +288,17 @@ export default function ActivityDetailPage() {
   );
   const createdDisplay = joinDateTime(activity?.createdDate, activity?.createdTime);
   const updatedDisplay = joinDateTime(activity?.updatedDate, activity?.updatedTime);
+  const activityPhotos = useMemo(() => {
+    const attachments = Array.isArray(activity?.attachmentResponse) ? activity.attachmentResponse : [];
+    return attachments.filter((attachment) => isImageAttachment(attachment) && getAttachmentUrl(attachment));
+  }, [activity?.attachmentResponse]);
+  const photoCount =
+    typeof activity?.imageCount === "number" && Number.isFinite(activity.imageCount)
+      ? activity.imageCount
+      : activityPhotos.length;
+  const selectedPhoto =
+    selectedPhotoIndex !== null ? activityPhotos[selectedPhotoIndex] ?? null : null;
+  const selectedPhotoUrl = selectedPhoto ? getAttachmentUrl(selectedPhoto) : "";
 
   if (isLoading) {
     return (
@@ -364,10 +411,11 @@ export default function ActivityDetailPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard icon={Clock} label="Started" value={checkinDisplay} />
                 <MetricCard icon={CheckCircle} label="Completed" value={checkoutDisplay} />
                 <MetricCard icon={Star} label="Rating" value={formatNumber(activity.rating)} />
+                <MetricCard icon={ImageIcon} label="Photos" value={formatPhotoCount(photoCount)} />
               </div>
             </CardContent>
           </Card>
@@ -383,8 +431,108 @@ export default function ActivityDetailPage() {
               <FieldBlock label="Description" value={formatText(activity.description)} />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="space-y-1">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ImageIcon className="h-5 w-5" />
+                Photos
+              </CardTitle>
+              <Text size="sm" tone="muted">
+                {formatPhotoCount(photoCount)} saved for this activity
+              </Text>
+            </CardHeader>
+            <CardContent>
+              {activityPhotos.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {activityPhotos.map((photo, index) => {
+                    const url = getAttachmentUrl(photo);
+                    const fileSize = formatFileSize(photo.size);
+
+                    return (
+                      <button
+                        key={`${photo.fileName}-${index}`}
+                        type="button"
+                        className="group overflow-hidden rounded-lg border bg-background text-left transition hover:border-primary hover:shadow-sm"
+                        onClick={() => setSelectedPhotoIndex(index)}
+                      >
+                        <div className="aspect-square overflow-hidden bg-muted">
+                          <img
+                            src={url}
+                            alt={photo.fileName || `Activity photo ${index + 1}`}
+                            className="h-full w-full object-cover transition group-hover:scale-105"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div className="space-y-1 p-2">
+                          <p className="truncate text-xs font-medium text-foreground">
+                            {photo.fileName || `Photo ${index + 1}`}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {[photo.fileType, fileSize].filter(Boolean).join(" · ") || "Image"}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : photoCount > 0 ? (
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <Text size="sm" tone="muted">
+                    {formatPhotoCount(photoCount)} are recorded, but the image files were not returned by the backend.
+                  </Text>
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <Text size="sm" tone="muted">
+                    No activity photos are saved yet.
+                  </Text>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </main>
       </div>
+
+      <Dialog open={Boolean(selectedPhoto)} onOpenChange={(open) => !open && setSelectedPhotoIndex(null)}>
+        <DialogContent className="max-h-[95vh] max-w-[95vw] sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{selectedPhoto?.fileName || "Activity photo"}</DialogTitle>
+          </DialogHeader>
+
+          {selectedPhoto && selectedPhotoUrl && (
+            <div className="space-y-4">
+              <div className="flex max-h-[72vh] items-center justify-center overflow-hidden rounded-lg bg-muted">
+                <img
+                  src={selectedPhotoUrl}
+                  alt={selectedPhoto.fileName || "Activity photo preview"}
+                  className="max-h-[72vh] w-auto max-w-full object-contain"
+                />
+              </div>
+              <Text size="sm" tone="muted" className="text-center">
+                Photo {(selectedPhotoIndex ?? 0) + 1} of {activityPhotos.length}
+              </Text>
+            </div>
+          )}
+
+          {selectedPhoto && selectedPhotoUrl && (
+            <DialogFooter>
+              <Button asChild variant="outline">
+                <a href={selectedPhotoUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4" />
+                  Open Original
+                </a>
+              </Button>
+              <Button asChild>
+                <a href={selectedPhotoUrl} download={selectedPhoto.fileName || undefined}>
+                  <Download className="h-4 w-4" />
+                  Download
+                </a>
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

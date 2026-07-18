@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { API, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from '@/lib/api';
+import { ProfessionalSelector } from '@/components/ProfessionalSelector';
+import { API, getStock, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto, type ProfessionalDto } from '@/lib/api';
 
 const ADDITIONAL_INFO_DEFAULT_OPTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'] as const;
 
@@ -65,6 +66,7 @@ interface CustomerData {
   country?: string;
   pincode?: string | number;
   gstNumber?: string;
+  stock?: string | number;
   monthlySale?: string | number;
   clientType?: string;
   
@@ -80,7 +82,11 @@ interface CustomerData {
   
   // Site Visit specific fields
   contractorName?: string;
+  contractorId?: number | null;
   engineerName?: string;
+  engineerId?: number | null;
+  engineerContact?: string | number | null;
+  engineerCity?: string | null;
   projectType?: string; // HOME, APARTMENT, GOVT_PROJECT, COMMERCIAL, INDUSTRIAL, OTHERS
   projectSizeSquareFeet?: number;
   
@@ -114,6 +120,10 @@ const decodeAdditionalInfo = (raw?: string | null): string[] => {
 
 const toApiCategory = (value: string): string => {
   return value.trim().toLowerCase().replace(/\s+/g, '_');
+};
+
+const isEngineerProfessional = (professional: ProfessionalDto): boolean => {
+  return (professional.role ?? '').toLowerCase().includes('engineer');
 };
 
 interface AddCustomerModalProps {
@@ -173,6 +183,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     existingData
       ? {
           ...existingData,
+          stock: getStock(existingData) ?? undefined,
           additionalInfo: existingData.additionalInfo ?? '',
           productCategories: initialAdditionalSelections,
         }
@@ -220,6 +231,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     if (currentExisting) {
       setCustomerData({
         ...currentExisting,
+        stock: getStock(currentExisting) ?? undefined,
         additionalInfo: currentExisting.additionalInfo ?? '',
         productCategories: selections,
       });
@@ -273,6 +285,9 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   const [districtSearch, setDistrictSearch] = useState('');
   const [subDistrictSearch, setSubDistrictSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
+  const [professionals, setProfessionals] = useState<ProfessionalDto[]>([]);
+  const [isLoadingProfessionals, setIsLoadingProfessionals] = useState(false);
+  const [professionalsError, setProfessionalsError] = useState<string | null>(null);
 
   // Filtered data based on search
   const filteredStates = states.filter(state =>
@@ -291,6 +306,11 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     city.cityName.toLowerCase().includes(citySearch.toLowerCase())
   );
 
+  const engineerOptions = useMemo(
+    () => professionals.filter(isEngineerProfessional),
+    [professionals]
+  );
+
   // Load states on mount
   useEffect(() => {
     const fetchStates = async () => {
@@ -306,6 +326,38 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
 
     fetchStates();
   }, []);
+
+  useEffect(() => {
+    if (!isOpen || customerData.clientType !== 'Site Visit' || !token) return;
+
+    let isCancelled = false;
+    const fetchProfessionals = async () => {
+      try {
+        setIsLoadingProfessionals(true);
+        setProfessionalsError(null);
+        const professionalsData = await API.getAllProfessionals();
+        if (!isCancelled) {
+          setProfessionals(professionalsData);
+        }
+      } catch (error) {
+        console.error('Error fetching professionals:', error);
+        if (!isCancelled) {
+          setProfessionals([]);
+          setProfessionalsError('Unable to load engineers');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingProfessionals(false);
+        }
+      }
+    };
+
+    fetchProfessionals();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, customerData.clientType, token]);
 
 
   // Load districts when state changes
@@ -434,7 +486,7 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     }
 
     let parsedValue: string | number = value;
-    const numberFields: (keyof CustomerData)[] = ['pincode', 'monthlySale', 'shopAgeYears', 'projectSizeSquareFeet'];
+    const numberFields: (keyof CustomerData)[] = ['pincode', 'stock', 'monthlySale', 'shopAgeYears', 'projectSizeSquareFeet'];
     if (numberFields.includes(field)) {
       parsedValue = value === '' ? '' : parseInt(value.toString(), 10);
     }
@@ -442,6 +494,16 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
     setCustomerData((prevData) => ({
       ...prevData,
       [field]: parsedValue,
+    }));
+  };
+
+  const handleEngineerSelect = (engineer: ProfessionalDto | null) => {
+    setCustomerData((prevData) => ({
+      ...prevData,
+      engineerId: engineer?.id,
+      engineerName: engineer?.name ?? '',
+      engineerContact: engineer?.contact ?? null,
+      engineerCity: engineer?.city ?? null,
     }));
   };
 
@@ -574,6 +636,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         ? `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/edit?id=${existingData?.id}`
         : 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/create';
 
+      const stockValue = cleanDigits(customerData.stock ?? customerData.monthlySale);
+
       const requestBody = {
         ...customerData,
         clientType: customerData.clientType,
@@ -581,7 +645,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
         primaryContact: cleanDigits(customerData.primaryContact),
         secondaryContact: cleanDigits(customerData.secondaryContact),
         pincode: cleanDigits(customerData.pincode),
-        monthlySale: cleanDigits(customerData.monthlySale),
+        stock: stockValue,
+        monthlySale: stockValue,
         shopAgeYears: customerData.shopAgeYears ? parseInt(customerData.shopAgeYears.toString(), 10) : undefined,
         projectSizeSquareFeet: customerData.projectSizeSquareFeet ? parseFloat(customerData.projectSizeSquareFeet.toString()) : undefined,
         latitude: customerData.latitude || null,
@@ -1147,10 +1212,10 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                 <Input id="gstNumber" value={customerData.gstNumber || ''} className="col-span-3" onChange={(e) => handleInputChange('gstNumber', e.target.value)} />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="monthlySale" className="text-right">
-                  Monthly Sale
+                <Label htmlFor="stock" className="text-right">
+                  Stock
                 </Label>
-                <Input id="monthlySale" type="number" value={customerData.monthlySale || ''} className="col-span-3" onChange={(e) => handleInputChange('monthlySale', e.target.value)} />
+                <Input id="stock" type="number" value={customerData.stock ?? ''} className="col-span-3" onChange={(e) => handleInputChange('stock', e.target.value)} />
               </div>
 
               {/* GPS Location */}
@@ -1293,11 +1358,27 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
                     </Label>
                     <Input id="contractorName" value={customerData.contractorName || ''} className="col-span-3" onChange={(e) => handleInputChange('contractorName', e.target.value)} />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="engineerName" className="text-right">
+                  <div className="grid grid-cols-4 items-start gap-4">
+                    <Label htmlFor="engineerName" className="pt-2 text-right">
                       Engineer Name
                     </Label>
-                    <Input id="engineerName" value={customerData.engineerName || ''} className="col-span-3" onChange={(e) => handleInputChange('engineerName', e.target.value)} />
+                    <div className="col-span-3">
+                      <ProfessionalSelector
+                        professionals={engineerOptions}
+                        value={customerData.engineerId ?? null}
+                        onChange={handleEngineerSelect}
+                        isLoading={isLoadingProfessionals}
+                        placeholder="Select Engineer"
+                        searchPlaceholder="Search engineer by name, contact, or city"
+                        emptyMessage="No engineers found"
+                        legacyName={customerData.engineerName}
+                        legacyContact={customerData.engineerContact}
+                        legacyCity={customerData.engineerCity}
+                      />
+                      {professionalsError && (
+                        <p className="mt-1 text-xs text-red-600">{professionalsError}</p>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="projectType" className="text-right">

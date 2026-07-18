@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import { format } from "date-fns";
+import { formatStockQuantity, getStock, type StockCompatible } from "@/lib/api";
 
 export default function CustomersTable({ customers }: { customers: unknown[] }) {
   const { userRole, currentUser } = useAuth();
@@ -59,7 +60,7 @@ export default function CustomersTable({ customers }: { customers: unknown[] }) 
                   <TableHead>City</TableHead>
                   <TableHead>State</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Monthly Sales</TableHead>
+                  <TableHead>Stock</TableHead>
                   
                   <TableHead>Field Officer</TableHead>
                   <TableHead>Client Type</TableHead>
@@ -71,6 +72,7 @@ export default function CustomersTable({ customers }: { customers: unknown[] }) 
                 {customers.length > 0 ? (
                   customers.map((customer) => {
                     const c = customer as Record<string, unknown>;
+                    const stockValue = getStock(c as StockCompatible);
                     return (
                     <TableRow key={c.id as number}>
                       <TableCell className="font-medium break-words">
@@ -82,7 +84,7 @@ export default function CustomersTable({ customers }: { customers: unknown[] }) 
                       <TableCell className="break-words">{String(c.city || '')}</TableCell>
                       <TableCell className="break-words">{String(c.state || '')}</TableCell>
                       <TableCell className="break-words">{String(c.phone || '')}</TableCell>
-                      <TableCell className="break-words">{String(c.monthlySales || '')}</TableCell>
+                      <TableCell className="break-words">{formatStockQuantity(stockValue)}</TableCell>
                       
                       <TableCell className="break-words">{String(c.fieldOfficer || '')}</TableCell>
                       <TableCell className="break-words">{String(c.clientType || '')}</TableCell>
