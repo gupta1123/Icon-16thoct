@@ -1394,8 +1394,8 @@ export class API {
     return apiService.getTeams();
   }
 
-  static async getTeamHierarchyScoped(): Promise<TeamHierarchyResponse> {
-    return apiService.getTeamHierarchyScoped();
+  static async getTeamHierarchyScoped(employeeId?: number): Promise<TeamHierarchyResponse> {
+    return apiService.getTeamHierarchyScoped(employeeId);
   }
 
   static async createTeam(payload: TeamCreateRequest): Promise<number> {
@@ -2285,8 +2285,15 @@ export class API {
     return this.makeRequest<EmployeeDto[]>('/employee/getTeamFieldOfficers');
   }
 
-  async getTeamHierarchyScoped(): Promise<TeamHierarchyResponse> {
-    return this.makeRequest<TeamHierarchyResponse>('/employee/team/hierarchy/scoped');
+  async getTeamHierarchyScoped(employeeId?: number): Promise<TeamHierarchyResponse> {
+    const params = new URLSearchParams();
+    if (employeeId !== undefined && employeeId !== null) {
+      params.append('employeeId', String(employeeId));
+    }
+    const query = params.toString();
+    return this.makeRequest<TeamHierarchyResponse>(
+      `/employee/team/hierarchy/scoped${query ? `?${query}` : ''}`
+    );
   }
 
   async getAllFieldOfficers(city?: string, state?: string): Promise<EmployeeDto[]> {

@@ -67,6 +67,7 @@ type SaveSummary = {
 };
 
 const ASSIGNMENT_SOURCE = "WEB_ASSIGN_VISITS";
+const ASSIGN_VISITS_EMPLOYEE_ID = 10000;
 
 const normalizeStatusLabel = (value?: string | null) => {
   const normalized = String(value ?? "").trim().toUpperCase();
@@ -138,7 +139,7 @@ const normalizeGridResponse = (response: VisitGridV2Response): VisitGridState =>
 };
 
 export default function AssignVisitsPage() {
-  const { userRole, userData, currentUser, isLoading: authLoading, isAuthenticated, token } = useAuth();
+  const { userRole, currentUser, isLoading: authLoading, isAuthenticated, token } = useAuth();
   
   // State for real data
   const [employees, setEmployees] = useState<EmployeeDto[]>([]);
@@ -257,7 +258,7 @@ export default function AssignVisitsPage() {
         console.log('Loading team hierarchy with scoped API...');
         try {
           // Use the hierarchy API to get team structure scoped to current user's role
-          const hierarchyData: TeamHierarchyResponse = await apiService.getTeamHierarchyScoped();
+          const hierarchyData: TeamHierarchyResponse = await apiService.getTeamHierarchyScoped(ASSIGN_VISITS_EMPLOYEE_ID);
           console.log('Team hierarchy loaded:', hierarchyData);
           
           // Extract all field officers from all teams
@@ -536,16 +537,7 @@ export default function AssignVisitsPage() {
   };
 
   const getCurrentEmployeeId = () => {
-    if (typeof userData?.employeeId === "number" && Number.isFinite(userData.employeeId)) {
-      return userData.employeeId;
-    }
-
-    if (typeof window !== "undefined") {
-      const localValue = Number(localStorage.getItem("employeeId"));
-      if (Number.isFinite(localValue) && localValue > 0) return localValue;
-    }
-
-    return null;
+    return ASSIGN_VISITS_EMPLOYEE_ID;
   };
 
   const getReasonText = (detail: string | BulkVisitResultDetail, fallback: string) => {
