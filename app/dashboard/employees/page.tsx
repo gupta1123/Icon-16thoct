@@ -582,7 +582,7 @@ export default function EmployeeList() {
               firstName: editingEmployee.firstName,
               lastName: editingEmployee.lastName,
               email: editingEmployee.email,
-              role: editingEmployee.role,
+              role: formatRoleForPayload(editingEmployee.role),
               departmentName: editingEmployee.departmentName,
               userName: editingEmployee.userName,
               primaryContact: editingEmployee.primaryContact,
@@ -631,7 +631,7 @@ export default function EmployeeList() {
           secondaryContact: newEmployee.secondaryContact,
           departmentName: newEmployee.departmentName,
           email: newEmployee.email,
-          role: newEmployee.role,
+          role: formatRoleForPayload(newEmployee.role),
           addressLine1: newEmployee.addressLine1,
           addressLine2: newEmployee.addressLine2,
           city: newEmployee.city,
@@ -892,6 +892,22 @@ export default function EmployeeList() {
     };
     
     return roleMap[roleLower] || role;
+  };
+
+  const formatRoleForPayload = (role: string) => {
+    const normalizedRole = role.trim().replace(/\s+/g, '_').toUpperCase();
+    const roleMap: Record<string, string> = {
+      HR: 'HR',
+      AVP: 'AVP',
+      REGIONAL_MANAGER: 'Regional Manager',
+      OFFICE_MANAGER: 'Office Manager',
+      MANAGER: 'Manager',
+      COORDINATOR: 'Coordinator',
+      DATA_MANAGER: 'Data Manager',
+      FIELD_OFFICER: 'Field Officer',
+    };
+
+    return roleMap[normalizedRole] || role.trim().replace(/_/g, ' ');
   };
 
   // Helper function to get role badge color
@@ -1947,7 +1963,7 @@ export default function EmployeeList() {
                       <SelectContent>
                         <SelectItem value="HR">HR</SelectItem>
                         <SelectItem value="AVP">AVP</SelectItem>
-                        <SelectItem value="Regional_Manager">Regional Manager</SelectItem>
+                        <SelectItem value="Regional Manager">Regional Manager</SelectItem>
                         <SelectItem value="Coordinator">Coordinator</SelectItem>
                         <SelectItem value="Data Manager">Data Manager</SelectItem>
                         <SelectItem value="Field Officer">Field Officer</SelectItem>
@@ -2156,7 +2172,7 @@ export default function EmployeeList() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="HR">HR</SelectItem>
-                      <SelectItem value="Regional_Manager">Regional Manager</SelectItem>
+                      <SelectItem value="Regional Manager">Regional Manager</SelectItem>
                       <SelectItem value="Coordinator">Coordinator</SelectItem>
                       <SelectItem value="Data Manager">Data Manager</SelectItem>
                       <SelectItem value="Field Officer">Field Officer</SelectItem>
