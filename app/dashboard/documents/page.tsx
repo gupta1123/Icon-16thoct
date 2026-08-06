@@ -2,9 +2,11 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
+import Link from "next/link";
 import {
   AlertCircle,
   Download,
+  Eye,
   FileText,
   Loader2,
   Plus,
@@ -40,25 +42,17 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { API_BASE_URL } from "@/lib/api";
 import {
+  AdminDocument,
+  getDocumentDate,
+  getDocumentFileName,
+  isDocumentActive,
+  parseDocumentsResponse,
+} from "@/lib/admin-documents";
+import {
   extractAuthorityRoles,
   hasAnyRole,
   normalizeRoleValue,
 } from "@/lib/role-utils";
-
-type AdminDocument = {
-  id: number;
-  title?: string | null;
-  description?: string | null;
-  category?: string | null;
-  fileName?: string | null;
-  originalFileName?: string | null;
-  blobName?: string | null;
-  active?: boolean | string | null;
-  status?: string | null;
-  createdAt?: string | null;
-  uploadedAt?: string | null;
-  updatedAt?: string | null;
-};
 
 type DocumentForm = {
   title: string;
@@ -72,37 +66,6 @@ const initialForm: DocumentForm = {
   description: "",
   category: "",
   file: null,
-};
-
-const getDocumentFileName = (document: AdminDocument) =>
-  document.fileName || document.originalFileName || document.blobName || "";
-
-const getDocumentDate = (document: AdminDocument) =>
-  document.uploadedAt || document.createdAt || document.updatedAt || "";
-
-const isDocumentActive = (document: AdminDocument) => {
-  const activeValue =
-    typeof document.active === "string"
-      ? document.active.trim().toLowerCase()
-      : document.active;
-  const statusValue = (document.status ?? "").trim().toLowerCase();
-
-  return activeValue !== false && activeValue !== "false" && statusValue !== "inactive";
-};
-
-const parseDocumentsResponse = (data: unknown): AdminDocument[] => {
-  if (Array.isArray(data)) {
-    return data as AdminDocument[];
-  }
-
-  if (data && typeof data === "object") {
-    const maybeContent = (data as { content?: unknown }).content;
-    if (Array.isArray(maybeContent)) {
-      return maybeContent as AdminDocument[];
-    }
-  }
-
-  return [];
 };
 
 const formatDate = (value: string) => {
@@ -375,6 +338,12 @@ export default function DocumentsPage() {
                       <TableCell>{formatDate(getDocumentDate(document))}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link href={`/dashboard/documents/${document.id}`}>
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Link>
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"

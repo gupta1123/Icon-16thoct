@@ -1,35 +1,34 @@
 .custom-calendar {
-    border: none;
-    border-radius: 20px;
-    background-color: #fff;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 14px;
+    background-color: #ffffff;
     overflow: hidden;
     width: 100%;
-    max-width: 300px;
+    max-width: 100%;
     position: relative;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .calendar-days {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    padding: 10px;
-    background-color: #e2e8f0;
-    color: #1e293b;
+    padding: 6px 4px;
+    background-color: #f1f5f9;
+    color: #475569;
     text-transform: uppercase;
-    font-size: 0.8em;
-    letter-spacing: 1px;
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
-    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    text-align: center;
 }
 
 .calendar-dates {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    padding: 10px;
+    padding: 4px;
+    gap: 2px;
     position: relative;
     overflow: visible;
-    contain: layout;
 }
 
 .calendar-dates div {
@@ -37,311 +36,161 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 5px;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    height: auto;
     cursor: pointer;
-    border-radius: 10px;
-    margin: 2px;
-    transition: all 0.3s ease;
-    font-weight: 500;
-    font-size: 0.9em;
-    /* Add padding to create a larger hover area */
-    padding: 8px;
-    /* Default light mode styling for regular days */
+    border-radius: 6px;
+    margin: 0;
+    transition: all 0.2s ease;
+    font-weight: 600;
+    font-size: 0.75rem;
+    padding: 0;
     background-color: #f8fafc;
     color: #64748b;
     border: 1px solid #e2e8f0;
+    box-sizing: border-box;
 }
 
 .calendar-dates div:hover {
     background-color: #e2e8f0;
-    color: #475569;
+    color: #334155;
     border-color: #cbd5e1;
+    transform: scale(1.05);
+    z-index: 2;
 }
 
 .calendar-dates div.full-day {
     background-color: #10b981;
     color: white;
     border: 1px solid #059669;
-    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .calendar-dates div.half-day {
     background-color: #f59e0b;
     color: white;
     border: 1px solid #d97706;
-    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .calendar-dates div.absent {
     background-color: #ef4444;
     color: white;
     border: 1px solid #dc2626;
-    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .calendar-dates div.present {
     background-color: #3b82f6;
     color: white;
     border: 1px solid #2563eb;
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .calendar-dates div.sunday {
     background-color: #8b5cf6;
     color: white;
     border: 1px solid #7c3aed;
-    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
-/* New status types */
 .calendar-dates div.paid-leave {
     background-color: #8b5cf6;
     color: white;
     border: 1px solid #7c3aed;
-    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .calendar-dates div.full-day-activity {
     background-color: #06b6d4;
     color: white;
     border: 1px solid #0891b2;
-    box-shadow: 0 2px 4px rgba(6, 182, 212, 0.3);
-    font-weight: 600;
-}
-
-.calendar-dates div:hover {
-    transform: scale(1.1);
-    z-index: 2;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-/* Override hover colors for attendance status days */
-.calendar-dates div.full-day:hover {
-    background-color: #059669;
-    border-color: #047857;
-    box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
-}
-
-.calendar-dates div.half-day:hover {
-    background-color: #d97706;
-    border-color: #b45309;
-    box-shadow: 0 4px 8px rgba(245, 158, 11, 0.4);
-}
-
-.calendar-dates div.absent:hover {
-    background-color: #dc2626;
-    border-color: #b91c1c;
-    box-shadow: 0 4px 8px rgba(239, 68, 68, 0.4);
-}
-
-.calendar-dates div.present:hover {
-    background-color: #2563eb;
-    border-color: #1d4ed8;
-    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
-}
-
-.calendar-dates div.sunday:hover {
-    background-color: #7c3aed;
-    border-color: #6d28d9;
-    box-shadow: 0 4px 8px rgba(139, 92, 246, 0.4);
-}
-
-.calendar-dates div.paid-leave:hover {
-    background-color: #7c3aed;
-    border-color: #6d28d9;
-    box-shadow: 0 4px 8px rgba(139, 92, 246, 0.4);
-}
-
-.calendar-dates div.full-day-activity:hover {
-    background-color: #0891b2;
-    border-color: #0e7490;
-    box-shadow: 0 4px 8px rgba(6, 182, 212, 0.4);
+    font-weight: 700;
 }
 
 .calendar-dates div.empty {
     cursor: default;
-    background: none;
-    transform: none;
+    background: transparent;
+    border: none;
+    transform: none !important;
 }
 
 .calendar-dates div.empty:hover {
-    transform: none;
+    background: transparent;
     box-shadow: none;
 }
 
 .calendar-tooltip {
     visibility: hidden;
     width: auto;
-    max-width: 120px;
-    background-color: rgba(0, 0, 0, 0.9);
+    max-width: 140px;
+    background-color: rgba(15, 23, 42, 0.95);
     color: #fff;
     text-align: center;
-    border-radius: 8px;
-    padding: 8px 12px;
+    border-radius: 6px;
+    padding: 4px 8px;
     position: absolute;
-    z-index: 10;
-    bottom: 125%;
+    z-index: 30;
+    bottom: 120%;
     left: 50%;
     transform: translateX(-50%);
     opacity: 0;
-    transition: opacity 0.2s ease 0.1s, visibility 0.2s ease 0.1s;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    transition: opacity 0.15s ease;
     white-space: nowrap;
-    font-size: 12px;
-    font-weight: 500;
-    pointer-events: auto;
-    /* Add margin to create space between tooltip and date */
-    margin-bottom: 10px;
-}
-
-/* Create a larger hover area */
-.calendar-dates div::before {
-    content: '';
-    position: absolute;
-    top: -5px;
-    left: -5px;
-    right: -5px;
-    bottom: -5px;
-    z-index: -1;
-}
-
-.calendar-dates div:hover .calendar-tooltip {
-    visibility: visible !important;
-    opacity: 1 !important;
-    transform: translateX(-50%) translateY(0) !important;
-    transition-delay: 0.2s;
-}
-
-/* Keep tooltip visible when hovering over it */
-.calendar-tooltip:hover {
-    visibility: visible !important;
-    opacity: 1 !important;
-}
-
-.calendar-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 6px;
-    border-style: solid;
-    border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent;
+    font-size: 10px;
+    font-weight: 600;
     pointer-events: none;
 }
 
-/* Dark mode support - using .dark class instead of prefers-color-scheme */
+.calendar-dates div:hover .calendar-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Dark mode support */
 .dark .custom-calendar {
-    background-color: #1e293b;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    background-color: #0f172a;
+    border-color: rgba(51, 65, 85, 0.8);
 }
 
 .dark .calendar-days {
-    background-color: #334155;
-    color: #e2e8f0;
-    border-bottom: 1px solid #475569;
+    background-color: #1e293b;
+    color: #94a3b8;
 }
 
 .dark .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):not(.empty):not(.paid-leave):not(.full-day-activity) {
-    background-color: #334155;
+    background-color: #1e293b;
     color: #cbd5e1;
-    border: 1px solid #475569;
+    border-color: #334155;
 }
 
-.dark .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):not(.empty):not(.paid-leave):not(.full-day-activity):hover {
-    background-color: #475569;
-    color: #f1f5f9;
-    border-color: #64748b;
-}
-    
-/* Enhanced dark mode colors for attendance status */
 .dark .calendar-dates div.full-day {
     background-color: #059669;
     border-color: #047857;
-    box-shadow: 0 2px 4px rgba(5, 150, 105, 0.4);
 }
 
 .dark .calendar-dates div.half-day {
     background-color: #d97706;
     border-color: #b45309;
-    box-shadow: 0 2px 4px rgba(217, 119, 6, 0.4);
 }
 
 .dark .calendar-dates div.absent {
     background-color: #dc2626;
     border-color: #b91c1c;
-    box-shadow: 0 2px 4px rgba(220, 38, 38, 0.4);
 }
 
 .dark .calendar-dates div.present {
     background-color: #2563eb;
     border-color: #1d4ed8;
-    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.4);
-}
-
-.dark .calendar-dates div.sunday {
-    background-color: #7c3aed;
-    border-color: #6d28d9;
-    box-shadow: 0 2px 4px rgba(124, 58, 237, 0.4);
-}
-
-/* Dark mode hover effects */
-.dark .calendar-dates div.full-day:hover {
-    background-color: #047857;
-    border-color: #065f46;
-    box-shadow: 0 4px 8px rgba(5, 150, 105, 0.5);
-}
-
-.dark .calendar-dates div.half-day:hover {
-    background-color: #b45309;
-    border-color: #92400e;
-    box-shadow: 0 4px 8px rgba(217, 119, 6, 0.5);
-}
-
-.dark .calendar-dates div.absent:hover {
-    background-color: #b91c1c;
-    border-color: #991b1b;
-    box-shadow: 0 4px 8px rgba(220, 38, 38, 0.5);
-}
-
-.dark .calendar-dates div.present:hover {
-    background-color: #1d4ed8;
-    border-color: #1e40af;
-    box-shadow: 0 4px 8px rgba(37, 99, 235, 0.5);
-}
-
-.dark .calendar-dates div.sunday:hover {
-    background-color: #6d28d9;
-    border-color: #5b21b6;
-    box-shadow: 0 4px 8px rgba(124, 58, 237, 0.5);
 }
 
 .dark .calendar-dates div.paid-leave {
     background-color: #7c3aed;
     border-color: #6d28d9;
-    box-shadow: 0 2px 4px rgba(124, 58, 237, 0.4);
-}
-
-.dark .calendar-dates div.paid-leave:hover {
-    background-color: #6d28d9;
-    border-color: #5b21b6;
-    box-shadow: 0 4px 8px rgba(124, 58, 237, 0.5);
 }
 
 .dark .calendar-dates div.full-day-activity {
     background-color: #0891b2;
     border-color: #0e7490;
-    box-shadow: 0 2px 4px rgba(8, 145, 178, 0.4);
-}
-
-.dark .calendar-dates div.full-day-activity:hover {
-    background-color: #0e7490;
-    border-color: #155e75;
-    box-shadow: 0 4px 8px rgba(8, 145, 178, 0.5);
 }

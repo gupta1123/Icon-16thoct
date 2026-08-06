@@ -98,6 +98,10 @@ const DailyBreakdown: React.FC = () => {
         },
         [todayStr]
     );
+    const isFutureDate = useCallback(
+        (dateStr: string) => dateStr > todayStr,
+        [todayStr]
+    );
 
     const editableRowKeys = useMemo(() => {
         return dailyBreakdownData
@@ -582,7 +586,7 @@ const DailyBreakdown: React.FC = () => {
                                                                     </div>
                                                                 </div>
                                                                 <div className="text-right">
-                                                                    {!isAdmin || day.isSunday || !isEditableDate(day.date) ? (
+                                                                    {isFutureDate(day.date) ? null : !isAdmin || day.isSunday || !isEditableDate(day.date) ? (
                                                                         <Badge className={`${getDayTypeColor(day.dayType, day.isSunday)} mb-1`}>
                                                                             {getDayTypeDisplay(day.dayType, day.isSunday)}
                                                                         </Badge>
@@ -733,7 +737,7 @@ const DailyBreakdown: React.FC = () => {
                                                                 <span className="text-muted-foreground">({formatDayName(day.dayOfWeek).slice(0, 3).toUpperCase()})</span>
                                                             </TableCell>
                                                             <TableCell>
-                                                                {!isAdmin || day.isSunday || !isEditableDate(day.date) ? (
+                                                                {isFutureDate(day.date) ? null : !isAdmin || day.isSunday || !isEditableDate(day.date) ? (
                                                                     <Badge className={getDayTypeColor(day.dayType, day.isSunday)}>
                                                                         {getDayTypeDisplay(day.dayType, day.isSunday)}
                                                                     </Badge>

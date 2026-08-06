@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -20,7 +20,6 @@ import {
   Info
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { Heading, Text } from "@/components/ui/typography";
 import CustomCalendar from "./custom-calendar";
 
 interface Visit {
@@ -68,7 +67,13 @@ interface EmployeeAttendanceCardProps {
   onDateClick?: (date: string, employeeName: string) => void;
 }
 
-export default function EmployeeAttendanceCard({ employee, selectedMonth, selectedYear, attendanceData, onDateClick }: EmployeeAttendanceCardProps) {
+export default function EmployeeAttendanceCard({ 
+  employee, 
+  selectedMonth, 
+  selectedYear, 
+  attendanceData, 
+  onDateClick 
+}: EmployeeAttendanceCardProps) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [summary, setSummary] = useState({
@@ -99,13 +104,11 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     ));
   }, []);
 
-  // Filter attendance for this specific employee
   const filteredAttendanceData = useMemo(
     () => attendanceData.filter((data) => data.employeeId === employee.id),
     [attendanceData, employee.id]
   );
 
-  // Calculate full days breakdown
   const fullDaysBreakdown = useMemo(() => {
     const breakdown = {
       visitBasedFullDays: 0,
@@ -129,109 +132,81 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
     return breakdown;
   }, [filteredAttendanceData]);
 
-  // Get employee initials
   const getInitials = (name: string) => {
-    if (!name || typeof name !== 'string') {
-      return '??';
-    }
-    
-    // Filter out undefined, null, empty strings, and trim whitespace
-    const parts = name
-      .split(' ')
-      .map(part => part.trim())
-      .filter(part => part && part !== 'undefined' && part !== 'null' && part.length > 0);
-    
+    if (!name || typeof name !== 'string') return '??';
+    const parts = name.split(' ').map(p => p.trim()).filter(Boolean);
     if (parts.length >= 2) {
-      // Get first letter of first name and first letter of last name
-      const firstInitial = parts[0][0]?.toUpperCase() || '';
-      const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
-      return (firstInitial + lastInitial) || '??';
+      return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase();
     } else if (parts.length === 1) {
-      // If only one name part, take first 2 characters
-      return parts[0].substring(0, 2).toUpperCase() || '??';
+      return parts[0].substring(0, 2).toUpperCase();
     }
-    
     return '??';
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "present": return "bg-green-500 dark:bg-green-600";
-      case "half": return "bg-yellow-500 dark:bg-yellow-600";
-      case "absent": return "bg-red-500 dark:bg-red-600";
-      default: return "bg-gray-100 dark:bg-gray-700";
-    }
-  };
-
-
-  // Get visits for the selected date
   const selectedDateVisits = selectedDate 
     ? employee.attendance.find(record => record.date === selectedDate)?.visits || []
     : [];
 
   return (
     <>
-      <Card className="w-full hover:shadow-md transition-shadow">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl w-10 h-10 flex items-center justify-center text-white font-semibold text-sm shadow-md">
-                {getInitials(employee.name)}
-              </div>
-              <div>
-                <Heading as="h3" size="lg" weight="semibold" className="text-foreground dark:text-gray-200">
-                  {employee.name}
-                </Heading>
-                <Text size="sm" tone="muted" className="dark:text-gray-400">
-                  {employee.position}
-                </Text>
-              </div>
+      <Card className="w-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden py-0 gap-0">
+        <CardContent className="p-3.5 space-y-3">
+          {/* Header */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="bg-purple-600 text-white font-bold text-xs rounded-lg h-8 w-8 flex items-center justify-center shrink-0 shadow-sm">
+              {getInitials(employee.name)}
+            </div>
+            <div className="min-w-0 flex flex-col justify-center m-0 p-0">
+              <span className="font-bold text-sm text-foreground truncate block leading-none">
+                {employee.name}
+              </span>
+              <span className="text-[11px] text-muted-foreground truncate block leading-none mt-1">
+                {employee.position || 'Field Officer'}
+              </span>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-2 mb-4">
+
+          {/* Compact Summary Cards */}
+          <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
             <Popover>
               <PopoverTrigger asChild>
-                <div className="bg-green-50 dark:bg-green-900/30 p-2 rounded-lg text-center cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors">
+                <div className="bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/20 p-1.5 rounded-lg cursor-pointer hover:bg-emerald-500/15 transition-colors">
                   <div className="flex items-center justify-center mb-0.5 gap-1">
-                    <Sun className="h-3 w-3 text-green-600 dark:text-green-400" />
-                    <Info className="h-2.5 w-2.5 text-green-500 dark:text-green-400 opacity-60" />
+                    <Sun className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                    <Info className="h-2.5 w-2.5 text-emerald-500 opacity-60" />
                   </div>
-                  <Heading as="p" size="md" weight="semibold" className="text-green-800 dark:text-green-300">
+                  <span className="font-bold text-xs text-emerald-700 dark:text-emerald-300 block leading-tight">
                     {summary.fullDays}
-                  </Heading>
-                  <Text size="xs" tone="muted" className="text-green-700 dark:text-green-400">
-                    Full Days
-                  </Text>
+                  </span>
+                  <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400 font-medium">Full Days</span>
                 </div>
               </PopoverTrigger>
-              <PopoverContent className="w-64" align="start">
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-sm mb-3 border-b pb-2">Full Days Breakdown</h4>
-                  <div className="space-y-2 text-sm">
+              <PopoverContent className="w-60 p-3 rounded-xl" align="start">
+                <div className="space-y-2 text-xs">
+                  <h4 className="font-bold text-xs pb-1.5 border-b">Full Days Breakdown</h4>
+                  <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground flex items-center gap-2">
-                        <div className="w-3 h-3 bg-green-500 rounded"></div>
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
                         Visit-based
                       </span>
                       <span className="font-semibold">{fullDaysBreakdown.visitBasedFullDays}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground flex items-center gap-2">
-                        <div className="w-3 h-3 bg-cyan-500 rounded"></div>
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <span className="w-2 h-2 bg-cyan-500 rounded-full"></span>
                         Activity-based
                       </span>
                       <span className="font-semibold">{fullDaysBreakdown.activityBasedFullDays}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground flex items-center gap-2">
-                        <div className="w-3 h-3 bg-purple-500 rounded"></div>
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
                         Paid Leaves (Sundays)
                       </span>
                       <span className="font-semibold">{fullDaysBreakdown.paidLeaves}</span>
                     </div>
-                    <div className="flex justify-between items-center pt-2 border-t font-semibold">
+                    <div className="flex justify-between items-center pt-1.5 border-t font-bold text-foreground">
                       <span>Total Full Days</span>
                       <span>{fullDaysBreakdown.total}</span>
                     </div>
@@ -239,31 +214,30 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
                 </div>
               </PopoverContent>
             </Popover>
-            <div className="bg-yellow-50 dark:bg-yellow-900/30 p-2 rounded-lg text-center">
+
+            <div className="bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/20 p-1.5 rounded-lg">
               <div className="flex items-center justify-center mb-0.5">
-                <CloudSun className="h-3 w-3 text-yellow-600 dark:text-yellow-400" />
+                <CloudSun className="h-3 w-3 text-amber-600 dark:text-amber-400" />
               </div>
-              <Heading as="p" size="md" weight="semibold" className="text-yellow-800 dark:text-yellow-300">
+              <span className="font-bold text-xs text-amber-700 dark:text-amber-300 block leading-tight">
                 {summary.halfDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-yellow-700 dark:text-yellow-400">
-                Half Days
-              </Text>
+              </span>
+              <span className="text-[10px] text-amber-600/80 dark:text-amber-400 font-medium">Half Days</span>
             </div>
-            <div className="bg-red-50 dark:bg-red-900/30 p-2 rounded-lg text-center">
+
+            <div className="bg-rose-500/10 dark:bg-rose-950/40 border border-rose-500/20 p-1.5 rounded-lg">
               <div className="flex items-center justify-center mb-0.5">
-                <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                <XCircle className="h-3 w-3 text-rose-600 dark:text-rose-400" />
               </div>
-              <Heading as="p" size="md" weight="semibold" className="text-red-800 dark:text-red-300">
+              <span className="font-bold text-xs text-rose-700 dark:text-rose-300 block leading-tight">
                 {summary.absentDays}
-              </Heading>
-              <Text size="xs" tone="muted" className="text-red-700 dark:text-red-400">
-                Absent
-              </Text>
+              </span>
+              <span className="text-[10px] text-rose-600/80 dark:text-rose-400 font-medium">Absent</span>
             </div>
           </div>
-          
-          <div className="mt-4">
+
+          {/* Calendar Section */}
+          <div className="pt-0.5">
             <CustomCalendar
               month={selectedMonth}
               year={selectedYear}
@@ -277,34 +251,34 @@ export default function EmployeeAttendanceCard({ employee, selectedMonth, select
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Calendar className="h-4 w-4" />
               Visits on {selectedDate ? format(parseISO(selectedDate), "MMMM d, yyyy") : ""}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
+          <div className="space-y-2.5 max-h-80 overflow-y-auto">
             {selectedDateVisits.length > 0 ? (
               selectedDateVisits.map((visit) => (
-                <div key={visit.id} className="border rounded-lg p-3 dark:border-gray-700">
-                  <div className="flex justify-between">
-                    <Heading as="h4" size="md" weight="semibold" className="dark:text-gray-200">
+                <div key={visit.id} className="border rounded-xl p-3 bg-muted/30 text-xs">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-foreground">
                       {visit.customer}
-                    </Heading>
-                    <Badge variant="secondary" className="dark:bg-gray-700 dark:text-gray-300">
+                    </span>
+                    <Badge variant="secondary" className="text-[10px]">
                       {visit.time}
                     </Badge>
                   </div>
-                  <Text size="sm" tone="muted" className="mt-1 dark:text-gray-400">
+                  <p className="text-muted-foreground text-[11px]">
                     {visit.purpose}
-                  </Text>
+                  </p>
                 </div>
               ))
             ) : (
-              <Text size="sm" tone="muted" className="py-4 text-center dark:text-gray-400">
+              <p className="text-xs text-muted-foreground py-4 text-center">
                 No visits recorded for this day
-              </Text>
+              </p>
             )}
           </div>
         </DialogContent>

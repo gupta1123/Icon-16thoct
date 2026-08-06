@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CalendarIcon, Download } from "lucide-react";
+import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CalendarIcon, Download, Check, X } from "lucide-react";
 import EmployeeExpenseCard from "@/components/employee-expense-card";
 import { Text } from "@/components/ui/typography";
 import { apiService, ExpenseDto } from "@/lib/api";
@@ -504,7 +504,7 @@ export default function ExpensesPage() {
 
   // Helper to render the card grid (reused for mobile and desktop)
   const renderCards = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {filteredEmployees.length === 0 ? (
         <div className="col-span-full text-center py-12">
           <Text tone="muted">No expenses found for the selected period.</Text>
@@ -528,146 +528,155 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-          <CardTitle>Filters</CardTitle>
-          <Text tone="muted" size="sm">
-            Track and manage employee expense reports
-          </Text>
-            </div>
-            <div className="hidden md:flex items-center gap-2">
-              {canExport && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExport}
-                  disabled={isLoading || allExpenses.length === 0}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export CSV
-                </Button>
-              )}
-              <Text size="sm" tone="muted">View:</Text>
-              <div className="flex border rounded-lg">
-                <Button
-                  variant={viewMode === "card" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("card")}
-                  className="rounded-r-none"
-                >
-                  <Grid3X3 className="h-4 w-4 mr-1" />
-                  Cards
-                </Button>
-                <Button
-                  variant={viewMode === "table" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("table")}
-                  className="rounded-l-none"
-                >
-                  <TableIcon className="h-4 w-4 mr-1" />
-                  Table
-                </Button>
-              </div>
+      <Card className="gap-3 border border-border/60 bg-card p-4 shadow-sm rounded-xl">
+        {/* Header Row */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-1">
+          <div>
+            <h3 className="text-base font-bold text-foreground">Filters</h3>
+            <p className="!mt-1 text-xs leading-5 text-muted-foreground">
+              Track and manage employee expense reports
+            </p>
+          </div>
+
+          <div className="hidden md:flex items-center gap-2.5">
+            {canExport && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={isLoading || allExpenses.length === 0}
+                className="h-8 rounded-lg text-xs font-medium"
+              >
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Export CSV
+              </Button>
+            )}
+            <div className="flex items-center gap-1 bg-muted p-1 rounded-lg border border-border/50">
+              <span className="text-[11px] text-muted-foreground font-medium px-1.5">View:</span>
+              <button
+                onClick={() => setViewMode("card")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                  viewMode === "card" 
+                    ? "bg-background text-foreground shadow-sm" 
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Grid3X3 className="h-3.5 w-3.5" />
+                Cards
+              </button>
+              <button
+                onClick={() => setViewMode("table")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                  viewMode === "table" 
+                    ? "bg-background text-foreground shadow-sm" 
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <TableIcon className="h-3.5 w-3.5" />
+                Table
+              </button>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <Separator className="mb-6" />
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_repeat(2,minmax(0,1fr))_auto] gap-4">
-            <div className="space-y-2">
-              <Label>Search Employee</Label>
-              <div className="relative">
-                <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or position..."
-                  className="pl-10"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+        </div>
+
+        <Separator />
+
+        {/* Inputs Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+          {/* Search Input */}
+          <div className="space-y-1 lg:col-span-4">
+            <Label className="text-xs font-semibold text-foreground">Search Employee</Label>
+            <div className="relative">
+              <SearchIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or position..."
+                className="pl-9 h-9 text-xs rounded-lg border-border/80"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Start Date */}
+          <div className="space-y-1 lg:col-span-3">
+            <Label className="text-xs font-semibold text-foreground">Start Date</Label>
+            <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full h-9 justify-start text-left font-normal text-xs bg-background border-border/80 rounded-lg"
+                >
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                  {selectedStartDate ? format(new Date(selectedStartDate + 'T00:00:00'), 'MMM d, yyyy') : 'Start date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedStartDate ? new Date(selectedStartDate + 'T00:00:00') : undefined}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedStartDate(format(date, 'yyyy-MM-dd'));
+                    }
+                  }}
+                  initialFocus
+                  disabled={(date) => date > new Date()}
                 />
-              </div>
-            </div>
+              </PopoverContent>
+            </Popover>
+          </div>
 
-            <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-left font-normal text-sm bg-background border-border"
-                  >
-                    <CalendarIcon className="mr-2 h-3 w-3" />
-                    {selectedStartDate ? format(new Date(selectedStartDate + 'T00:00:00'), 'MMM d, yyyy') : 'Start date'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={selectedStartDate ? new Date(selectedStartDate + 'T00:00:00') : undefined}
-                    onSelect={(date) => {
-                      if (date) {
-                        setSelectedStartDate(format(date, 'yyyy-MM-dd'));
-                      }
-                    }}
-                    initialFocus
-                    disabled={(date) => date > new Date()}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
+          {/* End Date */}
+          <div className="space-y-1 lg:col-span-3">
+            <Label className="text-xs font-semibold text-foreground">End Date</Label>
+            <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full h-9 justify-start text-left font-normal text-xs bg-background border-border/80 rounded-lg"
+                >
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                  {selectedEndDate ? format(new Date(selectedEndDate + 'T00:00:00'), 'MMM d, yyyy') : 'End date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedEndDate ? new Date(selectedEndDate + 'T00:00:00') : undefined}
+                  onSelect={(date) => {
+                    if (date) {
+                      setSelectedEndDate(format(date, 'yyyy-MM-dd'));
+                    }
+                  }}
+                  initialFocus
+                  disabled={(date) => date > new Date()}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
 
-            <div className="space-y-2">
-              <Label>End Date</Label>
-              <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start text-left font-normal text-sm bg-background border-border"
-                  >
-                    <CalendarIcon className="mr-2 h-3 w-3" />
-                    {selectedEndDate ? format(new Date(selectedEndDate + 'T00:00:00'), 'MMM d, yyyy') : 'End date'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={selectedEndDate ? new Date(selectedEndDate + 'T00:00:00') : undefined}
-                    onSelect={(date) => {
-                      if (date) {
-                        setSelectedEndDate(format(date, 'yyyy-MM-dd'));
-                      }
-                    }}
-                    initialFocus
-                    disabled={(date) => date > new Date()}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="flex items-end justify-end gap-2">
+          {/* Action Buttons */}
+          <div className="space-y-1 lg:col-span-2">
+            <div className="flex gap-2">
               {canExport && (
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="md:hidden"
+                  className="md:hidden flex-1 h-9 text-xs rounded-lg"
                   onClick={handleExport}
                   disabled={isLoading || allExpenses.length === 0}
                 >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export CSV
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Export
                 </Button>
               )}
               <Button
-                className="w-full md:w-auto"
+                className="w-full h-9 text-xs font-semibold rounded-lg"
                 onClick={loadExpenses}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                     Refreshing...
                   </>
                 ) : (
@@ -676,10 +685,10 @@ export default function ExpensesPage() {
               </Button>
             </div>
           </div>
-          {dateError && (
-            <p className="mt-3 text-sm text-destructive">{dateError}</p>
-          )}
-        </CardContent>
+        </div>
+        {dateError && (
+          <p className="mt-2 text-xs text-destructive">{dateError}</p>
+        )}
       </Card>
 
       {error && (
@@ -736,18 +745,21 @@ export default function ExpensesPage() {
             {viewMode === "card" ? (
               renderCards()
             ) : (
-              <Card>
-          <CardHeader>
-            <CardTitle>Expenses Table</CardTitle>
-            <Text tone="muted" size="sm">
-              Detailed view of all expenses for the selected period
-            </Text>
-          </CardHeader>
-          <CardContent>
-            <Separator className="mb-6" />
-            <div className="rounded-md border overflow-hidden w-full">
-              <div className="overflow-x-auto w-full">
-                <Table className="min-w-full">
+              <Card className="gap-3 border border-border/60 bg-card p-4 shadow-sm rounded-xl">
+                <div className="flex items-center justify-between pb-1">
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Expenses Table</h3>
+                    <p className="!mt-1 text-xs leading-5 text-muted-foreground">
+                      Detailed view of all expenses for the selected period
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs font-semibold rounded-lg px-2.5 py-1">
+                    {allExpenses.length} Expenses Logged
+                  </Badge>
+                </div>
+                <div className="rounded-lg border border-border/60 overflow-hidden w-full">
+                  <div className="overflow-x-auto w-full">
+                    <Table className="min-w-full">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="whitespace-nowrap">Employee</TableHead>
@@ -757,12 +769,13 @@ export default function ExpensesPage() {
                       <TableHead className="whitespace-nowrap">Description</TableHead>
                       <TableHead className="whitespace-nowrap">Amount</TableHead>
                       <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {allExpenses.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-gray-500">
+                        <TableCell colSpan={8} className="h-24 text-center text-gray-500">
                           No expenses found for the selected period
                         </TableCell>
                       </TableRow>
@@ -796,19 +809,46 @@ export default function ExpensesPage() {
                             <TableCell className="whitespace-nowrap">
                               {getStatusBadge(expense.status)}
                             </TableCell>
+                            <TableCell className="whitespace-nowrap text-right">
+                              {expense.status === "pending" ? (
+                                <div className="flex justify-end gap-1.5">
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-8 w-8 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700"
+                                    onClick={() => handleApprove(expense.employeeName, expense.id)}
+                                    aria-label={`Approve ${expense.category} expense for ${expense.employeeName}`}
+                                    title="Approve expense"
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="h-8 w-8 border-rose-500/30 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700"
+                                    onClick={() => handleReject(expense.employeeName, expense.id)}
+                                    aria-label={`Reject ${expense.category} expense for ${expense.employeeName}`}
+                                    title="Reject expense"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))
                     )}
                   </TableBody>
                 </Table>
               </div>
-              </div>
-            </CardContent>
+            </div>
           </Card>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+        )}
+      </div>
+    </>
+  )}
+</div>
   );
 }

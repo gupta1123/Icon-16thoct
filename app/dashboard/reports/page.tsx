@@ -115,6 +115,24 @@ interface Employee {
     status?: string | null; 
 }
 
+const ADMIN_REPORT_EMPLOYEE_ROLES = new Set([
+    'FIELD OFFICER',
+    'COORDINATOR',
+    'MANAGER',
+    'OFFICE MANAGER',
+    'REGIONAL MANAGER',
+    'REGIONAL OFFICER',
+    'AVP',
+]);
+
+const normalizeEmployeeRole = (role?: string | null): string =>
+    (role ?? '')
+        .trim()
+        .replace(/^ROLE_/i, '')
+        .replace(/_/g, ' ')
+        .replace(/\s+/g, ' ')
+        .toUpperCase();
+
 interface VisitDetail {
     avgIntentLevel: number;
     avgStock?: number;
@@ -224,6 +242,7 @@ const ReportsPage: React.FC = () => {
     const [fieldOfficers, setFieldOfficers] = useState<Employee[]>([]);
     const [employeesLoading, setEmployeesLoading] = useState<boolean>(true);
     const [employeesError, setEmployeesError] = useState<string | null>(null);
+    const [isAdmin, setIsAdmin] = useState(false);
     const [isCoordinator, setIsCoordinator] = useState(false);
     const [isManager, setIsManager] = useState(false);
     const [teamId, setTeamId] = useState<number | null>(null);
@@ -286,14 +305,15 @@ const ReportsPage: React.FC = () => {
                 
                 if (response.ok) {
                     const user = await response.json();
-                    const authorities = user.authorities || [];
-                    const role = authorities.length > 0 ? authorities[0].authority : null;
-                    
-                    setIsCoordinator(role === 'ROLE_COORDINATOR');
+                    const authorities: Array<{ authority?: string }> = user.authorities || [];
+                    const roles = new Set(authorities.map(({ authority }) => authority).filter(Boolean));
+
+                    setIsAdmin(roles.has('ROLE_ADMIN'));
+                    setIsCoordinator(roles.has('ROLE_COORDINATOR'));
                     setIsManager(
-                        role === 'ROLE_MANAGER' ||
-                        role === 'ROLE_REGIONAL_MANAGER' ||
-                        role === 'ROLE_AVP'
+                        roles.has('ROLE_MANAGER') ||
+                        roles.has('ROLE_REGIONAL_MANAGER') ||
+                        roles.has('ROLE_AVP')
                     );
                 }
             } catch (error) {
@@ -307,7 +327,7 @@ const ReportsPage: React.FC = () => {
     // Fetch team data for coordinators and managers
     useEffect(() => {
         const loadTeamData = async () => {
-            if ((!isCoordinator && !isManager) || !userData?.employeeId) {
+            if (isAdmin || (!isCoordinator && !isManager) || !userData?.employeeId) {
                 return;
             }
             
@@ -331,7 +351,7 @@ const ReportsPage: React.FC = () => {
         };
 
         loadTeamData();
-    }, [isCoordinator, isManager, userData?.employeeId, token]);
+    }, [isAdmin, isCoordinator, isManager, userData?.employeeId, token]);
 
     useEffect(() => {
         const fetchAllEmployeeData = async () => {
@@ -342,7 +362,7 @@ const ReportsPage: React.FC = () => {
             try {
                 let activeFieldOfficers: Employee[] = [];
                 
-                if (isCoordinator || isManager) {
+                if ((isCoordinator || isManager) && !isAdmin) {
                     // For coordinators/managers, fetch team members only
                     if (teamId) {
                         const teamResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${userData?.employeeId}`, {
@@ -365,7 +385,8 @@ const ReportsPage: React.FC = () => {
                         }
                     }
                 } else {
-                    // For admins and others, fetch all field officers
+                    // Admins can report on field officers and leadership roles.
+                    // Other non-team roles retain the field-officer-only view.
                     const [allEmployeesResponse, inactiveEmployeesResponse] = await Promise.all([
                         fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
                             headers: { Authorization: `Bearer ${token}` },
@@ -380,7 +401,13 @@ const ReportsPage: React.FC = () => {
                     const inactiveEmployees: Employee[] = await inactiveEmployeesResponse.json();
                     const inactiveEmployeeIds = new Set(inactiveEmployees.map(emp => emp.id));
                     activeFieldOfficers = allEmployees
-                        .filter(emp => emp.role === 'Field Officer' && !inactiveEmployeeIds.has(emp.id))
+                        .filter((emp) => {
+                            if (inactiveEmployeeIds.has(emp.id)) return false;
+                            const normalizedRole = normalizeEmployeeRole(emp.role);
+                            return isAdmin
+                                ? ADMIN_REPORT_EMPLOYEE_ROLES.has(normalizedRole)
+                                : normalizedRole === 'FIELD OFFICER';
+                        })
                         .sort((a, b) => {
                             const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
                             const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
@@ -402,7 +429,7 @@ const ReportsPage: React.FC = () => {
             }
         };
         if (token) fetchAllEmployeeData();
-    }, [token, isCoordinator, isManager, teamId, userData?.employeeId]);
+    }, [token, isAdmin, isCoordinator, isManager, teamId, userData?.employeeId]);
 
     useEffect(() => {
         const now = new Date();
@@ -478,7 +505,7 @@ const ReportsPage: React.FC = () => {
         }
         if (!selectedEmployeeId || !startDate || !endDate) {
             setDateRangeError(null);
-            alert('Select an officer and both dates.');
+            alert('Select an employee and both dates.');
         return;
     }
         setDateRangeError(null);
@@ -582,7 +609,7 @@ const ReportsPage: React.FC = () => {
         setIsEndDatePopoverOpen(false);
     };
     
-    const selectedEmployeeName = fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName + ' ' + fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName || "Select Field Officer";
+    const selectedEmployeeName = fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName + ' ' + fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName || "Select Employee";
     const selectedCustomerTypeLabel = selectedCustomerTypeForDetails
         ? getCustomerTypeLabel(selectedCustomerTypeForDetails)
         : "";
@@ -609,28 +636,28 @@ const ReportsPage: React.FC = () => {
             <div className="flex flex-col lg:flex-row gap-4 p-4 bg-muted/30 rounded-lg">
                 <div className="flex flex-col sm:flex-row gap-4 flex-1 flex-wrap">
                         <div className="space-y-2 flex-1 min-w-[200px]">
-                            <Label htmlFor="employeeSelectTrigger" className="text-sm text-muted-foreground">Field Officer</Label>
+                            <Label htmlFor="employeeSelectTrigger" className="text-sm text-muted-foreground">Employee</Label>
                             {employeesLoading ? (
                                 <div className="flex items-center justify-center h-10 w-full">
                                     <Loader className="w-4 h-4 animate-spin text-muted-foreground"/>
                                 </div>
                             ) : employeesError ? (
-                                <div className="text-destructive text-sm">Error loading officers</div>
+                                <div className="text-destructive text-sm">Error loading employees</div>
                             ) : (
                                 <DropdownMenu modal={false}>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="outline" id="employeeSelectTrigger" className="w-full justify-between">
                                             {selectedEmployeeId && fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId) 
                                                 ? `${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName} ${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName}` 
-                                                : "Select Field Officer"}
+                                                : "Select Employee"}
                                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                         </Button>
                                     </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-full">
-                                        <div className="p-2">
+                                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] overflow-hidden">
+                                        <div className="p-2 pb-1">
                                             <Input 
                                                 ref={searchInputRef}
-                                                placeholder="Search officer..."
+                                                placeholder="Search employee..."
                                                 value={employeeSearchTerm}
                                                 onChange={(e) => {
                                                     const newValue = e.target.value;
@@ -641,23 +668,25 @@ const ReportsPage: React.FC = () => {
                                                         }
                                                     }, 0);
                                                 }}
-                                                className="w-full mb-2 h-8"
+                                                className="w-full h-8"
                                             />
-      </div>
-                                        <DropdownMenuRadioGroup value={selectedEmployeeId} onValueChange={(value) => {
-                                            setSelectedEmployeeId(value);
-                                            setEmployeeSearchTerm("");
-                                        }}>
-                                            {filteredFieldOfficers.length === 0 ? (
-                                                <DropdownMenuRadioItem value="" disabled>
-                                                    No matching officers
-                                                </DropdownMenuRadioItem>
-                                            ) : filteredFieldOfficers.map(officer => (
-                                                <DropdownMenuRadioItem key={officer.id} value={officer.id.toString()}>
-                                                    {`${officer.firstName} ${officer.lastName}`}
-                                                </DropdownMenuRadioItem>
-                                            ))}
-                                        </DropdownMenuRadioGroup>
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1">
+                                            <DropdownMenuRadioGroup value={selectedEmployeeId} onValueChange={(value) => {
+                                                setSelectedEmployeeId(value);
+                                                setEmployeeSearchTerm("");
+                                            }}>
+                                                {filteredFieldOfficers.length === 0 ? (
+                                                    <DropdownMenuRadioItem value="" disabled>
+                                                        No matching employees
+                                                    </DropdownMenuRadioItem>
+                                                ) : filteredFieldOfficers.map(officer => (
+                                                    <DropdownMenuRadioItem key={officer.id} value={officer.id.toString()}>
+                                                        {`${officer.firstName} ${officer.lastName}`}
+                                                    </DropdownMenuRadioItem>
+                                                ))}
+                                            </DropdownMenuRadioGroup>
+                                        </div>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             )}
@@ -921,7 +950,7 @@ const ReportsPage: React.FC = () => {
                                     Visit Details for {selectedCustomerTypeLabel}
                                 </h3>
                                 <p className="text-sm text-muted-foreground">
-                                    {selectedEmployeeName !== "Select Field Officer" && `Officer: ${selectedEmployeeName} • ${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`}
+                                    {selectedEmployeeName !== "Select Employee" && `Employee: ${selectedEmployeeName} • ${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`}
                                 </p>
                             </div>
                             

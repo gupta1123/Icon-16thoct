@@ -153,6 +153,8 @@ interface DashboardKpis {
 
 interface DashboardLiveViewProps {
   kpis: DashboardKpis;
+  onTotalVisitsSelect: () => void;
+  onActiveEmployeesSelect: () => void;
   states: StateItem[];
   onStateSelect: (state: StateItem) => void;
   isLoadingTrail: boolean;
@@ -174,6 +176,8 @@ interface DashboardLiveViewProps {
 
 export function DashboardLiveView({
   kpis,
+  onTotalVisitsSelect,
+  onActiveEmployeesSelect,
   states,
   onStateSelect,
   isLoadingTrail,
@@ -703,7 +707,19 @@ export function DashboardLiveView({
   return (
     <>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          className="cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="View total visits"
+          onClick={onTotalVisitsSelect}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onTotalVisitsSelect();
+            }
+          }}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>Total Visits</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -714,7 +730,19 @@ export function DashboardLiveView({
             </Heading>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          className="cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="View active employees"
+          onClick={onActiveEmployeesSelect}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onActiveEmployeesSelect();
+            }
+          }}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>Active Employees</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -762,13 +790,13 @@ export function DashboardLiveView({
                 </CardHeader>
                 <CardContent>
                   <Heading as="p" size="xl" weight="bold">
-                    {state.activeEmployeeCount}
+                    {state.employeeCount}
                   </Heading>
                   <Text size="xs" tone="muted">
-                    Employees with assigned or ongoing visits
+                    Employees with visits in the selected range
                   </Text>
                   <Text size="xs" tone="muted" className="mt-1">
-                    Ongoing: {state.ongoingVisitCount} • Completed: {state.completedVisitCount}
+                    Assigned: {state.assignedVisitCount} • Ongoing: {state.ongoingVisitCount} • Completed: {state.completedVisitCount}
                   </Text>
                 </CardContent>
               </Card>

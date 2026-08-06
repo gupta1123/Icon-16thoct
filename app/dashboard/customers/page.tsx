@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, Package, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2, MapPin, ExternalLink } from "lucide-react";
 import { API, formatStockQuantity, getStock, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/api";
-import AddCustomerModal from "@/components/AddCustomerModal";
+import CreateCustomerFlowModal from "@/components/CreateCustomerFlowModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -1331,7 +1331,7 @@ function CustomerListContent() {
                 )}
 
                 {/* Add Customer Modal */}
-                <AddCustomerModal
+                <CreateCustomerFlowModal
                     isOpen={isModalOpen}
                     onClose={closeModal}
                     token={token || ''}

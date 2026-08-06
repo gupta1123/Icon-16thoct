@@ -25,13 +25,17 @@ export default function Layout({ children }: { children: ReactNode }) {
       heading: "Attendance",
       subheading: "Track and manage employee attendance"
     },
+    "/dashboard/approvals": {
+      heading: "Approvals",
+      subheading: "Manage employee leave and attendance requests"
+    },
     "/dashboard/requirements": {
       heading: "Requirements",
       subheading: "Manage project and client requirements"
     },
     "/dashboard/assign-visits": {
       heading: "Assign Visits",
-      subheading: "Plan visits for your team"
+      subheading: "Field officer planning board"
     },
     "/dashboard/complaints": {
       heading: "Complaints",
@@ -134,6 +138,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       return {
         heading: "Employee Detail",
         subheading: "View and manage employee information"
+      };
+    }
+    if (pathname.match(/^\/dashboard\/documents\/\d+/)) {
+      return {
+        heading: "Document Detail",
+        subheading: "View document information and preview the PDF"
       };
     }
     if (pathname.match(/^\/dashboard\/employee\/\d+/)) {
