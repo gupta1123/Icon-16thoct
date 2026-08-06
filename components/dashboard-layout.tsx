@@ -224,6 +224,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const { logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
 
   const normalizedUserRole = normalizeRoleValue(userRole);
   const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
@@ -343,7 +344,13 @@ export default function DashboardLayout({
   };
 
   return (
-    <div className="min-h-screen w-full grid md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]">
+    <div
+      className={`min-h-screen w-full grid ${
+        desktopSidebarOpen
+          ? "md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]"
+          : "md:grid-cols-[1fr]"
+      }`}
+    >
       {/* Daily Pricing Checker removed; pricing modal handled in Dashboard only for Admin/Data Manager */}
       
       {/* Mobile Bottom Navigation */}
@@ -484,13 +491,24 @@ export default function DashboardLayout({
       </Sheet>
 
       {/* Desktop sidebar */}
-      <div className="hidden border-r bg-background md:block sticky top-0 h-screen">
+      <div className={`${desktopSidebarOpen ? "hidden md:block" : "hidden"} border-r bg-background sticky top-0 h-screen`}>
         <div className="flex h-full max-h-screen flex-col">
-          <div className="flex h-14 items-center border-b px-4 lg:px-6">
-            <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
+          <div className="flex h-14 items-center justify-between gap-2 border-b px-4 lg:px-6">
+            <Link href="/dashboard" className="flex min-w-0 items-center gap-2 font-semibold">
               <Home className="h-5 w-5" />
-              <span className="font-bold">Icon Steel</span>
+              <span className="truncate font-bold">Icon Steel</span>
             </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setDesktopSidebarOpen(false)}
+              className="h-8 w-8 shrink-0"
+              aria-label="Close sidebar"
+              title="Close sidebar"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
           </div>
           <div className="flex-1 overflow-y-auto py-4">
             <nav className="grid gap-1 px-2">
@@ -603,9 +621,14 @@ export default function DashboardLayout({
       </div>
 
       {/* Main content area */}
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-col">
         {/* Topbar */}
-        <Topbar heading={heading} subheading={subheading} />
+        <Topbar
+          heading={heading}
+          subheading={subheading}
+          showSidebarTrigger={!desktopSidebarOpen}
+          onOpenSidebar={() => setDesktopSidebarOpen(true)}
+        />
         
         {/* Page content */}
         <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 pb-24 md:pb-6">

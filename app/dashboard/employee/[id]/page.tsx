@@ -7,10 +7,30 @@ import { useAuth } from '@/components/auth-provider';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { format, formatDuration, intervalToDuration, differenceInMinutes } from "date-fns";
-import { Calendar as CalendarIcon } from 'lucide-react';
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { 
+  AlertCircle, 
+  ArrowLeft, 
+  Calendar as CalendarIcon, 
+  Loader2, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Home, 
+  Crosshair, 
+  Building, 
+  UserCheck, 
+  Globe, 
+  CheckCircle2, 
+  Receipt, 
+  Tag,
+  Target,
+  Clock,
+  ChevronRight
+} from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -76,15 +96,21 @@ interface EmployeeData {
   id: number;
   firstName: string;
   lastName: string;
-  employeeId: string;
-  primaryContact: number;
-  email: string;
-  role: string;
-  city: string;
-  state: string;
-  country: string;
+  employeeId: string | null;
+  primaryContact: number | null;
+  email: string | null;
+  role: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  pincode: number | null;
   dateOfJoining: string;
-  departmentName: string;
+  departmentName: string | null;
+  assignedCity: string[] | null;
+  houseLatitude: number | null;
+  houseLongitude: number | null;
 }
 
 interface PricingData {
@@ -95,6 +121,22 @@ interface PricingData {
 }
 
 const EMPLOYEE_LIST_RETURN_CONTEXT_KEY = 'employeeListReturnContext';
+
+const formatEmployeeRole = (role?: string | null): string => {
+  if (!role) return 'Not specified';
+
+  const normalized = role
+    .trim()
+    .replace(/^ROLE_/i, '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
+  if (normalized === 'avp') return 'AVP';
+  if (normalized === 'hr') return 'HR';
+
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
 
 export default function SalesExecutivePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -109,6 +151,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const [showExpenseEndCalendar, setShowExpenseEndCalendar] = useState(false);
 
   const [employeeData, setEmployeeData] = useState<EmployeeData | null>(null);
+  const [employeeLoading, setEmployeeLoading] = useState(true);
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [stats, setStats] = useState<StatsDto | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -203,19 +247,56 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
   useEffect(() => {
     const fetchEmployeeData = async () => {
+      setEmployeeLoading(true);
+      setEmployeeError(null);
+      setEmployeeData(null);
+
       try {
         const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
-        const data = await response.json();
-        const employee = data.find((emp: EmployeeData) => emp.id.toString() === id);
-        if (employee) {
-          setEmployeeData(employee);
+
+        if (!response.ok) {
+          throw new Error(`Failed to load employee details (${response.status})`);
         }
+
+        const data: EmployeeData[] = await response.json();
+        const employee = data.find((emp) => emp.id.toString() === id);
+
+        if (!employee) {
+          setEmployeeError('Employee not found.');
+          return;
+        }
+
+        // Retain only the fields used by this page. In particular, do not keep
+        // sensitive nested user credentials returned by the collection API.
+        setEmployeeData({
+          id: employee.id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          employeeId: employee.employeeId ?? null,
+          primaryContact: employee.primaryContact ?? null,
+          email: employee.email ?? null,
+          role: employee.role ?? null,
+          addressLine1: employee.addressLine1 ?? null,
+          addressLine2: employee.addressLine2 ?? null,
+          city: employee.city ?? null,
+          state: employee.state ?? null,
+          country: employee.country ?? null,
+          pincode: employee.pincode ?? null,
+          dateOfJoining: employee.dateOfJoining,
+          departmentName: employee.departmentName ?? null,
+          assignedCity: Array.isArray(employee.assignedCity) ? employee.assignedCity : [],
+          houseLatitude: employee.houseLatitude ?? null,
+          houseLongitude: employee.houseLongitude ?? null,
+        });
       } catch (error) {
         console.error("Error fetching employee data:", error);
+        setEmployeeError(error instanceof Error ? error.message : 'Failed to load employee details.');
+      } finally {
+        setEmployeeLoading(false);
       }
     };
 
@@ -475,62 +556,100 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
   const { totalVisits, currentMonthVisits, avgDuration } = calculateStats();
 
+  if (employeeLoading) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Loading employee details...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (employeeError || !employeeData) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
+            <AlertCircle className="h-9 w-9 text-destructive" />
+            <div>
+              <h2 className="font-semibold text-foreground">Unable to show employee details</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {employeeError || 'Employee not found.'}
+              </p>
+            </div>
+            <Button variant="outline" onClick={handleBack}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to employees
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const employeeName = `${employeeData.firstName} ${employeeData.lastName}`.trim();
+  const employeeRole = formatEmployeeRole(employeeData.role);
+  const hasHomeCoordinates =
+    employeeData.houseLatitude !== null && employeeData.houseLongitude !== null;
+
     return (
       <div className="space-y-6">
       <Head>
-        <title>Sales Executive Detail Page</title>
+        <title>{employeeName} - Employee Details</title>
       </Head>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Employee Profile */}
         <div className="lg:col-span-1">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-4">
+          <Card className="border border-border/60 shadow-sm rounded-xl overflow-hidden bg-card">
+            <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-xl font-semibold text-foreground">Employee Details</CardTitle>
-                  <p className="text-sm text-muted-foreground">Employee information and actions</p>
+                  <CardTitle className="text-base font-bold text-foreground">Employee Profile</CardTitle>
+                  <p className="text-xs text-muted-foreground">Information and details</p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={handleBack}>
-                  <i className="fas fa-arrow-left mr-2"></i> Back
+                <Button variant="outline" size="sm" onClick={handleBack} className="h-8 text-xs font-medium rounded-lg gap-1.5 border-border/80">
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-start gap-4">
-                <div className="h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center">
-                  <span className="text-lg font-semibold text-muted-foreground">
-                    {employeeData ? getInitials(`${employeeData.firstName} ${employeeData.lastName}`) : 'AW'}
-                  </span>
+            <CardContent className="p-4 space-y-4">
+              <div className="flex items-center gap-3.5 pb-3 border-b border-border/30">
+                <div className="h-12 w-12 rounded-xl bg-gradient-to-tr from-primary/90 to-primary text-primary-foreground font-bold text-sm flex items-center justify-center shadow-xs shrink-0">
+                  {getInitials(employeeName)}
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
-                  <h3 className="text-lg font-semibold text-foreground truncate">
-                    {employeeData ? `${employeeData.firstName} ${employeeData.lastName}` : 'Abhijeet Wagh'}
+                  <h3 className="text-base font-bold text-foreground truncate leading-tight">
+                    {employeeName}
                   </h3>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {employeeData ? employeeData.role : 'Field Officer'}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
+                      {employeeRole}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-        
-            <div className="space-y-4">
-                <div className="flex border-b">
+              <div className="space-y-3">
+                <div className="flex border-b border-border/40 gap-4 text-xs font-medium">
                   <button
-                    className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    className={`pb-2 transition-colors relative ${
                       activeInfoTab === 'personal-info' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'text-primary font-semibold border-b-2 border-primary -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveInfoTab('personal-info')}
                   >
                     Personal Info
                   </button>
                   <button
-                    className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    className={`pb-2 transition-colors relative ${
                       activeInfoTab === 'work-info' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'text-primary font-semibold border-b-2 border-primary -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveInfoTab('work-info')}
                   >
@@ -539,82 +658,117 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                 </div>
                 
                 {activeInfoTab === 'personal-info' && (
-                  <div className="space-y-3">
+                  <div className="space-y-1.5 pt-1">
                     {employeeData?.email && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-envelope text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <Mail className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          <span>Email</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Email</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.email}</p>
-                        </div>
+                        <span className="font-medium text-foreground truncate max-w-[180px]" title={employeeData.email}>
+                          {employeeData.email}
+                        </span>
                       </div>
                     )}
                     {employeeData?.primaryContact && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-phone text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <Phone className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>Phone</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Phone</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.primaryContact}</p>
-                        </div>
+                        <span className="font-semibold text-foreground">{employeeData.primaryContact}</span>
                       </div>
                     )}
                     {(employeeData?.city || employeeData?.state || employeeData?.country) && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-map-marker-alt text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span>Location</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Location</p>
-                          <p className="text-sm text-muted-foreground">
-                            {[employeeData?.city, employeeData?.state, employeeData?.country].filter(Boolean).join(', ')}
-                          </p>
-                        </div>
+                        <span className="font-medium text-foreground text-right truncate max-w-[180px]">
+                          {[employeeData?.city, employeeData?.state, employeeData?.country].filter(Boolean).join(', ')}
+                        </span>
                       </div>
                     )}
+                    <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                      <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                        <Home className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span>Address</span>
+                      </div>
+                      <span className="font-medium text-foreground text-right truncate max-w-[180px]">
+                        {[employeeData.addressLine1, employeeData.addressLine2].filter(Boolean).join(', ') || 'Not provided'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                      <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                        <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>Pin Code</span>
+                      </div>
+                      <span className="font-medium text-foreground">{employeeData.pincode ?? 'Not provided'}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                      <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                        <Crosshair className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                        <span>Home Coordinates</span>
+                      </div>
+                      <span className={`font-semibold text-xs ${hasHomeCoordinates ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                        {hasHomeCoordinates ? 'Available' : 'Not available'}
+                      </span>
+                    </div>
                     {employeeData?.dateOfJoining && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-calendar text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <CalendarIcon className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                          <span>Joined</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Joined</p>
-                          <p className="text-sm text-muted-foreground">
-                            {format(new Date(employeeData.dateOfJoining), 'MMM d, yyyy')}
-                          </p>
-                        </div>
+                        <span className="font-medium text-foreground">
+                          {format(new Date(employeeData.dateOfJoining), 'MMM d, yyyy')}
+                        </span>
                       </div>
                     )}
                   </div>
                 )}
                 
                 {activeInfoTab === 'work-info' && (
-                  <div className="space-y-3">
+                  <div className="space-y-1.5 pt-1">
                     {employeeData?.departmentName && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-building text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <Building className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span>Department</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Department</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.departmentName}</p>
-                        </div>
+                        <span className="font-medium text-foreground">{employeeData.departmentName}</span>
                       </div>
                     )}
                     {employeeData?.role && (
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                          <i className="fas fa-user-tie text-sm text-muted-foreground"></i>
+                      <div className="flex items-center justify-between py-1.5 border-b border-border/30 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                          <UserCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>Role</span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Role</p>
-                          <p className="text-sm text-muted-foreground">{employeeData.role}</p>
-                        </div>
+                        <span className="font-medium text-foreground">{employeeRole}</span>
                       </div>
                     )}
+                    <div className="py-1.5 text-xs space-y-1.5">
+                      <div className="flex items-center gap-2 text-muted-foreground font-medium">
+                        <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>Assigned Cities</span>
+                      </div>
+                      {employeeData.assignedCity && employeeData.assignedCity.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          {employeeData.assignedCity.map((city) => (
+                            <span
+                              key={city}
+                              className="rounded-md bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground font-medium"
+                            >
+                              {city}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground block text-xs">Not assigned</span>
+                      )}
+                    </div>
                   </div>
                 )}
             </div>
@@ -624,57 +778,61 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
 
         {/* Right Column - Activity Details */}
         <div className="lg:col-span-2">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-4">
+          <Card className="border border-border/60 shadow-sm rounded-xl overflow-hidden bg-card">
+            <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-xl font-semibold text-foreground">Employee Activity</CardTitle>
-                  <p className="text-sm text-muted-foreground">View visits, attendance, expenses, and daily pricing</p>
+                  <CardTitle className="text-base font-bold text-foreground">Employee Activity</CardTitle>
+                  <p className="text-xs text-muted-foreground">View visits, attendance, expenses, and daily pricing</p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="flex border-b">
+            <CardContent className="p-4">
+              <div className="space-y-4">
+                <div className="flex border-b border-border/40 gap-2 text-xs font-medium overflow-x-auto">
                   <button 
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                    className={`pb-2.5 px-3 transition-colors flex items-center gap-1.5 whitespace-nowrap relative ${
                       activeTab === 'visits' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'border-b-2 border-primary text-primary font-semibold -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveTab('visits')}
                   >
-                    <i className="fas fa-map-marked-alt"></i> Visits
+                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                    <span>Visits</span>
                   </button>
                   <button 
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                    className={`pb-2.5 px-3 transition-colors flex items-center gap-1.5 whitespace-nowrap relative ${
                       activeTab === 'attendance' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'border-b-2 border-primary text-primary font-semibold -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveTab('attendance')}
                   >
-                    <i className="fas fa-calendar-check"></i> Attendance
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Attendance</span>
                   </button>
                   <button 
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                    className={`pb-2.5 px-3 transition-colors flex items-center gap-1.5 whitespace-nowrap relative ${
                       activeTab === 'expenses' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'border-b-2 border-primary text-primary font-semibold -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveTab('expenses')}
                   >
-                    <i className="fas fa-receipt"></i> Expenses
+                    <Receipt className="w-3.5 h-3.5 shrink-0" />
+                    <span>Expenses</span>
                   </button>
                   <button 
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                    className={`pb-2.5 px-3 transition-colors flex items-center gap-1.5 whitespace-nowrap relative ${
                       activeTab === 'daily-pricing' 
-                        ? 'border-primary text-primary' 
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                        ? 'border-b-2 border-primary text-primary font-semibold -mb-px' 
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                     onClick={() => setActiveTab('daily-pricing')}
                   >
-                    <i className="fas fa-tags"></i> Daily Pricing
+                    <Tag className="w-3.5 h-3.5 shrink-0" />
+                    <span>Daily Pricing</span>
                   </button>
                 </div>
 
@@ -697,85 +855,109 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-3">
-                      {visits.map((visit) => {
-                        let status = 'Scheduled';
-                        if (visit.checkinDate && visit.checkinTime && visit.checkoutDate && visit.checkoutTime) {
-                          status = 'Completed';
-                        } else if (visit.checkinDate && visit.checkinTime) {
-                          status = 'In Progress';
-                        }
-                        const { color } = getStatusInfo(status);
+                    <div className="space-y-2.5">
+                      {visits.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground bg-muted/20 rounded-xl border border-dashed">
+                          <MapPin className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                          <p className="text-xs font-medium">No visits found for this period</p>
+                        </div>
+                      ) : (
+                        visits.map((visit) => {
+                          let status = 'Scheduled';
+                          if (visit.checkinDate && visit.checkinTime && visit.checkoutDate && visit.checkoutTime) {
+                            status = 'Completed';
+                          } else if (visit.checkinDate && visit.checkinTime) {
+                            status = 'In Progress';
+                          }
+                          const { color } = getStatusInfo(status);
 
-    return (
-                          <div 
-                            key={visit.id} 
-                            className="rounded-lg border bg-card p-4 cursor-pointer hover:shadow-sm transition-shadow"
-                            onClick={() => handleViewVisit(visit.id)}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <div>
-                                  <h4 className="font-semibold text-sm">{visit.storeName}</h4>
-                                  <p className="text-xs text-muted-foreground">Visit on {format(new Date(visit.visit_date), 'MMM dd, yyyy')}</p>
+                          let durationStr = '';
+                          if (visit.checkinTime && visit.checkoutTime) {
+                            durationStr = formatDuration(intervalToDuration({
+                              start: new Date(`${visit.checkinDate}T${visit.checkinTime}`),
+                              end: new Date(`${visit.checkoutDate}T${visit.checkoutTime}`)
+                            }));
+                          }
+
+                          return (
+                            <div 
+                              key={visit.id} 
+                              className="group border border-border/60 hover:border-primary/40 bg-card p-3 space-y-2 rounded-xl shadow-xs hover:shadow-sm transition-all cursor-pointer"
+                              onClick={() => handleViewVisit(visit.id)}
+                            >
+                              {/* Header: Store Name, Date, Status Pill & Arrow */}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                                    <Building className="w-4 h-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h4 className="font-bold text-xs text-foreground truncate group-hover:text-primary transition-colors">
+                                      {visit.storeName}
+                                    </h4>
+                                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground pt-0.5">
+                                      <CalendarIcon className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                                      <span>{format(new Date(visit.visit_date), 'MMM d, yyyy')}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${color}`}>
+                                    {status}
+                                  </span>
+                                  <div className="h-6 w-6 rounded-md bg-muted/60 group-hover:bg-primary group-hover:text-primary-foreground text-muted-foreground flex items-center justify-center transition-all">
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  </div>
                                 </div>
                               </div>
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-                                {status}
-                              </span>
-                            </div>
-                            <div className="text-sm text-muted-foreground mb-2">
-                              <span className="font-medium">Purpose:</span> {visit.purpose}
-                            </div>
-                            {visit.checkinTime && visit.checkoutTime && (
-                              <div className="text-sm text-muted-foreground">
-                                <span className="font-medium">Duration:</span> {formatDuration(intervalToDuration({
-                                  start: new Date(`${visit.checkinDate}T${visit.checkinTime}`),
-                                  end: new Date(`${visit.checkoutDate}T${visit.checkoutTime}`)
-                                }))}
+
+                              {/* Details Strip: Purpose & Duration */}
+                              <div className="bg-muted/30 px-2.5 py-1.5 rounded-lg border border-border/30 text-xs flex items-center justify-between gap-2 text-[11px]">
+                                <div className="flex items-center gap-1.5 min-w-0 truncate">
+                                  <Target className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                                  <span className="text-muted-foreground">Purpose:</span>
+                                  <span className="font-semibold text-foreground truncate">{visit.purpose || 'N/A'}</span>
+                                </div>
+
+                                {durationStr && (
+                                  <div className="flex items-center gap-1 shrink-0 text-muted-foreground">
+                                    <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                    <span className="font-medium text-foreground">{durationStr}</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            <div className="flex justify-end mt-3">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleViewVisit(visit.id);
-                                }}
-                              >
-                                View Visit
-                              </Button>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
 
                 {activeTab === 'attendance' && (
                   <div className="space-y-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                       <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
-                        <SelectTrigger className="w-[150px]">
-                          <SelectValue placeholder="Select Year" />
+                        <SelectTrigger className="w-[130px] h-8 text-xs font-medium rounded-lg border-border">
+                          <SelectValue placeholder="Year" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="rounded-xl">
                           {Array.from({ length: 27 }, (_, index) => (
-                            <SelectItem key={index} value={(2023 + index).toString()}>
+                            <SelectItem key={index} value={(2023 + index).toString()} className="text-xs">
                               {2023 + index}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+
                       <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
-                        <SelectTrigger className="w-[150px]">
-                          <SelectValue placeholder="Select Month" />
+                        <SelectTrigger className="w-[140px] h-8 text-xs font-medium rounded-lg border-border">
+                          <SelectValue placeholder="Month" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="rounded-xl">
                           {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => (
-                            <SelectItem key={index} value={(index + 1).toString()}>
+                            <SelectItem key={index} value={(index + 1).toString()} className="text-xs">
                               {month}
                             </SelectItem>
                           ))}
@@ -783,25 +965,43 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                       </Select>
                     </div>
 
-                    <div className="rounded-lg border bg-card p-6">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="text-center">
-                          <div className="text-3xl font-bold text-blue-600 mb-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Full Days Card */}
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 block">Full Days</span>
+                          <span className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
                             {(attendanceStats?.statsDto as Record<string, unknown>)?.fullDays as number || 0}
-                          </div>
-                          <div className="text-sm font-medium text-muted-foreground">Full Days</div>
+                          </span>
                         </div>
-                        <div className="text-center">
-                          <div className="text-3xl font-bold text-yellow-600 mb-2">
+                        <div className="h-10 w-10 rounded-xl bg-emerald-500/20 text-emerald-600 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                      </div>
+
+                      {/* Half Days Card */}
+                      <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400 block">Half Days</span>
+                          <span className="text-2xl font-bold text-amber-700 dark:text-amber-300">
                             {(attendanceStats?.statsDto as Record<string, unknown>)?.halfDays as number || 0}
-                          </div>
-                          <div className="text-sm font-medium text-muted-foreground">Half Days</div>
+                          </span>
                         </div>
-                        <div className="text-center">
-                          <div className="text-3xl font-bold text-red-600 mb-2">
+                        <div className="h-10 w-10 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center shrink-0">
+                          <Clock className="w-5 h-5" />
+                        </div>
+                      </div>
+
+                      {/* Absences Card */}
+                      <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-xl flex items-center justify-between">
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-medium text-rose-700 dark:text-rose-400 block">Absences</span>
+                          <span className="text-2xl font-bold text-rose-700 dark:text-rose-300">
                             {(attendanceStats?.statsDto as Record<string, unknown>)?.absences as number || 0}
-                          </div>
-                          <div className="text-sm font-medium text-muted-foreground">Absences</div>
+                          </span>
+                        </div>
+                        <div className="h-10 w-10 rounded-xl bg-rose-500/20 text-rose-600 flex items-center justify-center shrink-0">
+                          <AlertCircle className="w-5 h-5" />
                         </div>
                       </div>
                     </div>

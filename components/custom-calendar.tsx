@@ -75,10 +75,11 @@ const CustomCalendar: React.FC<CustomCalendarProps> = ({
           const attendanceStatus = attendanceRecord?.attendanceStatus;
           const tooltip = document.createElement('span');
           tooltip.classList.add('calendar-tooltip');
-          // Check if it's Sunday first (like reference code)
+          // Sundays are paid leave days, regardless of whether the API returns
+          // a separate attendance record for that date.
           if (date.getDay() === 0) {
-            dateDiv.classList.add('full-day');
-            tooltip.textContent = 'Full Day (Sunday)';
+            dateDiv.classList.add('paid-leave');
+            tooltip.textContent = 'Paid Leave (Sunday)';
             fullDays++;
           }
           // If there's an attendance record, use it (but don't double-count Sundays)

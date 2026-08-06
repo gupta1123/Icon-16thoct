@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardLiveView } from "@/components/dashboard/live-view";
 import { DashboardStateView } from "@/components/dashboard/state-view";
 import { DashboardEmployeeDetailView } from "@/components/dashboard/employee-detail-view";
+import { DashboardTotalVisitsView } from "@/components/dashboard/total-visits-view";
 import type {
   Employee,
   ExtendedEmployee,
@@ -233,6 +234,63 @@ const colorPalette = [
   "bg-teal-500",
 ];
 
+const normalizeStateKey = (state?: string | null): string => {
+  const normalized = state?.trim().replace(/\s+/g, " ").toLowerCase();
+  return !normalized || normalized === "unknown" ? "__unknown__" : normalized;
+};
+
+const getStateDisplayName = (state?: string | null): string =>
+  state?.trim().replace(/\s+/g, " ") || "Unknown";
+
+const buildStateItemsFromEmployees = (
+  employees: DashboardEmployeeSummary[]
+): StateItem[] => {
+  const grouped = new Map<
+    string,
+    { name: string; employees: Map<number, DashboardEmployeeSummary> }
+  >();
+
+  employees
+    .filter((employee) => employee.totalVisits > 0)
+    .forEach((employee) => {
+      const key = normalizeStateKey(employee.state);
+      const group = grouped.get(key) ?? {
+        name: getStateDisplayName(employee.state),
+        employees: new Map<number, DashboardEmployeeSummary>(),
+      };
+      group.employees.set(employee.employeeId, employee);
+      grouped.set(key, group);
+    });
+
+  return Array.from(grouped.values())
+    .sort((a, b) => {
+      if (a.name === "Unknown") return 1;
+      if (b.name === "Unknown") return -1;
+      return a.name.localeCompare(b.name);
+    })
+    .map((group, index) => {
+      const stateEmployees = Array.from(group.employees.values());
+      return {
+        id: index + 1,
+        name: group.name,
+        employeeCount: stateEmployees.length,
+        assignedVisitCount: stateEmployees.reduce(
+          (total, employee) => total + employee.assignedVisits,
+          0
+        ),
+        ongoingVisitCount: stateEmployees.reduce(
+          (total, employee) => total + employee.ongoingVisits,
+          0
+        ),
+        completedVisitCount: stateEmployees.reduce(
+          (total, employee) => total + employee.completedVisits,
+          0
+        ),
+        color: colorPalette[index % colorPalette.length],
+      };
+    });
+};
+
 const visitPointVariantMap: Record<DashboardEmployeeVisitPoint["type"], MapMarker["variant"]> = {
   HOME: "home",
   CURRENT: "current",
@@ -264,13 +322,18 @@ function DashboardPageContent() {
     const dr = params.get("dateRange");
     return isValidDateRangeKey(dr) ? (dr as DateRangeKey) : "today";
   });
-  const [view, setView] = useState<"dashboard" | "state" | "employeeDetail">(() => {
+  const [view, setView] = useState<"dashboard" | "state" | "employeeDetail" | "totalVisits" | "activeEmployees">(() => {
     if (typeof window === "undefined") {
       return "dashboard";
     }
     const params = new URLSearchParams(window.location.search);
     const viewParam = params.get("view");
-    if (viewParam === "state" || viewParam === "employeeDetail") {
+    if (
+      viewParam === "state" ||
+      viewParam === "employeeDetail" ||
+      viewParam === "totalVisits" ||
+      viewParam === "activeEmployees"
+    ) {
       return viewParam;
     }
     return "dashboard";
@@ -373,8 +436,11 @@ function DashboardPageContent() {
             ? "ongoing"
             : summary.assignedVisits > 0
             ? "assigned"
+            : summary.completedVisits > 0
+            ? "completed"
             : "idle",
         location: composeLocation(summary.city, summary.state),
+        totalVisits: summary.totalVisits,
       };
     },
     [composeLocation, formatRole]
@@ -624,6 +690,8 @@ function DashboardPageContent() {
   }, [selectedDateRange, appliedCustomStartDate, appliedCustomEndDate]);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const loadOverview = async () => {
       if (!isRoleDetermined) return;
       
@@ -640,6 +708,7 @@ function DashboardPageContent() {
 
         // Explicitly use the in-memory auth token to avoid localStorage race/stale token issues
         const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/dashboard/overview?startDate=${start}&endDate=${end}`, {
+          signal: controller.signal,
           headers: token
             ? {
                 Authorization: `Bearer ${token}`,
@@ -667,16 +736,22 @@ function DashboardPageContent() {
           setMapMarkers(liveMarkers);
         }
       } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
         console.error("Dashboard - Error fetching overview:", err);
         setOverview(null);
         setMapMarkers([]);
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {
-        setIsLoadingOverview(false);
+        if (!controller.signal.aborted) {
+          setIsLoadingOverview(false);
+        }
       }
     };
 
     loadOverview();
+    return () => controller.abort();
     // Only depend on date range changes and role determination
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange.start, dateRange.end, isRoleDetermined, isHR]);
@@ -771,23 +846,14 @@ function DashboardPageContent() {
         setSelectedEmployee(mapSummaryToEmployee(summary));
       }
 
-      const stateName = summary.state ?? "Unknown";
-      const hasStateMatch = selectedState?.name === stateName;
-      if (!hasStateMatch && Array.isArray(overview.states)) {
-        const stateIndex = overview.states.findIndex(
-          (state) => (state.stateName ?? "Unknown") === stateName
+      const stateName = getStateDisplayName(summary.state);
+      const hasStateMatch =
+        normalizeStateKey(selectedState?.name) === normalizeStateKey(stateName);
+      if (!hasStateMatch) {
+        const overviewState = buildStateItemsFromEmployees(overview.employees).find(
+          (state) => normalizeStateKey(state.name) === normalizeStateKey(stateName)
         );
-        if (stateIndex >= 0) {
-          const overviewState = overview.states[stateIndex];
-          setSelectedState({
-            id: stateIndex + 1,
-            name: stateName,
-            activeEmployeeCount: overviewState.activeEmployeeCount,
-            ongoingVisitCount: overviewState.ongoingVisitCount,
-            completedVisitCount: overviewState.completedVisitCount,
-            color: colorPalette[stateIndex % colorPalette.length],
-          });
-        }
+        if (overviewState) setSelectedState(overviewState);
       }
 
       setPendingEmployeeId(null);
@@ -870,26 +936,28 @@ function DashboardPageContent() {
       
       // Restore selected state from URL if needed
       if (stateNameParam && overview) {
-        const stateIndex = overview.states.findIndex(
-          (state) => (state.stateName ?? "Unknown") === stateNameParam
+        const restoredState = buildStateItemsFromEmployees(overview.employees).find(
+          (state) =>
+            normalizeStateKey(state.name) === normalizeStateKey(stateNameParam)
         );
-        if (stateIndex >= 0) {
-          const overviewState = overview.states[stateIndex];
-          const restoredState = {
-            id: stateIndex + 1,
-            name: stateNameParam,
-            activeEmployeeCount: overviewState.activeEmployeeCount,
-            ongoingVisitCount: overviewState.ongoingVisitCount,
-            completedVisitCount: overviewState.completedVisitCount,
-            color: colorPalette[stateIndex % colorPalette.length],
-          };
-          
+        if (restoredState) {
           // Only update if it's different
-          if (selectedState?.name !== stateNameParam) {
+          if (
+            normalizeStateKey(selectedState?.name) !==
+            normalizeStateKey(restoredState.name)
+          ) {
             console.log("Restoring selected state from URL:", stateNameParam);
             setSelectedState(restoredState);
           }
         }
+      }
+    } else if (viewParam === "totalVisits" || viewParam === "activeEmployees") {
+      if (view !== viewParam) {
+        setView(viewParam);
+        setSelectedEmployee(null);
+        setHighlightedEmployee(null);
+        setPendingEmployeeId(null);
+        setSelectedState(null);
       }
     } else if (viewParam === "dashboard") {
       if (view !== "dashboard") {
@@ -927,14 +995,20 @@ function DashboardPageContent() {
 
   const stateEmployees = useMemo(() => {
     if (!selectedState || !overview) return [];
-    return overview.employees
-      .filter((employee) => {
-        const stateName = employee.state ?? "Unknown";
-        return stateName === selectedState.name;
-      })
-      // Use consistent active employee definition: assignedVisits > 0 || ongoingVisits > 0
-      .filter((employee) => employee.assignedVisits > 0 || employee.ongoingVisits > 0)
-      .map((employee) => mapSummaryToEmployee(employee));
+    const selectedStateKey = normalizeStateKey(selectedState.name);
+    const uniqueEmployees = new Map<number, DashboardEmployeeSummary>();
+
+    overview.employees
+      .filter(
+        (employee) =>
+          employee.totalVisits > 0 &&
+          normalizeStateKey(employee.state) === selectedStateKey
+      )
+      .forEach((employee) => uniqueEmployees.set(employee.employeeId, employee));
+
+    return Array.from(uniqueEmployees.values())
+      .map((employee) => mapSummaryToEmployee(employee))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [selectedState, overview, mapSummaryToEmployee]);
 
   const employeeList = useMemo<ExtendedEmployee[]>(() => {
@@ -995,29 +1069,34 @@ function DashboardPageContent() {
 
   const states = useMemo<StateItem[]>(() => {
     if (!overview) return [];
-    // FIXED: Only show states with actual visit activity
-    return overview.states
-      .filter(state => 
-        state.ongoingVisitCount > 0 || 
-        state.completedVisitCount > 0 ||
-        state.activeEmployeeCount > 0
-      )
-      .map((state, index) => ({
-        id: index + 1,
-        name: state.stateName ?? "Unknown",
-        activeEmployeeCount: state.activeEmployeeCount,
-        ongoingVisitCount: state.ongoingVisitCount,
-        completedVisitCount: state.completedVisitCount,
-        color: colorPalette[index % colorPalette.length],
-      }));
+    return buildStateItemsFromEmployees(overview.employees);
   }, [overview]);
 
   const kpis = useMemo(() => ({
     totalVisits: overview?.kpi.totalVisits ?? 0,
-    activeEmployees: overview?.kpi.activeEmployees ?? 0,
+    activeEmployees: overview
+      ? new Set(
+          overview.employees
+            .filter((employee) => employee.totalVisits > 0)
+            .map((employee) => employee.employeeId)
+        ).size
+      : 0,
     liveLocations:
       overview?.kpi.liveLocations ?? (overview ? overview.liveLocations.length : 0),
   }), [overview]);
+
+  const activeEmployees = useMemo<Employee[]>(() => {
+    if (!overview) return [];
+    return Array.from(
+      new Map(
+        overview.employees
+          .filter((employee) => employee.totalVisits > 0)
+          .map((employee) => [employee.employeeId, employee] as const)
+      ).values()
+    )
+      .map(mapSummaryToEmployee)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [overview, mapSummaryToEmployee]);
 
   useEffect(() => {
     if (!overview || !highlightedEmployee) return;
@@ -1042,20 +1121,28 @@ function DashboardPageContent() {
 
     if (view === "employeeDetail") {
       // If we came from a state view, go back to that state view
-      if (selectedState) {
+      if (currentParams.get("returnView") === "activeEmployees") {
+        currentParams.set("view", "activeEmployees");
+        currentParams.delete("employeeId");
+        currentParams.delete("stateName");
+        currentParams.delete("returnView");
+      } else if (selectedState) {
         currentParams.set("view", "state");
         currentParams.set("stateName", selectedState.name);
         currentParams.delete("employeeId");
+        currentParams.delete("returnView");
       } else {
         // Otherwise, go back to the main dashboard view
         currentParams.delete("view");
         currentParams.delete("employeeId");
         currentParams.delete("stateName");
+        currentParams.delete("returnView");
       }
-    } else if (view === "state") {
+    } else if (view === "state" || view === "totalVisits" || view === "activeEmployees") {
       // From state view, go back to the main dashboard view
       currentParams.delete("view");
       currentParams.delete("stateName");
+      currentParams.delete("returnView");
     } else {
       // For any other unexpected state, fall back to history back
       router.back();
@@ -1067,6 +1154,22 @@ function DashboardPageContent() {
     lastUrlRef.current = newUrl;
     router.push(newUrl, { scroll: false });
   }, [view, pathname, router, searchParams, selectedState]);
+
+  const handleKpiSelect = useCallback((nextView: "totalVisits" | "activeEmployees") => {
+    setSelectedState(null);
+    setSelectedEmployee(null);
+    setView(nextView);
+    if (pathname) {
+      const currentParams = new URLSearchParams(searchParams.toString());
+      currentParams.set("view", nextView);
+      currentParams.delete("stateName");
+      currentParams.delete("employeeId");
+      currentParams.delete("returnView");
+      const newUrl = `${pathname}?${currentParams.toString()}`;
+      lastUrlRef.current = newUrl;
+      router.push(newUrl, { scroll: false });
+    }
+  }, [pathname, router, searchParams]);
 
   const handleStateSelect = useCallback((state: SelectedState) => {
     if (!state) return;
@@ -1307,6 +1410,11 @@ function DashboardPageContent() {
       if (view === "state" && selectedState) {
         currentParams.set("stateName", selectedState.name);
       }
+      if (view === "activeEmployees") {
+        currentParams.set("returnView", "activeEmployees");
+      } else {
+        currentParams.delete("returnView");
+      }
       const nextQuery = currentParams.toString();
       const newUrl = `${pathname}?${nextQuery}`;
       lastUrlRef.current = newUrl;
@@ -1400,11 +1508,19 @@ function DashboardPageContent() {
             <Heading as="h1" size="lg" weight="semibold">
               {view === "state" && selectedState
                 ? selectedState.name
+                : view === "totalVisits"
+                ? "Total Visits"
+                : view === "activeEmployees"
+                ? "Active Employees"
                 : selectedEmployee?.name || "Employee Details"}
             </Heading>
             <Text tone="muted" size="sm">
               {view === "state" && selectedState
-                ? "Active employees in this state"
+                ? "Employees with visits in this state"
+                : view === "totalVisits"
+                ? "Visits recorded in the selected date range"
+                : view === "activeEmployees"
+                ? "Employees with visit activity in the selected date range"
                 : view === "employeeDetail" && selectedEmployee
                 ? selectedEmployee.position
                 : ""}
@@ -1684,6 +1800,8 @@ function DashboardPageContent() {
           {view === "dashboard" && (
             <DashboardLiveView
               kpis={kpis}
+              onTotalVisitsSelect={() => handleKpiSelect("totalVisits")}
+              onActiveEmployeesSelect={() => handleKpiSelect("activeEmployees")}
               states={states}
               onStateSelect={handleStateSelect}
               isLoadingTrail={isLoadingTrail}
@@ -1709,6 +1827,33 @@ function DashboardPageContent() {
               employees={stateEmployees}
               onEmployeeSelect={handleEmployeeDetailSelect}
             />
+          )}
+
+          {view === "totalVisits" && (
+            <DashboardTotalVisitsView
+              startDate={dateRange.start}
+              endDate={dateRange.end}
+            />
+          )}
+
+          {view === "activeEmployees" && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                <span>
+                  {format(dateRange.start, "d MMM yyyy") === format(dateRange.end, "d MMM yyyy")
+                    ? format(dateRange.start, "d MMM yyyy")
+                    : `${format(dateRange.start, "d MMM yyyy")} – ${format(dateRange.end, "d MMM yyyy")}`}
+                </span>
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-foreground">
+                  {activeEmployees.length} {activeEmployees.length === 1 ? "employee" : "employees"}
+                </span>
+              </div>
+              <DashboardStateView
+                employees={activeEmployees}
+                onEmployeeSelect={handleEmployeeDetailSelect}
+                emptyDescription="No employees had visit activity in the selected range."
+              />
+            </div>
           )}
 
           {view === "employeeDetail" && selectedEmployee && (

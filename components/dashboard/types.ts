@@ -6,6 +6,7 @@ export type Employee = {
   lastUpdated: string;
   status: string;
   location: string;
+  totalVisits?: number;
 };
 
 export type ExtendedEmployee = Employee & {
@@ -17,7 +18,8 @@ export type ExtendedEmployee = Employee & {
 export type StateItem = {
   id: number;
   name: string;
-  activeEmployeeCount: number;
+  employeeCount: number;
+  assignedVisitCount: number;
   ongoingVisitCount: number;
   completedVisitCount: number;
   color: string;

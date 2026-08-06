@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import {
   hasAnyRole,
   normalizeRoleValue,
 } from "@/lib/role-utils";
+import { format } from "date-fns";
 
 interface AttendanceData {
   id: number;
@@ -42,8 +43,9 @@ interface Employee {
   firstName: string;
   lastName: string;
   employeeId: string;
-  department: string;
-  position: string;
+  department?: string;
+  position?: string;
+  role?: string;
 }
 
 interface CustomerVisitDetail {
@@ -89,6 +91,17 @@ const months = [
   "December",
 ];
 
+const formatRoleDisplay = (role?: string, position?: string): string => {
+  const raw = role || position;
+  if (!raw) return 'Field Officer';
+  
+  const cleaned = raw.replace(/^ROLE_/i, '').replace(/_/g, ' ');
+  return cleaned
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 export default function AttendancePage() {
   const router = useRouter();
   const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
@@ -104,6 +117,14 @@ export default function AttendancePage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
+
+  const selectedYearRef = useRef(selectedYear);
+  const selectedMonthRef = useRef(selectedMonth);
+
+  useEffect(() => {
+    selectedYearRef.current = selectedYear;
+    selectedMonthRef.current = selectedMonth;
+  }, [selectedYear, selectedMonth]);
 
   // Get token from localStorage (you may need to adjust this based on your auth setup)
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -154,18 +175,24 @@ export default function AttendancePage() {
   }, [token]);
 
   const fetchAttendanceData = useCallback(async () => {
+    const reqYear = selectedYear;
+    const reqMonth = selectedMonth;
+
+    // Immediately trigger loading state and clear stale data from previous month
     setIsLoading(true);
+    setAttendanceData([]);
+    setNoDataMessage("");
 
     if (!token) {
       console.error("Auth token is missing");
+      setIsLoading(false);
       return;
     }
 
-    const startDate = new Date(selectedYear, selectedMonth, 1).toISOString().split("T")[0];
-    const lastDayOfMonth = new Date(selectedYear, selectedMonth + 1, 0);
-    const nextDay = new Date(lastDayOfMonth);
-    nextDay.setDate(lastDayOfMonth.getDate() + 1);
-    const endDate = nextDay.toISOString().split("T")[0];
+    // Keep month boundaries in the user's local calendar. Converting local
+    // midnight to UTC shifts these dates back one day in positive timezones.
+    const startDate = format(new Date(reqYear, reqMonth, 1), "yyyy-MM-dd");
+    const endDate = format(new Date(reqYear, reqMonth + 1, 0), "yyyy-MM-dd");
 
     try {
       const response = await fetch(
@@ -183,21 +210,24 @@ export default function AttendancePage() {
 
       const data = await response.json();
 
-      // Backend now returns correct status with activity-based logic
-      // No normalization needed - use data as-is
-      setAttendanceData(data);
-      setNoDataMessage("");
-
-      if (data.length === 0) {
-        setNoDataMessage("No data available for the selected month and year. Please choose a different month or year.");
+      // Race-condition guard: only set data if user hasn't switched to a different month/year during request
+      if (selectedYearRef.current === reqYear && selectedMonthRef.current === reqMonth) {
+        setAttendanceData(data);
+        if (data.length === 0) {
+          setNoDataMessage("No data available for the selected month and year. Please choose a different month or year.");
+        }
       }
     } catch (error) {
       console.error("Error fetching attendance data:", error);
-      setAttendanceData([]);
-      setNoDataMessage("No data available for the selected month and year. Please choose a different month or year.");
+      if (selectedYearRef.current === reqYear && selectedMonthRef.current === reqMonth) {
+        setAttendanceData([]);
+        setNoDataMessage("No data available for the selected month and year. Please choose a different month or year.");
+      }
+    } finally {
+      if (selectedYearRef.current === reqYear && selectedMonthRef.current === reqMonth) {
+        setIsLoading(false);
+      }
     }
-
-    setIsLoading(false);
   }, [token, selectedYear, selectedMonth]);
 
   const fetchVisitData = useCallback(
@@ -314,77 +344,90 @@ export default function AttendancePage() {
     });
 
   return (
-    <div className="container mx-auto py-8 px-4 sm:px-8">
-      {/* Filters Section */}
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-6">
-        {/* Year, Month, and Search Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-          <div className="w-full sm:w-auto">
-            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select a year" />
+    <div className="max-w-[1400px] mx-auto p-2 sm:p-4 space-y-4">
+      {/* Compact Filters & Legend Header Bar */}
+      <div className="bg-card p-3.5 sm:p-4 rounded-xl border border-border/60 shadow-sm space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Controls: Year, Month, Name Filter */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Select 
+              value={selectedYear.toString()} 
+              onValueChange={(value) => {
+                setIsLoading(true);
+                setAttendanceData([]);
+                setSelectedYear(parseInt(value));
+              }}
+            >
+              <SelectTrigger className="w-[120px] h-9 text-xs font-semibold rounded-lg border-border/80">
+                <SelectValue placeholder="Year" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 {years.map((year) => (
-                  <SelectItem key={year} value={year.toString()}>
+                  <SelectItem key={year} value={year.toString()} className="text-xs">
                     {year}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="w-full sm:w-auto">
-            <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select a month" />
+
+            <Select 
+              value={selectedMonth.toString()} 
+              onValueChange={(value) => {
+                setIsLoading(true);
+                setAttendanceData([]);
+                setSelectedMonth(parseInt(value));
+              }}
+            >
+              <SelectTrigger className="w-[130px] h-9 text-xs font-semibold rounded-lg border-border/80">
+                <SelectValue placeholder="Month" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 {months.map((month, index) => (
-                  <SelectItem key={month} value={index.toString()}>
+                  <SelectItem key={month} value={index.toString()} className="text-xs">
                     {month}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="w-full sm:w-auto">
-            <Input
-              type="text"
-              placeholder="Filter by name"
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="w-full sm:w-[180px]"
-            />
-          </div>
-        </div>
 
-        {/* Legend Section */}
-        <div className="shrink-0">
-          <p className="text-sm font-semibold mb-2">Legend:</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-2 text-xs">
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-purple-500 mr-1.5 rounded shrink-0"></div>
-              <p>Paid Leave</p>
+            <div className="relative flex-1 min-w-[160px] max-w-xs">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Filter by name..."
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+                className="pl-9 h-9 text-xs rounded-lg border-border/80"
+              />
             </div>
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-cyan-500 mr-1.5 rounded shrink-0"></div>
-              <p>Activity</p>
+          </div>
+
+          {/* Inline Legend Pills */}
+          <div className="flex items-center gap-2 flex-wrap text-[11px] font-medium text-muted-foreground pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
+            <span className="text-xs font-semibold text-foreground mr-1">Legend:</span>
+            <div className="flex items-center gap-1.5 bg-purple-500/10 text-purple-700 dark:text-purple-400 px-2 py-0.5 rounded-md border border-purple-500/20">
+              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+              <span>Paid Leave</span>
             </div>
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-green-500 mr-1.5 rounded shrink-0"></div>
-              <p>Full Day</p>
+            <div className="flex items-center gap-1.5 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 px-2 py-0.5 rounded-md border border-cyan-500/20">
+              <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
+              <span>Activity</span>
             </div>
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-yellow-500 mr-1.5 rounded shrink-0"></div>
-              <p>Half Day</p>
+            <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-500/20">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Full Day</span>
             </div>
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-blue-500 mr-1.5 rounded shrink-0"></div>
-              <p>Present</p>
+            <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span>Half Day</span>
             </div>
-            <div className="flex items-center whitespace-nowrap">
-              <div className="w-3 h-3 bg-red-500 mr-1.5 rounded shrink-0"></div>
-              <p>Absent</p>
+            <div className="flex items-center gap-1.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/20">
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+              <span>Present</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-md border border-rose-500/20">
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span>Absent</span>
             </div>
           </div>
         </div>
@@ -394,11 +437,27 @@ export default function AttendancePage() {
 
       <div className="space-y-4">
         {isLoading ? (
-          Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-48 bg-gray-200 animate-pulse rounded-lg"></div>
-          ))
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="h-72 bg-card border border-border/60 animate-pulse rounded-xl p-3.5 space-y-3 shadow-sm">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-muted shrink-0"></div>
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="h-3.5 bg-muted rounded w-28"></div>
+                    <div className="h-2.5 bg-muted rounded w-20"></div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="h-10 bg-muted rounded-lg"></div>
+                  <div className="h-10 bg-muted rounded-lg"></div>
+                  <div className="h-10 bg-muted rounded-lg"></div>
+                </div>
+                <div className="h-40 bg-muted/80 rounded-xl"></div>
+              </div>
+            ))}
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredEmployees.map((employee) => {
               const initialSummary = { fullDays: 0, halfDays: 0, absentDays: 0 };
               const employeeAttendance = attendanceData.filter((data) => data.employeeId === employee.id);
@@ -413,7 +472,7 @@ export default function AttendancePage() {
                   employee={{
                     id: employee.id,
                     name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 'Unknown Employee',
-                    position: employee.position,
+                    position: formatRoleDisplay(employee.role, employee.position),
                     avatar: "/placeholder.svg?height=40&width=40",
                     fullDays: 0,
                     halfDays: 0,

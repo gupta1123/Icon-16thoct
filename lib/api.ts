@@ -45,6 +45,7 @@ export interface ApprovalRequest {
   employeeName: string;
   requestDate: string;
   requestedStatus: string;
+  description?: string | null;
   logDate: string;
   actionDate: string | null;
   status: string;
@@ -201,6 +202,18 @@ export interface VisitDto {
   intentAuditLogDto?: unknown;
   stock?: number;
   monthlySale?: number;
+}
+
+export interface VisitEditPayload {
+  storeId: number;
+  employeeId: number;
+  visit_date: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+  purpose?: string;
+  priority?: string;
+  isSelfGenerated: boolean;
+  assignedById: number;
 }
 
 export interface VisitGridCell {
@@ -1230,6 +1243,7 @@ export interface ProfessionalDto {
 
 type ApiRequestOptions = RequestInit & {
   suppressErrorLog?: boolean;
+  allowTextResponse?: boolean;
 };
 
 // API Service Class
@@ -1547,7 +1561,11 @@ export class API {
 
   private async makeRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const { suppressErrorLog = false, ...requestOptions } = options;
+    const {
+      suppressErrorLog = false,
+      allowTextResponse = false,
+      ...requestOptions
+    } = options;
     const config: RequestInit = {
       ...requestOptions,
       headers: {
@@ -1592,6 +1610,10 @@ export class API {
       // Ensure we only parse JSON when it is JSON
       if (!contentType || !contentType.toLowerCase().includes('application/json')) {
         const text = await response.text();
+
+        if (allowTextResponse) {
+          return text as unknown as T;
+        }
         
         // For certain endpoints that might return HTML or other formats when no data exists,
         // return empty array instead of throwing error
@@ -1768,6 +1790,21 @@ export class API {
   // Visit detail APIs
   async getVisitById(id: number): Promise<VisitDto> {
     return this.makeRequest<VisitDto>(`/visit/getById?id=${id}`);
+  }
+
+  async editVisit(id: number, payload: VisitEditPayload): Promise<unknown> {
+    return this.makeRequest<unknown>(`/visit/edit?id=${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+      allowTextResponse: true,
+    });
+  }
+
+  async deleteVisit(id: number): Promise<void> {
+    return this.makeRequest<void>(`/visit/delete?id=${id}`, {
+      method: 'DELETE',
+      allowTextResponse: true,
+    });
   }
 
   async getIntentAuditByVisit(id: number): Promise<IntentAuditLog[]> {

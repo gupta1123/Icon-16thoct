@@ -592,6 +592,48 @@ const Complaints = () => {
         }
     };
 
+    const updateTaskPriority = async (taskId: number, newPriority: string) => {
+        if (!token) return;
+        
+        try {
+            const response = await fetch(
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/updateTask?taskId=${taskId}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ priority: newPriority }),
+                }
+            );
+
+            if (response.ok) {
+                setTasks((prevTasks) =>
+                    prevTasks.map((task) =>
+                        task.id === taskId ? { ...task, priority: newPriority } : task
+                    )
+                );
+            } else {
+                console.error('Failed to update task priority');
+            }
+        } catch (error) {
+            console.error('Error updating task priority:', error);
+        }
+    };
+
+    const getPriorityBadgeStyle = (priority?: string): string => {
+        switch ((priority || '').toLowerCase()) {
+            case 'high':
+                return 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border border-rose-500/30';
+            case 'medium':
+                return 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30';
+            case 'low':
+            default:
+                return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30';
+        }
+    };
+
     const deleteTask = async (taskId: number) => {
         if (!token) return;
         
@@ -704,19 +746,21 @@ const Complaints = () => {
             {/* Filters Row */}
             <div className="mb-6 hidden lg:flex flex-wrap gap-3 items-center justify-between">
                 <div className="flex flex-wrap gap-3 items-center">
-                    <Select value={filters.employee} onValueChange={(value) => handleFilterChange('employee', value)}>
-                        <SelectTrigger className="w-[180px] text-sm bg-background border-border">
-                            <SelectValue placeholder="Filter by employee" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Employees</SelectItem>
-                            {filterEmployees.map((employee) => (
-                                <SelectItem key={employee.id} value={employee.id.toString()}>
-                                    {employee.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                        value={filters.employee}
+                        options={[
+                            { value: 'all', label: 'All Employees' },
+                            ...filterEmployees.map((employee) => ({
+                                value: employee.id.toString(),
+                                label: employee.name,
+                            })),
+                        ]}
+                        onSelect={(option) => option && handleFilterChange('employee', option.value)}
+                        placeholder="Filter by employee"
+                        searchPlaceholder="Search employees..."
+                        noResultsMessage="No employees found"
+                        triggerClassName="w-[180px] text-sm bg-background border-border font-normal"
+                    />
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
                         <SelectTrigger className="w-[160px] text-sm bg-background border-border">
                             <SelectValue placeholder="Filter by priority" />
@@ -843,19 +887,21 @@ const Complaints = () => {
                         </div>
                         <div className="grid gap-2">
                             <Label className="text-sm">Employee</Label>
-                            <Select value={filters.employee} onValueChange={(value) => handleFilterChange('employee', value)}>
-                                <SelectTrigger className="w-full text-sm bg-background border-border">
-                                    <SelectValue placeholder="Filter by employee" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Employees</SelectItem>
-                                    {filterEmployees.map((employee) => (
-                                        <SelectItem key={employee.id} value={employee.id.toString()}>
-                                            {employee.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <SearchableSelect
+                                value={filters.employee}
+                                options={[
+                                    { value: 'all', label: 'All Employees' },
+                                    ...filterEmployees.map((employee) => ({
+                                        value: employee.id.toString(),
+                                        label: employee.name,
+                                    })),
+                                ]}
+                                onSelect={(option) => option && handleFilterChange('employee', option.value)}
+                                placeholder="Filter by employee"
+                                searchPlaceholder="Search employees..."
+                                noResultsMessage="No employees found"
+                                triggerClassName="w-full text-sm bg-background border-border font-normal"
+                            />
                         </div>
                         <div className="grid gap-2">
                             <Label className="text-sm">Priority</Label>
@@ -1234,127 +1280,158 @@ const Complaints = () => {
                         .map((task, index) => (
                             <motion.div
                                 key={task.id}
-                                initial={{ opacity: 0, y: 20 }}
+                                initial={{ opacity: 0, y: 15 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.3, delay: index * 0.1 }}
+                                transition={{ duration: 0.2, delay: index * 0.05 }}
                                 className="w-full sm:w-1/2 lg:w-1/3 p-2"
                             >
-                                <Card className="h-full overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300">
-                                    <CardHeader className="pb-2">
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-2">
-                                                <Badge className={`${getStatusInfo(task.status).color} px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
-                                                    {getStatusInfo(task.status).icon} <span>{task.status}</span>
-                                                </Badge>
+                                <Card className="h-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden py-0 gap-0 flex flex-col justify-between bg-card">
+                                    <CardContent className="p-4 space-y-3">
+                                        {/* Top Row: Title / Description & Action Menu */}
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="space-y-1 min-w-0 flex-1">
+                                                <h3 className="text-sm font-bold text-foreground leading-snug line-clamp-2">
+                                                    {task.taskTitle || task.taskDescription || 'Complaint'}
+                                                </h3>
+                                                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap pt-0.5">
+                                                    <span className="flex items-center gap-1 font-medium text-foreground/80">
+                                                        <Building className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
+                                                        <span className="truncate max-w-[150px]">{task.storeName}</span>
+                                                    </span>
+                                                    {task.storeDistrict && (
+                                                        <span className="flex items-center gap-1 text-[11px] bg-muted px-2 py-0.5 rounded-md font-medium text-muted-foreground">
+                                                            <MapPin className="w-3 h-3 shrink-0" />
+                                                            <span>{task.storeDistrict}</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-1 shrink-0">
                                                 {Array.isArray((task as unknown as Record<string, unknown>).attachmentResponse) && ((task as unknown as Record<string, unknown>).attachmentResponse as unknown[]).length > 0 && (
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-8 w-8 p-0"
+                                                        className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg shrink-0"
                                                         onClick={() => fetchTaskImages(task.id)}
                                                         title="View Images"
                                                     >
-                                                        <ImageIcon className="h-4 w-4 text-blue-500" />
+                                                        <ImageIcon className="h-3.5 w-3.5" />
                                                     </Button>
                                                 )}
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg shrink-0">
+                                                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="rounded-xl">
+                                                        <DropdownMenuItem onClick={() => handleViewStore(task.storeId)}>
+                                                            <Building className="mr-2 h-3.5 w-3.5" /> View Store
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-rose-600">
+                                                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete Complaint
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
                                             </div>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => handleViewStore(task.storeId)}>
-                                                        <Building className="mr-2 h-4 w-4" /> View Store
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem onClick={() => deleteTask(task.id)} className="text-red-600">
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Complaint
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
                                         </div>
-                                        <CardTitle className="text-base font-medium mt-2">{task.taskTitle || 'Untitled Complaint'}</CardTitle>
-                                        <CardDescription className="flex items-center mt-1 text-sm text-muted-foreground">
-                                            <Building className="w-3 h-3 mr-1" />
-                                            {task.storeName}
-                                        </CardDescription>
-                                        {task.storeDistrict && (
-                                            <CardDescription className="flex items-center mt-1 text-sm text-muted-foreground">
-                                                <MapPin className="w-3 h-3 mr-1" />
-                                                {task.storeDistrict}
-                                            </CardDescription>
-                                        )}
-                                        {task.taskDescription && (
-                                            <div className="mt-2">
-                                                <div 
-                                                    className="text-sm text-muted-foreground line-clamp-2 cursor-help"
-                                                    title={task.taskDescription}
+
+                                        {/* Metadata Block: Assignee & Due Date */}
+                                        <div className="bg-muted/40 p-2.5 rounded-lg border border-border/40 text-xs flex items-center justify-between gap-2">
+                                            <div className="min-w-0 flex items-center gap-1.5 truncate">
+                                                <User className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                                <span className="text-muted-foreground text-[11px] shrink-0">Assigned:</span>
+                                                <span className="font-semibold text-foreground text-xs truncate">{task.assignedToName}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
+                                                <CalendarIcon2 className="w-3 h-3 shrink-0" />
+                                                <span>{format(new Date(task.dueDate), 'MMM d, yyyy')}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Dual Editable Controls: Priority & Status */}
+                                        <div className="grid grid-cols-2 gap-2 pt-1">
+                                            {/* Priority Selector */}
+                                            <div className="space-y-1">
+                                                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Priority</span>
+                                                <Select
+                                                    value={task.priority?.toLowerCase() || 'low'}
+                                                    onValueChange={(value) => updateTaskPriority(task.id, value)}
                                                 >
-                                                    {task.taskDescription}
-                                                </div>
+                                                    <SelectTrigger className={`w-full h-7 text-xs font-semibold rounded-lg border-0 px-2.5 ${getPriorityBadgeStyle(task.priority)}`}>
+                                                        <SelectValue placeholder="Priority" />
+                                                    </SelectTrigger>
+                                                    <SelectContent className="rounded-xl">
+                                                        <SelectItem value="low" className="text-xs font-medium text-emerald-600">Low</SelectItem>
+                                                        <SelectItem value="medium" className="text-xs font-medium text-amber-600">Medium</SelectItem>
+                                                        <SelectItem value="high" className="text-xs font-medium text-rose-600">High</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
-                                        )}
-                                    </CardHeader>
-                                    <CardContent className="py-2">
-                                        <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-1.5">
-                                                    <User className="w-3 h-3 text-indigo-500" />
-                                                    <span className="text-xs text-muted-foreground">Assigned to</span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5">
-                                                    <Target className="w-3 h-3 text-purple-500" />
-                                                    <span className="text-xs text-muted-foreground">Priority</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm font-medium">{task.assignedToName}</span>
-                                                <span className="text-sm font-medium capitalize">{task.priority}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                <CalendarIcon2 className="w-3 h-3" />
-                                                <span>Due: {format(new Date(task.dueDate), 'MMM d, yyyy')}</span>
+
+                                            {/* Status Selector */}
+                                            <div className="space-y-1">
+                                                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Status</span>
+                                                <Select
+                                                    value={task.status}
+                                                    onValueChange={(value) => updateTaskStatus(task.id, value)}
+                                                >
+                                                    <SelectTrigger className={`w-full h-7 text-xs font-semibold rounded-lg border-0 px-2.5 ${getStatusInfo(task.status).color}`}>
+                                                        <SelectValue placeholder="Status" />
+                                                    </SelectTrigger>
+                                                    <SelectContent className="rounded-xl">
+                                                        <SelectItem value="Assigned" className="text-xs font-medium">Assigned</SelectItem>
+                                                        <SelectItem value="Work In Progress" className="text-xs font-medium">Work In Progress</SelectItem>
+                                                        <SelectItem value="Complete" className="text-xs font-medium">Complete</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
                                         </div>
                                     </CardContent>
-                                    <CardFooter className="flex justify-end items-center py-2">
-                                        <Select
-                                            value={task.status}
-                                            onValueChange={(value) => updateTaskStatus(task.id, value)}
-                                        >
-                                            <SelectTrigger className="w-[160px] text-sm h-8 bg-background border-border">
-                                                <SelectValue placeholder="Change status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Assigned">Assigned</SelectItem>
-                                                <SelectItem value="Work In Progress">Work In Progress</SelectItem>
-                                                <SelectItem value="Complete">Complete</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </CardFooter>
                                 </Card>
                             </motion.div>
                         ))}
                 </div>
             )}
 
-            <div className="mt-8 flex justify-center">
-                <Pagination>
-                    <PaginationContent>
-                        {currentPage !== 1 && <PaginationPrevious size="sm" onClick={() => handlePageChange(currentPage - 1)} />}
-                        {Array.from({ length: Math.ceil(filteredTasks.length / 10) }, (_, i) => i + 1).map((page) => (
-                            <PaginationItem key={page}>
-                                <PaginationLink size="sm" isActive={page === currentPage} onClick={() => handlePageChange(page)}>
-                                    {page}
-                                </PaginationLink>
-                            </PaginationItem>
-                        ))}
-                        {currentPage !== Math.ceil(filteredTasks.length / 10) && <PaginationNext size="sm" onClick={() => handlePageChange(currentPage + 1)} />}
-                    </PaginationContent>
-                </Pagination>
-            </div>
+            {filteredTasks.length > 0 && (
+                <div className="mt-8 pt-4 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <p className="text-xs text-muted-foreground font-medium">
+                        Showing <span className="font-semibold text-foreground">{Math.min((currentPage - 1) * 10 + 1, filteredTasks.length)}</span> to <span className="font-semibold text-foreground">{Math.min(currentPage * 10, filteredTasks.length)}</span> of <span className="font-semibold text-foreground">{filteredTasks.length}</span> entries
+                    </p>
+
+                    {Math.ceil(filteredTasks.length / 10) > 1 && (
+                        <Pagination className="w-auto mx-0">
+                            <PaginationContent>
+                                <PaginationItem>
+                                    <PaginationPrevious
+                                        onClick={() => currentPage > 1 && handlePageChange(currentPage - 1)}
+                                        className={currentPage === 1 ? "pointer-events-none opacity-40" : "cursor-pointer"}
+                                    />
+                                </PaginationItem>
+                                {Array.from({ length: Math.ceil(filteredTasks.length / 10) }, (_, i) => i + 1).map((page) => (
+                                    <PaginationItem key={page}>
+                                        <PaginationLink
+                                            isActive={page === currentPage}
+                                            onClick={() => handlePageChange(page)}
+                                        >
+                                            {page}
+                                        </PaginationLink>
+                                    </PaginationItem>
+                                ))}
+                                <PaginationItem>
+                                    <PaginationNext
+                                        onClick={() => currentPage < Math.ceil(filteredTasks.length / 10) && handlePageChange(currentPage + 1)}
+                                        className={currentPage === Math.ceil(filteredTasks.length / 10) ? "pointer-events-none opacity-40" : "cursor-pointer"}
+                                    />
+                                </PaginationItem>
+                            </PaginationContent>
+                        </Pagination>
+                    )}
+                </div>
+            )}
 
             {isImagePreviewOpen && (
                 <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
