@@ -84,6 +84,10 @@ import { CalendarIcon } from "lucide-react";
 import { API, formatStockQuantity, getStock, IntentAuditLog, MonthlySaleChange as StockChange, Task, Note as ApiNote, VisitDto, VisitBrandPurchase, type StoreDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { normalizeRoleValue, extractAuthorityRoles, hasAnyRole } from "@/lib/role-utils";
+import {
+  REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS,
+  getRequirementComplaintCategoryLabel,
+} from "@/lib/requirement-complaint-category";
 import BrandTab from './BrandTab';
 
 type Priority = 'low' | 'medium' | 'high';
@@ -680,7 +684,7 @@ export default function VisitDetailPage({
   const getPriorityBadge = (priority: Priority) => {
     return (
       <span className={`status-badge bg-black text-white dark:bg-neutral-900 dark:text-neutral-100`}>
-        {priority}
+        {getRequirementComplaintCategoryLabel(priority)}
       </span>
     );
   };
@@ -2519,15 +2523,15 @@ export default function VisitDetailPage({
                       />
                 </div>
                     <div className="space-y-2">
-                      <Label htmlFor="requirementPriority">Priority</Label>
+                      <Label htmlFor="requirementPriority">Category</Label>
                       <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value as Priority })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select a priority" />
+                          <SelectValue placeholder="Select a category" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
+                          {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
               </div>
@@ -2641,15 +2645,15 @@ export default function VisitDetailPage({
                       />
           </div>
                     <div className="space-y-2">
-                      <Label htmlFor="complaintPriority">Priority</Label>
+                      <Label htmlFor="complaintPriority">Category</Label>
                       <Select value={complaintTask.priority} onValueChange={(value) => setComplaintTask({ ...complaintTask, priority: value as Priority })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select a priority" />
+                          <SelectValue placeholder="Select a category" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
+                          {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

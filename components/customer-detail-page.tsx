@@ -44,6 +44,10 @@ import {
     loadTaskImageUrls,
     revokeTaskImageUrls,
 } from "@/lib/requirements";
+import {
+    REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS,
+    getRequirementComplaintCategoryLabel,
+} from "@/lib/requirement-complaint-category";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import './CustomerDetail.css';
@@ -1119,7 +1123,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         return data.slice(start, start + ITEMS_PER_PAGE);
     };
 
-    const handleChangeStatus = async (taskId: number, status: string) => {
+    const handleChangeStatus = async (taskId: number, status: string, priority: string) => {
         try {
             const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/updateTask?taskId=${taskId}`, {
                 method: 'PUT',
@@ -1129,7 +1133,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 },
                 body: JSON.stringify({
                     status,
-                    priority: "Medium",
+                    priority: priority?.toLowerCase() || 'low',
                 }),
             });
 
@@ -2396,7 +2400,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-xs text-muted-foreground">Status:</span>
                                                                     <select
-                                                                        onChange={(e) => handleChangeStatus(c.id, e.target.value)}
+                                                                        onChange={(e) => handleChangeStatus(c.id, e.target.value, c.priority)}
                                                                         value={c.status}
                                                                         className="px-2 py-1 border border-input bg-background rounded text-xs"
                                                                     >
@@ -2406,8 +2410,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                                     </select>
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Priority:</span>
-                                                                    <Badge variant="outline">{c.priority}</Badge>
+                                                                    <span className="text-xs text-muted-foreground">Category:</span>
+                                                                    <Badge variant="outline">{getRequirementComplaintCategoryLabel(c.priority)}</Badge>
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-2">
@@ -2504,7 +2508,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-xs text-muted-foreground">Status:</span>
                                                                     <select
-                                                                        onChange={(e) => handleChangeStatus(r.id, e.target.value)}
+                                                                        onChange={(e) => handleChangeStatus(r.id, e.target.value, r.priority)}
                                                                         value={r.status}
                                                                         className="px-2 py-1 border border-input bg-background rounded text-xs"
                                                                     >
@@ -2514,8 +2518,8 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                                     </select>
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Priority:</span>
-                                                                    <Badge variant="outline">{r.priority}</Badge>
+                                                                    <span className="text-xs text-muted-foreground">Category:</span>
+                                                                    <Badge variant="outline">{getRequirementComplaintCategoryLabel(r.priority)}</Badge>
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-2">
@@ -3368,15 +3372,15 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </Popover>
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="complaintPriority">Priority</Label>
+                                                <Label htmlFor="complaintPriority">Category</Label>
                                                 <Select value={complaintTask.priority} onValueChange={(value) => setComplaintTask({ ...complaintTask, priority: value })}>
                                                     <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Select a priority" />
+                                                        <SelectValue placeholder="Select a category" />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value="low">Low</SelectItem>
-                                                        <SelectItem value="medium">Medium</SelectItem>
-                                                        <SelectItem value="high">High</SelectItem>
+                                                        {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                                        ))}
                                                     </SelectContent>
                                                 </Select>
                                             </div>

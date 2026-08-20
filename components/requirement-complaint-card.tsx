@@ -11,6 +11,7 @@ import {
   Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getRequirementComplaintCategoryLabel } from "@/lib/requirement-complaint-category";
 import { format } from "date-fns";
 import {
   DropdownMenu,
@@ -67,9 +68,9 @@ const statusOptions: Record<string, StatusOption[]> = {
 };
 
 const priorityOptions: PriorityOption[] = [
-  { value: "low", label: "Low", color: "bg-green-100 text-green-800" },
-  { value: "medium", label: "Medium", color: "bg-yellow-100 text-yellow-800" },
-  { value: "high", label: "High", color: "bg-red-100 text-red-800" },
+  { value: "low", label: getRequirementComplaintCategoryLabel("low"), color: "bg-green-100 text-green-800" },
+  { value: "medium", label: getRequirementComplaintCategoryLabel("medium"), color: "bg-yellow-100 text-yellow-800" },
+  { value: "high", label: getRequirementComplaintCategoryLabel("high"), color: "bg-red-100 text-red-800" },
 ];
 
 interface RequirementComplaintCardProps {
