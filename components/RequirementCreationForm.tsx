@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS } from "@/lib/requirement-complaint-category";
 import { MAX_REQUIREMENT_IMAGES, MAX_REQUIREMENT_IMAGE_SIZE_BYTES } from "@/lib/requirements";
 
 export interface RequirementFormValues {
@@ -269,15 +270,17 @@ export function RequirementCreationForm({
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="requirement-priority">Priority</Label>
+              <Label htmlFor="requirement-priority">Category</Label>
               <Select value={value.priority} onValueChange={(priority) => updateValue({ priority })} disabled={isSubmitting}>
                 <SelectTrigger id="requirement-priority">
-                  <SelectValue placeholder="Select a priority" />
+                  <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
+                  {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

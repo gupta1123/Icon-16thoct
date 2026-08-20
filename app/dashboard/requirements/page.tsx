@@ -22,6 +22,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter
 import { CalendarIcon, MoreHorizontal, PlusCircle, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, Target, Trash2, Calendar as CalendarIcon2, Image } from 'lucide-react';
 import RequirementCreationForm from "@/components/RequirementCreationForm";
 import SearchableSelect from "@/components/searchable-select";
+import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS } from "@/lib/requirement-complaint-category";
 import {
     RequirementPhotoUploadError,
     createRequirementWithPhotos,
@@ -787,13 +788,13 @@ const Requirements = () => {
                     />
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
                         <SelectTrigger className="w-[160px] text-sm bg-background border-border">
-                            <SelectValue placeholder="Filter by priority" />
+                            <SelectValue placeholder="Filter by category" />
                         </SelectTrigger>
                         <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
-                            <SelectItem value="all">All Priorities</SelectItem>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="all">All Categories</SelectItem>
+                            {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                     <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
@@ -934,16 +935,16 @@ const Requirements = () => {
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label className="text-sm">Priority</Label>
+                            <Label className="text-sm">Category</Label>
                             <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
                                 <SelectTrigger className="w-full text-sm bg-background border-border">
-                                    <SelectValue placeholder="Filter by priority" />
+                                    <SelectValue placeholder="Filter by category" />
                                 </SelectTrigger>
                                 <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
-                                    <SelectItem value="all">All Priorities</SelectItem>
-                                    <SelectItem value="low">Low</SelectItem>
-                                    <SelectItem value="medium">Medium</SelectItem>
-                                    <SelectItem value="high">High</SelectItem>
+                                    <SelectItem value="all">All Categories</SelectItem>
+                                    {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>
@@ -1204,18 +1205,20 @@ const Requirements = () => {
                                         <div className="grid grid-cols-2 gap-2 pt-1">
                                             {/* Priority Selector */}
                                             <div className="space-y-1">
-                                                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Priority</span>
+                                                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Category</span>
                                                 <Select
                                                     value={task.priority?.toLowerCase() || 'low'}
                                                     onValueChange={(value) => updateTaskPriority(task.id, value)}
                                                 >
                                                     <SelectTrigger className={`w-full h-7 text-xs font-semibold rounded-lg border-0 px-2.5 ${getPriorityBadgeStyle(task.priority)}`}>
-                                                        <SelectValue placeholder="Priority" />
+                                                        <SelectValue placeholder="Category" />
                                                     </SelectTrigger>
                                                     <SelectContent className="rounded-xl">
-                                                        <SelectItem value="low" className="text-xs font-medium text-emerald-600">Low</SelectItem>
-                                                        <SelectItem value="medium" className="text-xs font-medium text-amber-600">Medium</SelectItem>
-                                                        <SelectItem value="high" className="text-xs font-medium text-rose-600">High</SelectItem>
+                                                        {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
+                                                            <SelectItem key={option.value} value={option.value} className="text-xs font-medium">
+                                                                {option.label}
+                                                            </SelectItem>
+                                                        ))}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
