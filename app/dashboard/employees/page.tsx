@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, ChevronLeft, ChevronRight, Archive, Settings, Plus, Loader2, XCircle, Filter, MoreHorizontal, Eye, Phone, Mail, Building, Calendar, MapPin } from 'lucide-react';
@@ -78,7 +78,7 @@ const toSentenceCase = (text: string): string => {
   return text.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-export default function EmployeeList() {
+function EmployeeListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedEditId = searchParams.get('edit');
@@ -1185,5 +1185,13 @@ export default function EmployeeList() {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+export default function EmployeeList() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading employees…</div>}>
+      <EmployeeListContent />
+    </Suspense>
   );
 }
