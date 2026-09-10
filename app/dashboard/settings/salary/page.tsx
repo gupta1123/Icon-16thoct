@@ -180,13 +180,6 @@ export default function SalarySettings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4">
-        <h1 className="text-3xl font-bold">Salary Management</h1>
-        <p className="text-muted-foreground">
-          View and manage employee salaries with detailed breakdowns
-        </p>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

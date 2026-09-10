@@ -218,9 +218,6 @@ export default function ReportsPage() {
 
   return (
     <div className="icon-reports min-w-0 space-y-4 overflow-visible [&_h3]:tracking-normal">
-      <div className="mb-4 flex h-[46px] items-center rounded-lg border bg-card p-1 shadow-sm">
-        <h2 className="rounded-sm bg-background px-3 py-1.5 text-sm font-medium tracking-normal shadow-sm">Field Officer Visit Report</h2>
-      </div>
       <div className="space-y-5">
         <div className="space-y-5">
           <div className="grid grid-cols-1 gap-x-4 gap-y-3 border-b pb-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.3fr)_minmax(145px,.8fr)_minmax(155px,.9fr)_minmax(155px,.9fr)_minmax(180px,auto)] xl:items-end">

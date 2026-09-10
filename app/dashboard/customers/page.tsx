@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -744,8 +744,7 @@ function CustomerListContent() {
 
     return (
         <div className="mx-auto w-full max-w-none py-4 space-y-4">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
+            <div className="w-full space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                             {!(isAvp || isCoordinator || isDataManager) && (
@@ -827,7 +826,7 @@ function CustomerListContent() {
                     </div>
 
                     {isDesktopFilterExpanded && (
-                        <div className="hidden rounded-lg border border-border/70 bg-muted/20 p-3 md:block">
+                        <div className="hidden rounded-xl border border-border/70 bg-muted/20 p-3 md:block">
                             <div className="grid grid-cols-1 gap-2 md:grid-cols-3 lg:grid-cols-4">
                                 {renderFilterInput('storeName', 'Shop Name', <User className="h-3.5 w-3.5" />, false)}
                                 {renderFilterInput('ownerName', 'Owner Name', <User className="h-3.5 w-3.5" />, false)}
@@ -838,12 +837,6 @@ function CustomerListContent() {
                                 {renderFilterInput('clientType', 'Client Type', <Target className="h-3.5 w-3.5" />, false)}
                                 {renderFilterInput('dealerSubType', 'Dealer Sub Type', <Briefcase className="h-3.5 w-3.5" />, false)}
                             </div>
-                        </div>
-                    )}
-
-                    {(isManager || isCoordinator) && (
-                        <div>
-                            <h3 className="text-base font-semibold text-foreground">Team Customers</h3>
                         </div>
                     )}
 
@@ -1236,8 +1229,7 @@ function CustomerListContent() {
                     </div>
 
                     {renderPagination()}
-                </CardContent>
-            </Card>
+            </div>
 
             {/* Simple delete confirmation modal */}
             {isDeleteModalOpen && (

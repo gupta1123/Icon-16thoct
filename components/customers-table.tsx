@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DownloadIcon, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -39,17 +38,15 @@ export default function CustomersTable({ customers }: { customers: unknown[] }) 
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Customers</CardTitle>
+    <div className="w-full space-y-4">
+      <div className="flex flex-row items-center justify-end">
         {(isAdmin || isDataManager) && (
           <Button onClick={handleExport} size="sm" variant="outline">
             <DownloadIcon className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
         )}
-      </CardHeader>
-      <CardContent className="w-full">
+      </div>
         <div className="rounded-md border overflow-hidden w-full">
           <div className="overflow-x-auto w-full">
             <Table className="min-w-full">
@@ -123,7 +120,6 @@ export default function CustomersTable({ customers }: { customers: unknown[] }) 
             </Table>
           </div>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

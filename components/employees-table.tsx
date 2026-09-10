@@ -19,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DownloadIcon, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -111,16 +110,13 @@ export default function EmployeesTable() {
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Employees</CardTitle>
-      </CardHeader>
-      <CardContent className="w-full">
+    <div className="w-full space-y-4">
         {error && (
           <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>
         )}
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="space-y-2">
             <Label>Name</Label>
             <Input
@@ -185,6 +181,7 @@ export default function EmployeesTable() {
               </Button>
             </div>
           )}
+        </div>
         </div>
 
         {/* Table Container */}
@@ -251,7 +248,6 @@ export default function EmployeesTable() {
             </Table>
           </div>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

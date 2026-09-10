@@ -224,15 +224,7 @@ export default function DataManagerDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <Heading as="h1" size="3xl" weight="bold">
-            Data Manager Dashboard
-          </Heading>
-          <Text tone="muted">
-            Comprehensive data management and analytics with full system access and download permissions.
-          </Text>
-        </div>
+      <div className="flex items-center justify-end">
         <div className="flex gap-2">
           <Button 
             variant="outline" 

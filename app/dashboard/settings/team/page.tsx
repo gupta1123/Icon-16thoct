@@ -1403,13 +1403,7 @@ export default function TeamSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <CardTitle className="text-2xl">Teams</CardTitle>
-          <CardDescription>
-            Manage coordinator, regional manager, and AVP teams.
-          </CardDescription>
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <Select value={teamFilter} onValueChange={setTeamFilter}>
             <SelectTrigger className="w-full sm:w-[220px]">

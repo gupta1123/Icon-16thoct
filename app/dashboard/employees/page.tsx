@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { Suspense, useState, useEffect, useMemo, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, ChevronLeft, ChevronRight, Archive, Settings, Plus, Loader2, XCircle, Filter, MoreHorizontal, Eye, Phone, Mail, Building, Calendar, MapPin } from 'lucide-react';
@@ -82,7 +82,6 @@ function EmployeeListContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedEditId = searchParams.get('edit');
-  const openedEditId = useRef<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,8 +100,6 @@ function EmployeeListContent() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [sortColumn, setSortColumn] = useState<keyof User>('firstName');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [editingEmployee, setEditingEmployee] = useState<User | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [cities, setCities] = useState<string[]>([]);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
@@ -118,16 +115,9 @@ function EmployeeListContent() {
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
 
   useEffect(() => {
-    if (!requestedEditId || openedEditId.current === requestedEditId || isLoading) return;
-    const employee = users.find(user => String(user.id) === requestedEditId);
-    if (!employee) return;
-    openedEditId.current = requestedEditId;
-    setEditingEmployee({ ...employee, name: `${employee.firstName} ${employee.lastName}` });
-    setIsEditModalOpen(true);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete('edit');
-    router.replace(params.size ? `/dashboard/employees?${params}` : '/dashboard/employees', { scroll: false });
-  }, [requestedEditId, isLoading, users, router, searchParams]);
+    if (!requestedEditId) return;
+    router.replace(`/dashboard/employees/${requestedEditId}/edit`);
+  }, [requestedEditId, router]);
 
   const cityOptions = useMemo<SearchableOption<string>[]>(() =>
     cities.map((city) => ({
@@ -331,37 +321,6 @@ function EmployeeListContent() {
     }
   };
 
-  const handleSaveEdit = async () => {
-    if (!editingEmployee) return;
-    try {
-      const response = await fetch(`${API_BASE_URL}/employee/edit?empId=${editingEmployee.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          firstName: editingEmployee.firstName,
-          lastName: editingEmployee.lastName,
-          email: editingEmployee.email,
-          role: formatRoleForPayload(editingEmployee.role),
-          departmentName: editingEmployee.departmentName,
-          userName: editingEmployee.userName,
-          primaryContact: editingEmployee.primaryContact,
-          city: editingEmployee.city,
-          state: editingEmployee.state,
-          dateOfJoining: editingEmployee.dateOfJoining,
-        })
-      });
-      if (response.ok) {
-        setUsers(prev => prev.map(user => (user.id === editingEmployee.id ? editingEmployee : user)));
-        setIsEditModalOpen(false);
-      }
-    } catch (error) {
-      console.error('Error updating employee:', error);
-    }
-  };
-
   const handleUnarchive = async (employeeId: number) => {
     try {
       const response = await fetch(`${API_BASE_URL}/employee/setActive?id=${employeeId}`, {
@@ -421,21 +380,6 @@ function EmployeeListContent() {
     return roleMap[roleLower] || role;
   };
 
-  const formatRoleForPayload = (role: string) => {
-    const normalizedRole = role.trim().replace(/\s+/g, '_').toUpperCase();
-    const roleMap: Record<string, string> = {
-      HR: 'HR',
-      AVP: 'AVP',
-      REGIONAL_MANAGER: 'Regional Manager',
-      OFFICE_MANAGER: 'Office Manager',
-      MANAGER: 'Manager',
-      COORDINATOR: 'Coordinator',
-      DATA_MANAGER: 'Data Manager',
-      FIELD_OFFICER: 'Field Officer',
-    };
-    return roleMap[normalizedRole] || role.trim().replace(/_/g, ' ');
-  };
-
   const getRoleBadgeColor = (role?: string) => {
     const roleLower = (role ?? '').toLowerCase().trim();
     if (roleLower.includes('regional') || roleLower.includes('manager')) return 'bg-purple-100 text-purple-800 border-purple-200';
@@ -454,14 +398,8 @@ function EmployeeListContent() {
     }
   };
 
-  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setEditingEmployee(prev => prev ? { ...prev, [name]: value } : null);
-  };
-
   const handleEditUser = (user: User) => {
-    setEditingEmployee({ ...user, name: `${user.firstName} ${user.lastName}` });
-    setIsEditModalOpen(true);
+    router.push(`/dashboard/employees/${user.id}/edit`);
   };
 
   const handleResetPassword = (userId: number | string) => {
@@ -540,8 +478,7 @@ function EmployeeListContent() {
   }, [archivedEmployees, archiveSearchQuery]);
 
   return (
-    <Card className="gap-0 border-border/70 py-0 shadow-sm">
-      <CardContent className="space-y-4 p-4">
+    <div className="w-full space-y-4">
         {/* Top Control Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -976,7 +913,6 @@ function EmployeeListContent() {
             </Button>
           </div>
         </div>
-      </CardContent>
 
       {/* Reset Password Modal */}
       <Dialog open={isResetPasswordOpen} onOpenChange={setIsResetPasswordOpen}>
@@ -998,70 +934,6 @@ function EmployeeListContent() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)}>Cancel</Button>
             <Button onClick={handleResetPasswordSubmit}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Employee Modal */}
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-[600px] overflow-y-auto">
-          <DialogHeader><DialogTitle>Edit Employee</DialogTitle></DialogHeader>
-          {editingEmployee && (
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="firstName">First Name</Label>
-                  <Input id="firstName" name="firstName" value={editingEmployee.firstName} onChange={handleEditInputChange} />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="lastName">Last Name</Label>
-                  <Input id="lastName" name="lastName" value={editingEmployee.lastName} onChange={handleEditInputChange} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" value={editingEmployee.email} onChange={handleEditInputChange} />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="primaryContact">Primary Contact</Label>
-                  <Input id="primaryContact" name="primaryContact" value={editingEmployee.primaryContact} onChange={handleEditInputChange} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={editingEmployee.role} onValueChange={(val) => setEditingEmployee({ ...editingEmployee, role: val })}>
-                    <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HR">HR</SelectItem>
-                      <SelectItem value="Regional Manager">Regional Manager</SelectItem>
-                      <SelectItem value="Coordinator">Coordinator</SelectItem>
-                      <SelectItem value="Data Manager">Data Manager</SelectItem>
-                      <SelectItem value="Field Officer">Field Officer</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="dateOfJoining">Date of Joining</Label>
-                  <Input id="dateOfJoining" name="dateOfJoining" type="date" value={editingEmployee.dateOfJoining} onChange={handleEditInputChange} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="city">City</Label>
-                  <Input id="city" name="city" value={editingEmployee.city} onChange={handleEditInputChange} />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="state">State</Label>
-                  <Input id="state" name="state" value={editingEmployee.state} onChange={handleEditInputChange} />
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveEdit}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1184,7 +1056,7 @@ function EmployeeListContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }
 

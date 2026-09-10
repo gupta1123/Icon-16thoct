@@ -108,7 +108,7 @@ export const VisitsByPurposeChart = ({ data }: VisitsByPurposeChartProps) => {
                 }}
               />
               <Bar dataKey="visits" name="Visits" fill="hsl(var(--primary))" radius={[0, 3, 3, 0]} maxBarSize={18}>
-                {data.map(item => <Cell key={item.purpose} fill={item.purpose === 'Others' ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))'} />)}
+                {data.map(item => <Cell key={item.purpose} fill={item.purpose === 'Unspecified' ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))'} />)}
                 <LabelList dataKey="visits" position="right" style={{ fill: 'hsl(var(--foreground))', fontSize: 12, fontVariantNumeric: 'tabular-nums' }} />
               </Bar>
             </BarChart>
@@ -118,7 +118,7 @@ export const VisitsByPurposeChart = ({ data }: VisitsByPurposeChartProps) => {
             No visit-purpose data for this range
           </div>
         )}
-        {data.some(item => item.purpose === 'Others') && <p className="mt-3 text-xs text-muted-foreground">Others includes custom and unspecified purposes.</p>}
+        {data.some(item => item.purpose === 'Unspecified') && <p className="mt-3 text-xs text-muted-foreground">Unspecified visits have no recorded purpose.</p>}
       </CardContent>
     </Card>
   );

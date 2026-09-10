@@ -105,6 +105,7 @@ const PricingPage = () => {
     const pricingRequest = useRef(0);
     const [showCompanyRate, setShowCompanyRate] = useState(false);
     const [fieldOfficers, setFieldOfficers] = useState<string[]>([]);
+    const [directoryOfficerNames, setDirectoryOfficerNames] = useState<string[]>([]);
     const [selectedFieldOfficer, setSelectedFieldOfficer] = useState("all");
     const [teamIds, setTeamIds] = useState<number[]>([]);
     const [teamLoading, setTeamLoading] = useState(false);
@@ -169,9 +170,21 @@ const PricingPage = () => {
                 if (teamData.length > 0) {
                     const accessibleTeamIds = getTeamIds(teamData);
                     setTeamIds(accessibleTeamIds);
+                    // Directory of team officers so the filter lists everyone,
+                    // not just officers with pricing rows on the selected date.
+                    const memberNames = new Map<string, string>();
+                    teamData.forEach(team => {
+                        (team.fieldOfficers ?? []).forEach(officer => {
+                            if (officer?.id == null) return;
+                            const name = `${officer.firstName ?? ''} ${officer.lastName ?? ''}`.trim();
+                            if (name) memberNames.set(String(officer.id), name);
+                        });
+                    });
+                    setDirectoryOfficerNames(Array.from(memberNames.values()).sort((left, right) => left.localeCompare(right)));
                 } else {
                     setTeamError('No team data found for this user');
                     setTeamIds([]);
+                    setDirectoryOfficerNames([]);
                 }
             } catch (err) {
                 console.error('Failed to load team data:', err);
@@ -184,6 +197,31 @@ const PricingPage = () => {
 
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
+
+    // Admins (and other non-team roles): load the full field-officer directory
+    // so the filter lists everyone, not just officers with rows on the date.
+    useEffect(() => {
+        if (!token || !isRoleDetermined || isManager || isFieldOfficer) return;
+        let active = true;
+        (async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/employee/getAllFieldOfficers`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                if (!active || !Array.isArray(data)) return;
+                const names = data
+                    .map((emp: { firstName?: string; lastName?: string }) => `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim())
+                    .filter((name: string) => Boolean(name))
+                    .sort((left: string, right: string) => left.localeCompare(right));
+                setDirectoryOfficerNames(Array.from(new Set(names)));
+            } catch (error) {
+                console.error('Error loading field officer directory:', error);
+            }
+        })();
+        return () => { active = false; };
+    }, [token, isRoleDetermined, isManager, isFieldOfficer]);
 
     const fetchBrandData = useCallback(async () => {
         const request = ++pricingRequest.current;
@@ -270,8 +308,10 @@ const PricingPage = () => {
     }, [fetchBrandData]);
 
     const fieldOfficerOptions = useMemo<SearchableOption[]>(() =>
-        fieldOfficers.map((officer) => ({ value: officer, label: officer })),
-    [fieldOfficers]);
+        Array.from(new Set([...directoryOfficerNames, ...fieldOfficers]))
+            .sort((left, right) => left.localeCompare(right))
+            .map((officer) => ({ value: officer, label: officer })),
+    [directoryOfficerNames, fieldOfficers]);
 
     const filteredBrands = brandData.filter(brand => {
         const cityMatch = selectedCity === "all" || getBrandCity(brand) === selectedCity;
@@ -407,12 +447,12 @@ const PricingPage = () => {
             )}
 
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,36rem),1fr))] items-start gap-4">
-                <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
-                    <CardHeader className="border-b px-4 py-3">
-                        <CardTitle className="text-sm font-semibold">Recorded prices</CardTitle>
+                <div className="w-full space-y-4 min-w-0">
+                    <div className="border-b px-1 py-3">
+                        <h3 className="text-sm font-semibold">Recorded prices</h3>
                         <p className="text-xs text-muted-foreground">Recorded prices for the selected day and market.</p>
-                    </CardHeader>
-                    <CardContent className="p-0">
+                    </div>
+                    <div>
                         {isLoading ? (
                             <div className="flex h-64 items-center justify-center text-muted-foreground">
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -465,8 +505,8 @@ const PricingPage = () => {
                                 </Table>
                             </div>
                         )}
-                    </CardContent>
-                </Card>
+                    </div>
+                </div>
 
                 <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
                     <CardHeader className="border-b px-4 py-3">

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays, differenceInDays } from 'date-fns';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
@@ -20,7 +20,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
-import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
+import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon, Check, ChevronsUpDown } from 'lucide-react';
 import SearchableSelect from "@/components/searchable-select";
 import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS } from "@/lib/requirement-complaint-category";
 
@@ -105,6 +105,8 @@ const Complaints = () => {
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [filterEmployees, setFilterEmployees] = useState<{ id: number; name: string }[]>([]);
     const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
+    const [filterEmployeeSearch, setFilterEmployeeSearch] = useState("");
+    const [filterEmployeePopoverOpen, setFilterEmployeePopoverOpen] = useState(false);
     const [stores, setStores] = useState<Store[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
@@ -405,15 +407,24 @@ const Complaints = () => {
 
     // Remove automatic store fetching - now only fetches when dropdown is clicked
 
+    // Employee filter options come from the employee directory (all field officers,
+    // or team members for managers) - not from the loaded tasks - so every
+    // employee is listed and the dropdown scrolls through all of them.
+    useEffect(() => {
+        const directoryEmployees = uniqBy(
+            (isManager && teamMembers.length > 0 ? teamMembers : allEmployees)
+                .filter(emp => emp.id != null && emp.id !== 0)
+                .map(emp => ({
+                    id: emp.id,
+                    name: `${emp.firstName} ${emp.lastName}`.trim() || 'Unknown Employee'
+                })),
+            'id'
+        );
+        setFilterEmployees(sortBy(directoryEmployees, 'name'));
+    }, [allEmployees, teamMembers, isManager]);
+
     useEffect(() => {
         if (tasks.length > 0) {
-            const uniqueEmployees = uniqBy(tasks.map(task => ({
-                id: task.assignedToId,
-                name: task.assignedToName
-            })), 'id');
-            const sortedEmployees = sortBy(uniqueEmployees, 'name');
-            setFilterEmployees(sortedEmployees);
-
             const districtSet = new Set<string>();
             tasks.forEach((task) => {
                 if (task.storeDistrict) {
@@ -655,6 +666,17 @@ const Complaints = () => {
         setCurrentPage(page);
     };
 
+    const filteredTopEmployeeOptions = useMemo(() => {
+        const query = filterEmployeeSearch.trim().toLowerCase();
+        if (!query) return filterEmployees;
+        return filterEmployees.filter((employee) => employee.name.toLowerCase().includes(query));
+    }, [filterEmployees, filterEmployeeSearch]);
+
+    const topEmployeeDisplay = useMemo(() => {
+        if (filters.employee === '' || filters.employee === 'all') return 'All employees';
+        return filterEmployees.find((emp) => emp.id.toString() === filters.employee)?.name || 'All employees';
+    }, [filters.employee, filterEmployees]);
+
     const handleFilterChange = (key: string, value: string) => {
         setFilters((prevFilters) => ({
             ...prevFilters,
@@ -713,57 +735,81 @@ const Complaints = () => {
   };
 
   return (
-        <div className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            {/* Search and Actions Row */}
-            <div className="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-                <div className="flex-1 max-w-md flex items-center gap-2">
-                    <Input
-                        placeholder="Search complaints"
-                        value={filters.search}
-                        onChange={(e) => handleFilterChange('search', e.target.value)}
-                        className="text-sm"
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button 
-                        onClick={() => setIsModalOpen(true)}
-                        size="sm"
-                        className="text-sm"
-                    >
-                        <PlusCircle className="w-4 h-4 mr-1" /> New
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="lg:hidden text-sm"
-                        onClick={() => setIsFilterDrawerOpen(true)}
-                    >
-                        <Filter className="w-4 h-4 mr-1" />
-                        Filters
-                    </Button>
-                </div>
-            </div>
-
-            {/* Filters Row */}
-            <div className="mb-6 hidden lg:flex flex-wrap gap-3 items-center justify-between">
-                <div className="flex flex-wrap gap-3 items-center">
-                    <SearchableSelect
-                        value={filters.employee}
-                        options={[
-                            { value: 'all', label: 'All Employees' },
-                            ...filterEmployees.map((employee) => ({
-                                value: employee.id.toString(),
-                                label: employee.name,
-                            })),
-                        ]}
-                        onSelect={(option) => option && handleFilterChange('employee', option.value)}
-                        placeholder="Filter by employee"
-                        searchPlaceholder="Search employees..."
-                        noResultsMessage="No employees found"
-                        triggerClassName="w-[180px] text-sm bg-background border-border font-normal"
-                    />
+        <div className="mx-auto w-full max-w-none py-4">
+            {/* Filters Row - single-row alignment */}
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="hidden flex-wrap items-center gap-2 lg:flex">
+                    <div className="relative w-60 shrink-0">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                            placeholder="Search complaints"
+                            value={filters.search}
+                            onChange={(e) => handleFilterChange('search', e.target.value)}
+                            className="h-9 pl-9 pr-4 text-xs shadow-none"
+                        />
+                    </div>
+                    <Popover open={filterEmployeePopoverOpen} onOpenChange={setFilterEmployeePopoverOpen}>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" className="h-9 w-[170px] shrink-0 justify-between px-3 text-xs font-normal shadow-none">
+                                <span className="truncate text-left">{topEmployeeDisplay}</span>
+                                <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[280px] p-0" align="start">
+                            <div className="p-3 border-b">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Search employees..."
+                                        value={filterEmployeeSearch}
+                                        onChange={(event) => setFilterEmployeeSearch(event.target.value)}
+                                        className="pl-9 text-xs"
+                                    />
+                                </div>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                                <button
+                                    type="button"
+                                    className={`flex w-full items-center justify-between px-4 py-2 text-xs ${
+                                        filters.employee === '' || filters.employee === 'all'
+                                            ? 'bg-primary/10 text-primary font-semibold'
+                                            : 'hover:bg-muted/40'
+                                    }`}
+                                    onClick={() => {
+                                        handleFilterChange('employee', 'all');
+                                        setFilterEmployeePopoverOpen(false);
+                                        setFilterEmployeeSearch('');
+                                    }}
+                                >
+                                    <span>All employees</span>
+                                    {(filters.employee === '' || filters.employee === 'all') && <Check className="h-4 w-4 text-primary" />}
+                                </button>
+                                {filteredTopEmployeeOptions.map((employee) => {
+                                    const value = employee.id.toString();
+                                    const isSelected = filters.employee === value;
+                                    return (
+                                        <button
+                                            key={employee.id}
+                                            type="button"
+                                            className={`flex w-full items-center justify-between px-4 py-2 text-xs ${
+                                                isSelected ? 'bg-primary/10 text-primary font-semibold' : 'hover:bg-muted/40'
+                                            }`}
+                                            onClick={() => {
+                                                handleFilterChange('employee', value);
+                                                setFilterEmployeePopoverOpen(false);
+                                                setFilterEmployeeSearch('');
+                                            }}
+                                        >
+                                            <span className="truncate text-left">{employee.name}</span>
+                                            {isSelected && <Check className="h-4 w-4 text-primary" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
-                        <SelectTrigger className="w-[160px] text-sm bg-background border-border">
+                        <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by category" />
                         </SelectTrigger>
                         <SelectContent>
@@ -774,7 +820,7 @@ const Complaints = () => {
                         </SelectContent>
                     </Select>
                 <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
-                    <SelectTrigger className="w-[160px] text-sm bg-background border-border">
+                    <SelectTrigger className="h-9 w-[140px] shrink-0 text-xs shadow-none">
                         <SelectValue placeholder="Filter by status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -785,7 +831,7 @@ const Complaints = () => {
                     </SelectContent>
                 </Select>
                 <Select value={filters.district} onValueChange={(value) => handleFilterChange('district', value)}>
-                    <SelectTrigger className="w-[180px] text-sm bg-background border-border">
+                    <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
                         <SelectValue placeholder="Filter by district" />
                     </SelectTrigger>
                     <SelectContent>
@@ -797,23 +843,24 @@ const Complaints = () => {
                         ))}
                     </SelectContent>
                 </Select>
-            </div>
-                {/* Date Filters */}
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="startDate" className="text-sm text-muted-foreground">From:</Label>
-                        <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                    {/* Date Filters */}
+                    <div className="flex shrink-0 items-center gap-2">
+                    <div>
+                        <Label htmlFor="startDate" className="sr-only">From date</Label>
+                        <Popover modal={false} open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                     variant="outline"
-                                    size="sm"
-                                    className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.startDate && 'text-muted-foreground'}`}
+                                    className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
                                 >
-                                    <CalendarIcon className="mr-2 h-3 w-3" />
-                                    {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : <span>Start date</span>}
+                                    <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="shrink-0 text-muted-foreground">From</span>
+                                    <span className="min-w-0 truncate text-foreground">
+                                        {filters.startDate ? format(new Date(filters.startDate + 'T00:00:00'), 'MMM d, yyyy') : 'Pick date'}
+                                    </span>
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
+                            <PopoverContent className="w-auto p-0" align="start" side="bottom">
                                 <Calendar
                                     mode="single"
                                     selected={filters.startDate ? new Date(filters.startDate + 'T00:00:00') : undefined}
@@ -833,20 +880,22 @@ const Complaints = () => {
                             </PopoverContent>
                         </Popover>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="endDate" className="text-sm text-muted-foreground">To:</Label>
-                        <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                    <div>
+                        <Label htmlFor="endDate" className="sr-only">To date</Label>
+                        <Popover modal={false} open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                     variant="outline"
-                                    size="sm"
-                                    className={`w-[130px] justify-start text-left font-normal text-sm bg-background border-border ${!filters.endDate && 'text-muted-foreground'}`}
+                                    className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
                                 >
-                                    <CalendarIcon className="mr-2 h-3 w-3" />
-                                    {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : <span>End date</span>}
+                                    <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="shrink-0 text-muted-foreground">To</span>
+                                    <span className="min-w-0 truncate text-foreground">
+                                        {filters.endDate ? format(new Date(filters.endDate + 'T00:00:00'), 'MMM d, yyyy') : 'Pick date'}
+                                    </span>
                                 </Button>
                             </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
+                            <PopoverContent className="w-auto p-0" align="start" side="bottom">
                                 <Calendar
                                     mode="single"
                                     selected={filters.endDate ? new Date(filters.endDate + 'T00:00:00') : undefined}
@@ -866,6 +915,25 @@ const Complaints = () => {
                             </PopoverContent>
                         </Popover>
                     </div>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 lg:ml-auto lg:shrink-0">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="lg:hidden"
+                        onClick={() => setIsFilterDrawerOpen(true)}
+                    >
+                        <Filter className="mr-2 h-4 w-4" />
+                        Filters
+                    </Button>
+                    <Button
+                        size="sm"
+                        className="h-9 text-xs"
+                        onClick={() => setIsModalOpen(true)}
+                    >
+                        <PlusCircle className="mr-2 h-4 w-4" /> New
+                    </Button>
                 </div>
             </div>
 

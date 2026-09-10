@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Label } from "@/components/ui/label";
 import { CalendarIcon } from "lucide-react";
 import { useDashboardHeader } from "@/components/dashboard-header-context";
 import PricingCheckModal from "@/components/pricing-check-modal";
@@ -810,7 +809,7 @@ function DashboardPageContent() {
         </div>
       )}
       {(
-        <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-4">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Select
             value={selectedDateRange}
             onValueChange={(value) => {
@@ -838,131 +837,120 @@ function DashboardPageContent() {
               ))}
             </SelectContent>
           </Select>
-          
+
           {selectedDateRange === "custom" && (
-            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Start Date</Label>
-                <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-[160px] justify-start text-left font-normal"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {customStartDate ? format(customStartDate, "MMM d, yyyy") : "Start date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={customStartDate}
-                      onSelect={(date) => {
-                        if (date) {
-                          setCustomStartDate(date);
-                          setDateRangeError(null);
-                          // If end date is set and the range exceeds 30 days, adjust end date
-                          if (customEndDate) {
-                            const daysDiff = differenceInDays(customEndDate, date);
-                            if (daysDiff > 30) {
-                              const newEndDate = new Date(date);
-                              newEndDate.setDate(newEndDate.getDate() + 30);
-                              setCustomEndDate(newEndDate);
-                            }
+            <div className="flex flex-wrap items-center gap-2">
+              <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-9 w-[140px] justify-start text-left text-xs font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {customStartDate ? format(customStartDate, "MMM d, yyyy") : "Start date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={customStartDate}
+                    onSelect={(date) => {
+                      if (date) {
+                        setCustomStartDate(date);
+                        setDateRangeError(null);
+                        // If end date is set and the range exceeds 30 days, adjust end date
+                        if (customEndDate) {
+                          const daysDiff = differenceInDays(customEndDate, date);
+                          if (daysDiff > 30) {
+                            const newEndDate = new Date(date);
+                            newEndDate.setDate(newEndDate.getDate() + 30);
+                            setCustomEndDate(newEndDate);
                           }
-                          setIsStartDatePickerOpen(false);
                         }
-                      }}
-                      initialFocus
-                      disabled={(date) => date > new Date()}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">End Date</Label>
-                <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-[160px] justify-start text-left font-normal"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {customEndDate ? format(customEndDate, "MMM d, yyyy") : "End date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={customEndDate}
-                      onSelect={(date) => {
-                        if (date) {
-                          if (customStartDate) {
-                            const daysDiff = differenceInDays(date, customStartDate);
-                            if (daysDiff > 30) {
-                              setDateRangeError("Date range cannot exceed 30 days");
-                              return;
-                            }
-                            if (date < customStartDate) {
-                              setDateRangeError("End date cannot be before start date");
-                              return;
-                            }
-                          }
-                          setCustomEndDate(date);
-                          setDateRangeError(null);
-                          setIsEndDatePickerOpen(false);
-                        }
-                      }}
-                      initialFocus
-                      disabled={(date) => {
-                        if (date > new Date()) return true;
+                        setIsStartDatePickerOpen(false);
+                      }
+                    }}
+                    initialFocus
+                    disabled={(date) => date > new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-9 w-[140px] justify-start text-left text-xs font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {customEndDate ? format(customEndDate, "MMM d, yyyy") : "End date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={customEndDate}
+                    onSelect={(date) => {
+                      if (date) {
                         if (customStartDate) {
                           const daysDiff = differenceInDays(date, customStartDate);
-                          return daysDiff > 30;
+                          if (daysDiff > 30) {
+                            setDateRangeError("Date range cannot exceed 30 days");
+                            return;
+                          }
+                          if (date < customStartDate) {
+                            setDateRangeError("End date cannot be before start date");
+                            return;
+                          }
                         }
-                        return false;
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              
+                        setCustomEndDate(date);
+                        setDateRangeError(null);
+                        setIsEndDatePickerOpen(false);
+                      }
+                    }}
+                    initialFocus
+                    disabled={(date) => {
+                      if (date > new Date()) return true;
+                      if (customStartDate) {
+                        const daysDiff = differenceInDays(date, customStartDate);
+                        return daysDiff > 30;
+                      }
+                      return false;
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+
               {dateRangeError && (
-                <div className="text-xs text-red-500 mt-1 sm:mt-0">
+                <div className="text-xs text-red-500 basis-full">
                   {dateRangeError}
                 </div>
               )}
-              
-              <div className="flex items-end">
-                <Button
-                  onClick={() => {
-                    if (customStartDate && customEndDate) {
-                      // Validate dates before applying
-                      const daysDiff = differenceInDays(customEndDate, customStartDate);
-                      if (daysDiff > 30) {
-                        setDateRangeError("Date range cannot exceed 30 days");
-                        return;
-                      }
-                      if (customEndDate < customStartDate) {
-                        setDateRangeError("End date cannot be before start date");
-                        return;
-                      }
-                      // Apply the dates - this will trigger API calls
-                      setAppliedCustomStartDate(customStartDate);
-                      setAppliedCustomEndDate(customEndDate);
-                      setDateRangeError(null);
+
+              <Button
+                onClick={() => {
+                  if (customStartDate && customEndDate) {
+                    // Validate dates before applying
+                    const daysDiff = differenceInDays(customEndDate, customStartDate);
+                    if (daysDiff > 30) {
+                      setDateRangeError("Date range cannot exceed 30 days");
+                      return;
                     }
-                  }}
-                  disabled={!customStartDate || !customEndDate || !!dateRangeError}
-                  size="sm"
-                  className="h-9"
-                >
-                  Apply
-                </Button>
-              </div>
+                    if (customEndDate < customStartDate) {
+                      setDateRangeError("End date cannot be before start date");
+                      return;
+                    }
+                    // Apply the dates - this will trigger API calls
+                    setAppliedCustomStartDate(customStartDate);
+                    setAppliedCustomEndDate(customEndDate);
+                    setDateRangeError(null);
+                  }
+                }}
+                disabled={!customStartDate || !customEndDate || !!dateRangeError}
+                size="sm"
+              >
+                Apply
+              </Button>
             </div>
           )}
         </div>

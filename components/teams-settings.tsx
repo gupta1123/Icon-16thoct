@@ -195,17 +195,22 @@ export default function TeamsSettings() {
                   </div>
                   <div className="rounded-lg bg-muted/25 p-3">
                     <p className="mb-2 text-[10px] leading-5 font-semibold uppercase tracking-[0.12em] text-muted-foreground">Coverage</p>
-                    <div className="flex flex-wrap gap-1.5">{teamCities(team).slice(0, 2).map(city => <Badge key={city} variant="secondary" className="text-[11px] leading-5 font-normal"><Building2 size={12} className="mr-1" />{cityLabel(city)}</Badge>)}
+                    <div className="flex h-[60px] flex-wrap content-start gap-1.5 overflow-hidden">{teamCities(team).slice(0, 2).map(city => <Badge key={city} variant="secondary" className="h-6 text-[11px] leading-5 font-normal"><Building2 size={12} className="mr-1" />{cityLabel(city)}</Badge>)}
                       {teamCities(team).length > 2 && <Button variant="outline" size="sm" className="h-6 rounded-full px-2 text-[11px] leading-5 font-normal" aria-label={`View all ${teamCities(team).length} cities for Team ${team.id}`} onClick={() => openPanel(team, 'cities')}>+{teamCities(team).length - 2} more</Button>}
                       {!teamCities(team).length && <span className="text-xs text-muted-foreground">{isCoordinator(team) ? 'Cross-city team' : 'No cities assigned'}</span>}
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/25 p-3">
                     <p className="mb-2 text-[10px] leading-5 font-semibold uppercase tracking-[0.12em] text-muted-foreground">Field officers · {team.fieldOfficers.length}</p>
-                    {team.fieldOfficers.length ? <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">{team.fieldOfficers.slice(0, 6).map(officer => <button type="button" key={officer.id} title={personName(officer)} onClick={() => openPanel(team, 'officers')} className="flex h-7 min-w-0 items-center rounded-md bg-background/70 px-2 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><User size={14} className="mr-2 shrink-0 text-muted-foreground" /><span className="truncate text-[11px] leading-5 font-medium">{personName(officer)}</span></button>)}{team.fieldOfficers.length > 6 && <Button variant="ghost" size="sm" className="h-7 justify-start px-2 text-[11px] leading-5 text-primary" onClick={() => openPanel(team, 'officers')}>+{team.fieldOfficers.length - 6} more officers</Button>}</div> : <p className="text-xs text-muted-foreground">No field officers assigned</p>}
+                    <div className="h-24 overflow-hidden">
+                      {team.fieldOfficers.length ? <div className="grid grid-cols-2 gap-1.5">{team.fieldOfficers.slice(0, 6).map(officer => <button type="button" key={officer.id} title={personName(officer)} onClick={() => openPanel(team, 'officers')} className="flex h-7 min-w-0 items-center rounded-md bg-background/70 px-2 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><User size={14} className="mr-2 shrink-0 text-muted-foreground" /><span className="truncate text-[11px] leading-5 font-medium">{personName(officer)}</span></button>)}</div> : <p className="text-xs text-muted-foreground">No field officers assigned</p>}
+                    </div>
+                    <div className="mt-1.5 flex h-7 items-center">
+                      {team.fieldOfficers.length > 6 && <Button variant="ghost" size="sm" className="h-7 justify-start px-2 text-[11px] leading-5 text-primary" onClick={() => openPanel(team, 'officers')}>+{team.fieldOfficers.length - 6} more officers</Button>}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 px-1 py-2 xl:flex-col xl:items-stretch xl:justify-center">
-                    <Button size="sm" className="h-9 flex-1 text-xs" onClick={() => openPanel(team, 'officers')}><UserPlus className="mr-1.5 h-3.5 w-3.5" />Add officer</Button>
+                    <Button variant="outline" size="sm" className="h-9 flex-1 text-xs xl:w-full" onClick={() => openPanel(team, 'officers')}><UserPlus className="mr-1.5 h-3.5 w-3.5" />Add officer</Button>
                     <Button variant="outline" size="sm" className="h-9 px-2 text-xs xl:w-full" aria-label={`Manage Team ${team.id}`} onClick={() => openPanel(team, 'overview')}><MoreHorizontal className="mr-1.5 h-4 w-4" />Manage</Button>
                   </div>
                 </div>
@@ -253,11 +258,23 @@ export default function TeamsSettings() {
                 <Button className="w-full" disabled={!selectedCities.length || saving || !panelTeam.officeManager} onClick={() => void save(async () => { for (const city of selectedCities) { await request(`/employee/assignCity?id=${panelTeam.officeManager?.id}&city=${encodeURIComponent(city)}`, 'PUT'); setSelectedCities(current => current.filter(item => item !== city)); } })}>{saving ? 'Assigning...' : 'Assign selected cities'}</Button>
               </div>
             </>}
-            {section === 'officers' && panelTeam && <>
-              <div><h3 className="text-sm font-semibold">Field officers</h3><p className="mt-1 text-xs text-muted-foreground">Review current members or add eligible officers.</p></div>
-              <div className="space-y-2"><Label className="text-xs">Assigned · {panelTeam.fieldOfficers.length}</Label>{panelTeam.fieldOfficers.map(person => <div key={person.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"><div className="min-w-0"><p className="truncate text-sm font-medium">{personName(person)}</p><p className="text-xs text-muted-foreground">Field Officer</p></div><Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label={`Remove ${personName(person)}`} disabled={saving} onClick={() => setConfirmation({ title: 'Remove field officer?', description: `Remove ${personName(person)} from this team? This will not delete the employee.`, action: async () => { await save(() => API.removeTeamFieldOfficers(panelTeam.id, [person.id])); } })}><X className="h-4 w-4" /></Button></div>)}{!panelTeam.fieldOfficers.length && <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No field officers assigned</p>}</div>
-              <div className="space-y-2 border-t pt-4"><Label className="text-xs">Eligible officers</Label><Input aria-label="Search eligible officers" placeholder="Search field officers..." value={panelSearch} onChange={event => setPanelSearch(event.target.value)} /><div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border p-2">{filteredOfficers.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40"><Checkbox checked={selectedOfficers.includes(person.id)} disabled={saving} onCheckedChange={checked => setSelectedOfficers(current => checked ? [...new Set([...current, person.id])] : current.filter(id => id !== person.id))} /><div className="min-w-0"><p className="truncate text-sm font-medium">{personName(person)}</p><p className="text-xs text-muted-foreground">Field Officer</p></div></label>)}{!panelLoading && !panelError && !filteredOfficers.length && <p className="p-6 text-center text-sm text-muted-foreground">No eligible officers available</p>}</div><Button className="w-full" disabled={!selectedOfficers.length || saving || panelLoading} onClick={() => void save(() => API.addTeamFieldOfficers(panelTeam.id, selectedOfficers))}>{saving ? 'Adding...' : `Add selected officers${selectedOfficers.length ? ` (${selectedOfficers.length})` : ''}`}</Button></div>
-            </>}
+            {section === 'officers' && panelTeam && <div className="space-y-4">
+              <div className="rounded-lg border p-3">
+                <p className="mb-2 text-xs font-semibold text-foreground">Field Officers ({panelTeam.fieldOfficers.length})</p>
+                {panelTeam.fieldOfficers.length ? <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {panelTeam.fieldOfficers.map(person => <div key={person.id} className="flex min-w-0 items-center justify-between gap-1 rounded-md border px-2 py-1 text-xs"><span className="min-w-0 flex-1 truncate" title={personName(person)}>{personName(person)}</span><Button variant="ghost" size="sm" className="h-5 w-5 shrink-0 p-0 text-destructive" aria-label={`Remove ${personName(person)}`} disabled={saving} onClick={() => setConfirmation({ title: 'Remove field officer?', description: `Remove ${personName(person)} from this team? This will not delete the employee.`, action: async () => { await save(() => API.removeTeamFieldOfficers(panelTeam.id, [person.id])); } })}><X className="h-3 w-3" /></Button></div>)}
+                </div> : <p className="text-xs text-muted-foreground">No field officers</p>}
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Available Field Officers</Label>
+                <Input aria-label="Search eligible officers" placeholder="Search field officers..." value={panelSearch} onChange={event => setPanelSearch(event.target.value)} className="h-9 text-xs shadow-none" />
+                <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border p-2">
+                  {filteredOfficers.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-2 rounded p-2 text-xs hover:bg-muted/50"><Checkbox checked={selectedOfficers.includes(person.id)} disabled={saving} onCheckedChange={checked => setSelectedOfficers(current => checked ? [...new Set([...current, person.id])] : current.filter(id => id !== person.id))} /><span className="min-w-0 truncate">{personName(person)}</span></label>)}
+                  {!panelLoading && !panelError && !filteredOfficers.length && <p className="p-3 text-center text-xs text-muted-foreground">No available officers</p>}
+                </div>
+              </div>
+              <Button size="sm" className="h-9 w-full" disabled={!selectedOfficers.length || saving || panelLoading} onClick={() => void save(() => API.addTeamFieldOfficers(panelTeam.id, selectedOfficers))}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Add Selected Officers</Button>
+            </div>}
             {panelLoading && <div role="status" className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading...</div>}
             {panelError && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><p>{panelError}</p>{!saving && <Button size="sm" variant="outline" onClick={() => { if (panelTeam) void loadSection(panelTeam, section); }}>Try Again</Button>}</div>}
           </div></div>

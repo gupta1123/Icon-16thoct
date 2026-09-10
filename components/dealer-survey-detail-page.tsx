@@ -151,8 +151,21 @@ const getStatusClassName = (status?: string | null) => {
 const getPhotoUrl = (photo?: SurveyDealerPhotoResponse | null) => {
   const rawUrl = photo?.fileDownloadUri?.trim();
   if (!rawUrl) return "";
-  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
-  return `${API_BASE_URL}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
+  const absoluteUrl = /^https?:\/\//i.test(rawUrl)
+    ? rawUrl
+    : `${API_BASE_URL}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
+  // Backend file URLs require auth; <img>/anchors send no token, so serve
+  // backend-hosted files through the authenticated image proxy instead.
+  // Third-party (e.g. presigned storage) URLs keep loading directly.
+  try {
+    const backendHost = new URL(API_BASE_URL).hostname;
+    if (new URL(absoluteUrl).hostname === backendHost) {
+      return `/api/image-proxy?url=${encodeURIComponent(absoluteUrl)}`;
+    }
+  } catch {
+    // Fall through to the direct URL when parsing fails.
+  }
+  return absoluteUrl;
 };
 
 const isImagePhoto = (photo?: SurveyDealerPhotoResponse | null) => {

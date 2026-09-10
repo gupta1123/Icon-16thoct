@@ -19,7 +19,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface SalesData {
   [monthYear: string]: number;
@@ -264,12 +263,7 @@ export default function EnquiriesPage() {
       </div>
     );
     return (
-      <div className="rounded-lg border bg-card">
-        <div className="p-4 border-b">
-          <h3 className="text-lg font-semibold text-foreground">Enquiry Data</h3>
-          <p className="text-sm text-muted-foreground">Browse and analyze your enquiry data with advanced filtering options</p>
-        </div>
-        
+      <div className="w-full space-y-4">
         <div className="overflow-x-auto">
           <Table>
             <TableCaption>List of enquiries</TableCaption>
@@ -344,13 +338,11 @@ export default function EnquiriesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="border-0 shadow-sm">
-        <CardContent className="space-y-6 pt-6">
+    <div className="w-full space-y-4">
 
 
           {/* Filters Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-4 bg-muted/30 rounded-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 rounded-xl border border-border/70 bg-muted/20 p-3">
             {/* Store Name */}
             <div className="space-y-2">
               <Label htmlFor="storeNameFilter" className="text-sm font-medium text-foreground">Store Name</Label>
@@ -579,8 +571,6 @@ export default function EnquiriesPage() {
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
     </div>
 
   );
