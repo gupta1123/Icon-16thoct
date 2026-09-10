@@ -32,6 +32,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useState } from "react";
 import Topbar from "@/components/topbar";
+import { DashboardHeaderOverrideProvider, type DashboardHeaderConfig } from "@/components/dashboard-header-context";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
@@ -221,10 +222,17 @@ export default function DashboardLayout({
 }: DashboardLayoutProps) {
   const { userRole, currentUser } = useAuth();
   const pathname = usePathname();
+  const compactSettingsLayout = pathname === "/dashboard/settings";
+  const employeeCreateLayout = pathname === "/dashboard/employees/add";
+  const employeeDetailLayout = /^\/dashboard\/employee\/\d+$/.test(pathname);
+  const surveyDetailLayout = /^\/dashboard\/dealer-survey\/[^/]+$/.test(pathname);
+  const usesHeaderOverride = pathname === "/dashboard" || employeeCreateLayout || employeeDetailLayout || surveyDetailLayout;
+  const compactPageLayout = pathname === "/dashboard" || pathname === "/dashboard/reports" || /^\/dashboard\/visits\/[^/]+$/.test(pathname) || compactSettingsLayout || employeeCreateLayout || employeeDetailLayout || surveyDetailLayout;
   const router = useRouter();
   const { logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
+  const [dashboardHeader, setDashboardHeader] = useState<DashboardHeaderConfig | null>(null);
 
   const normalizedUserRole = normalizeRoleValue(userRole);
   const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
@@ -347,7 +355,7 @@ export default function DashboardLayout({
     <div
       className={`min-h-screen w-full grid ${
         desktopSidebarOpen
-          ? "md:grid-cols-[220px_1fr] lg:grid-cols-[240px_1fr]"
+          ? "md:grid-cols-[200px_1fr]"
           : "md:grid-cols-[1fr]"
       }`}
     >
@@ -624,15 +632,17 @@ export default function DashboardLayout({
       <div className="flex min-w-0 flex-col">
         {/* Topbar */}
         <Topbar
-          heading={heading}
-          subheading={subheading}
+          heading={usesHeaderOverride ? dashboardHeader?.heading ?? heading : heading}
+          subheading={usesHeaderOverride ? dashboardHeader?.subheading ?? subheading : subheading}
+          onBack={usesHeaderOverride ? dashboardHeader?.onBack : undefined}
+          viewRole={isAdmin ? "admin" : isManager ? "manager" : undefined}
           showSidebarTrigger={!desktopSidebarOpen}
           onOpenSidebar={() => setDesktopSidebarOpen(true)}
         />
         
         {/* Page content */}
-        <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 pb-24 md:pb-6">
-          {children}
+        <main className={`flex flex-1 flex-col gap-4 ${compactPageLayout ? "p-3 sm:p-4" : "p-4"} pb-24 md:pb-6 ${compactPageLayout ? "" : "lg:gap-6 lg:p-6"}`}>
+          <DashboardHeaderOverrideProvider setHeader={setDashboardHeader}>{children}</DashboardHeaderOverrideProvider>
         </main>
       </div>
     </div>

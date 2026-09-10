@@ -1,277 +1,277 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-    CheckCircle2, 
-    XCircle, 
+    Check, 
+    X, 
     Search, 
     Calendar, 
     Clock, 
-    MessageSquareText, 
-    Sun, 
-    SunDim, 
+    AlertTriangle, 
+    Briefcase, 
     RefreshCw,
-    SlidersHorizontal,
-    Check,
-    X,
-    Inbox
+    CheckCircle2,
+    XCircle,
+    MessageSquareText
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { apiService, type TeamDataDto, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
-import { Card, CardContent } from '@/components/ui/card';
+import { apiService, API_BASE_URL, type TeamDataDto, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from '@/components/ui/skeleton';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Label } from "@/components/ui/label";
+import { Label } from '@/components/ui/label';
+import { SearchableSelect, type SearchableOption } from '@/components/ui/searchable-select2';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const ApprovalsPage = () => {
+type ApprovalTypeValue = 'full day' | 'half day';
+type ApprovalTypeState = Record<number, ApprovalTypeValue>;
+
+interface ProcessedApprovalRequest extends ApprovalRequest {
+    isDuplicate?: boolean;
+    duplicateCount?: number;
+    duplicateIndex?: number;
+}
+
+export default function ApprovalsPage() {
     const { token, userData } = useAuth();
-    const [requests, setRequests] = useState<ApprovalRequest[]>([]);
+    const [requests, setRequests] = useState<ProcessedApprovalRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [approvalType, setApprovalType] = useState<{ [key: number]: 'full day' | 'half day' | null }>({});
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('all');
-    const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    
+    // UI State
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+    const [eligibleEmployees, setEligibleEmployees] = useState<{ id: number; firstName: string; lastName: string; role?: string }[]>([]);
+    const [activeTab, setActiveTab] = useState<string>('pending');
+    const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
+    const [savingIds, setSavingIds] = useState<number[]>([]);
     
     // Pagination state
     const [currentPage, setCurrentPage] = useState(0);
     const [pageSize, setPageSize] = useState(10);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
-    const [sortByField] = useState('requestDate');
-    const [sortDirection] = useState('desc');
     
-    // Mobile filter sheet state
-    const [isFilterOpen, setIsFilterOpen] = useState(false);
-    
-    // State for role checking
+    // Role State
     const [isManager, setIsManager] = useState(false);
     const [isAdmin, setIsAdmin] = useState(false);
     const [isFieldOfficer, setIsFieldOfficer] = useState(false);
-    const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
     const [teamId, setTeamId] = useState<number | null>(null);
-    const [teamLoading, setTeamLoading] = useState(false);
-    const [teamError, setTeamError] = useState<string | null>(null);
-    
+
     // Cache for status counts
-    const [statusCountsCache, setStatusCountsCache] = useState({
-        all: 0,
+    const [statusCounts, setStatusCounts] = useState({
         pending: 0,
-        approved: 0,
-        rejected: 0
+        total: 0
     });
 
-    // Fetch current user data to determine role
+    // 1. Role Identification
     useEffect(() => {
         const fetchCurrentUser = async () => {
             if (!token) return;
-            
             try {
-                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
+                const response = await fetch(`${API_BASE_URL}/user/manage/current-user`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
                 });
                 
                 if (response.ok) {
-                    const userData = await response.json();
-                    const authorities = userData.authorities || [];
+                    const uData = await response.json();
+                    const authorities = uData.authorities || [];
                     const role = authorities.length > 0 ? authorities[0].authority : null;
-                    setUserRoleFromAPI(role);
                     
                     setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
                     setIsAdmin(role === 'ROLE_ADMIN');
                     setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
                 }
-            } catch (error) {
-                console.error('Error fetching current user:', error);
+            } catch (err) {
+                console.error('Error fetching current user:', err);
             }
         };
-
         fetchCurrentUser();
     }, [token]);
 
-    // Fetch team data for managers and field officers
+    // 2. Load Team Data
     useEffect(() => {
         const loadTeamData = async () => {
             if ((!isManager && !isFieldOfficer) || !userData?.employeeId) return;
-            
-            setTeamLoading(true);
-            setTeamError(null);
-            
             try {
                 const teamData: TeamDataDto[] = await apiService.getTeamByEmployee(userData.employeeId);
                 if (teamData.length > 0) {
                     setTeamId(teamData[0].id);
                 } else {
-                    setTeamError('No team data found for this user');
                     setTeamId(6);
                 }
-            } catch (err: unknown) {
-                console.error('Failed to load team data:', err);
-                setTeamError('Failed to load team data');
+            } catch (err) {
                 setTeamId(6);
-            } finally {
-                setTeamLoading(false);
             }
         };
-
         loadTeamData();
     }, [isManager, isFieldOfficer, userData?.employeeId]);
 
-    // Function to fetch counts for all statuses
+    // 3. Load Employee Options
+    useEffect(() => {
+        if (!token) return;
+        let isMounted = true;
+        
+        fetch(`${API_BASE_URL}/employee/getAll`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => res.ok ? res.json() : [])
+        .then(data => {
+            if (!isMounted || !Array.isArray(data)) return;
+            setEligibleEmployees(
+                data
+                    .map(emp => ({
+                        id: emp.id,
+                        firstName: emp.firstName || '',
+                        lastName: emp.lastName || '',
+                        role: emp.role || ''
+                    }))
+                    .sort((a, b) => {
+                        const nameA = `${a.firstName} ${a.lastName}`.trim();
+                        const nameB = `${b.firstName} ${b.lastName}`.trim();
+                        return nameA.localeCompare(nameB);
+                    })
+            );
+        })
+        .catch(() => {
+            if (isMounted) setEligibleEmployees([]);
+        });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [token]);
+
+    // 4. Fetch Status Counts
     const fetchStatusCounts = useCallback(async () => {
         if (!token) return;
-        if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+        if ((isManager || isFieldOfficer) && teamId === null) return;
         
         try {
             if (isAdmin || (!isManager && !isFieldOfficer)) {
-                const [allResult, pendingResult, approvedResult, rejectedResult] = await Promise.allSettled([
-                    apiService.getAttendanceRequestsPaginated(0, 1, sortByField, sortDirection),
-                    apiService.getAttendanceRequestsByStatusPaginated('pending', 0, 1, sortByField, sortDirection),
-                    apiService.getAttendanceRequestsByStatusPaginated('approved', 0, 1, sortByField, sortDirection),
-                    apiService.getAttendanceRequestsByStatusPaginated('rejected', 0, 1, sortByField, sortDirection)
+                const [allRes, pendingRes] = await Promise.allSettled([
+                    apiService.getAttendanceRequestsPaginated(0, 1, 'requestDate', 'desc'),
+                    apiService.getAttendanceRequestsByStatusPaginated('pending', 0, 1, 'requestDate', 'desc')
                 ]);
                 
-                const allCount = allResult.status === 'fulfilled' ? allResult.value.totalElements : 0;
-                const pendingCount = pendingResult.status === 'fulfilled' ? pendingResult.value.totalElements : 0;
-                const approvedCount = approvedResult.status === 'fulfilled' ? approvedResult.value.totalElements : 0;
-                const rejectedCount = rejectedResult.status === 'fulfilled' ? rejectedResult.value.totalElements : 0;
+                const totalCount = allRes.status === 'fulfilled' ? allRes.value.totalElements : 0;
+                const pendingCount = pendingRes.status === 'fulfilled' ? pendingRes.value.totalElements : 0;
                 
-                setStatusCountsCache({
-                    all: allCount,
-                    pending: pendingCount,
-                    approved: approvedCount,
-                    rejected: rejectedCount
-                });
-            } else {
-                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getForTeam?id=${teamId}`;
+                setStatusCounts({ pending: pendingCount, total: totalCount });
+            } else if (teamId) {
+                const url = `${API_BASE_URL}/expense/getForTeam?id=${teamId}`;
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 
                 if (response.ok) {
                     const data: ApprovalRequest[] = await response.json();
-                    setStatusCountsCache({
-                        all: data.length,
+                    setStatusCounts({
                         pending: data.filter(r => r.status?.toLowerCase() === 'pending').length,
-                        approved: data.filter(r => r.status?.toLowerCase() === 'approved').length,
-                        rejected: data.filter(r => r.status?.toLowerCase() === 'rejected').length
+                        total: data.length
                     });
                 }
             }
         } catch (err) {
             console.error('Failed to fetch status counts:', err);
         }
-    }, [token, isAdmin, isManager, isFieldOfficer, teamId, sortByField, sortDirection]);
+    }, [token, isAdmin, isManager, isFieldOfficer, teamId]);
 
-    // Function to fetch requests
+    // 5. Fetch Requests List
     const fetchRequests = useCallback(async () => {
         if (!token) return;
-        if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
+        if ((isManager || isFieldOfficer) && teamId === null) return;
         
         try {
-            setLoading(true);
+            if (requests.length === 0) setLoading(true);
+            else setIsRefreshing(true);
             setError(null);
-            
+
             if ((isManager || isFieldOfficer) && teamId) {
-                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/expense/getForTeam?id=${teamId}`;
+                const url = `${API_BASE_URL}/expense/getForTeam?id=${teamId}`;
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (!response.ok) throw new Error('Failed to fetch team requests');
-                let data: ApprovalRequest[] = await response.json();
-                
-                if (statusFilter !== 'all') {
-                    data = data.filter(r => r.status?.toLowerCase() === statusFilter.toLowerCase());
+                let data: ProcessedApprovalRequest[] = await response.json();
+
+                if (selectedEmployeeId) {
+                    data = data.filter(r => String(r.employeeId) === selectedEmployeeId);
                 }
-                if (searchTerm.trim()) {
-                    data = data.filter(r => r.employeeName?.toLowerCase().includes(searchTerm.toLowerCase()));
-                }
-                
+
                 setRequests(data);
                 setTotalPages(Math.ceil(data.length / pageSize) || 1);
                 setTotalElements(data.length);
-                return;
             } else {
                 let response: AttendanceRequestPageResponse;
-                if (searchTerm.trim()) {
+                const filterStatus = activeTab === 'pending' ? 'pending' : undefined;
+
+                if (selectedEmployeeId) {
+                    const empObj = eligibleEmployees.find(e => String(e.id) === selectedEmployeeId);
+                    const empName = empObj ? `${empObj.firstName} ${empObj.lastName}`.trim() : undefined;
+
                     response = await apiService.getAttendanceRequestsByFiltersPaginated(
                         {
-                            status: statusFilter === 'all' ? undefined : statusFilter,
-                            employeeName: searchTerm.trim()
+                            status: filterStatus,
+                            employeeName: empName
                         },
-                        currentPage, 
-                        pageSize, 
-                        sortByField, 
-                        sortDirection
+                        currentPage,
+                        pageSize,
+                        'requestDate',
+                        'desc'
                     );
-                } else if (statusFilter === 'all') {
-                    response = await apiService.getAttendanceRequestsPaginated(
-                        currentPage, 
-                        pageSize, 
-                        sortByField, 
-                        sortDirection
+                } else if (activeTab === 'pending') {
+                    response = await apiService.getAttendanceRequestsByStatusPaginated(
+                        'pending',
+                        currentPage,
+                        pageSize,
+                        'requestDate',
+                        'desc'
                     );
                 } else {
-                    response = await apiService.getAttendanceRequestsByStatusPaginated(
-                        statusFilter,
-                        currentPage, 
-                        pageSize, 
-                        sortByField, 
-                        sortDirection
+                    response = await apiService.getAttendanceRequestsPaginated(
+                        currentPage,
+                        pageSize,
+                        'requestDate',
+                        'desc'
                     );
                 }
-                setRequests(response.content);
-                setTotalPages(response.totalPages);
-                setTotalElements(response.totalElements);
+
+                setRequests(response.content || []);
+                setTotalPages(response.totalPages || 1);
+                setTotalElements(response.totalElements || 0);
             }
         } catch (err) {
-            setError('Failed to fetch requests. Please try again.');
+            setError('Failed to fetch approval requests. Please try again.');
         } finally {
             setLoading(false);
+            setIsRefreshing(false);
         }
-    }, [token, isManager, isFieldOfficer, teamId, currentPage, pageSize, statusFilter, searchTerm, sortByField, sortDirection]);
-
-    // Debounced search effect
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            if (token) {
-                setCurrentPage(0);
-                fetchRequests();
-            }
-        }, 300);
-        return () => clearTimeout(timeoutId);
-    }, [searchTerm, token, fetchRequests]);
+    }, [token, isManager, isFieldOfficer, teamId, currentPage, pageSize, activeTab, selectedEmployeeId, eligibleEmployees]);
 
     useEffect(() => {
-        if (token && userRoleFromAPI !== null) {
-            if ((isManager || isFieldOfficer) && teamId === null) return;
-            fetchStatusCounts();
-        }
-    }, [token, userRoleFromAPI, teamId, isAdmin, isManager, isFieldOfficer, fetchStatusCounts]);
+        fetchStatusCounts();
+    }, [token, teamId, fetchStatusCounts]);
 
     useEffect(() => {
-        if (token) {
-            fetchRequests();
-        }
-    }, [token, teamId, currentPage, pageSize, statusFilter, sortByField, sortDirection, fetchRequests]);
+        fetchRequests();
+    }, [token, teamId, currentPage, pageSize, activeTab, selectedEmployeeId, fetchRequests]);
 
-    const handleApproval = async (id: number, action: 'approved' | 'rejected') => {
-        if (!token) return;
+    // 6. Action Handler (Approve / Reject)
+    const handleAction = async (id: number, action: 'approved' | 'rejected') => {
+        if (!token || savingIds.includes(id)) return;
         
-        const type = approvalType[id] || requests.find(r => r.id === id)?.requestedStatus || 'full day';
-        setActionLoadingId(id);
+        const currentReq = requests.find(r => r.id === id);
+        const type = approvalType[id] || (currentReq?.requestedStatus as ApprovalTypeValue) || 'full day';
         
+        setSavingIds(prev => [...prev, id]);
+
         try {
-            const res = await fetch(
-                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
+            const response = await fetch(
+                `${API_BASE_URL}/request/updateStatus?id=${id}&status=${action}&attendance=${encodeURIComponent(type)}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -280,352 +280,442 @@ const ApprovalsPage = () => {
                     }
                 }
             );
-            if (!res.ok) throw new Error('Failed to update status');
-            
+            if (!response.ok) {
+                const failure = await response.json().catch(() => null);
+                const detail = typeof failure?.message === 'string' ? failure.message : '';
+                if (response.status === 404 && /log not found/i.test(detail)) {
+                    throw new Error('No attendance log exists for this date. An administrator needs to resolve the missing log before approval.');
+                }
+                throw new Error(`Unable to update request (HTTP ${response.status}).${detail ? ` ${detail}` : ''}`);
+            }
+
             await fetchRequests();
             await fetchStatusCounts();
-            setApprovalType(prev => ({ ...prev, [id]: null }));
+            setError(null);
         } catch (err) {
-            setError('Failed to update request status.');
+            const message = err instanceof Error ? err.message : 'Unable to update attendance request.';
+            setError(message);
         } finally {
-            setActionLoadingId(null);
+            setSavingIds(prev => prev.filter(v => v !== id));
         }
     };
 
-    const handleTypeChange = (id: number, type: 'full day' | 'half day') => {
-        setApprovalType(prev => ({ ...prev, [id]: type }));
-    };
+    // 7. Duplicate Processing & Filtered Results
+    const processedRequests = useMemo(() => {
+        const grouped = requests.reduce((acc, req) => {
+            const key = `${req.employeeId}-${req.logDate}`;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(req);
+            return acc;
+        }, {} as Record<string, ProcessedApprovalRequest[]>);
 
-    const formatDate = (dateString: string) => {
+        const flat = Object.values(grouped).flatMap(group => {
+            if (group.length > 1) {
+                return group.map((req, idx) => ({
+                    ...req,
+                    isDuplicate: true,
+                    duplicateCount: group.length,
+                    duplicateIndex: idx + 1
+                }));
+            }
+            return group;
+        });
+
+        return flat.filter(req => {
+            const matchesEmployee = !selectedEmployeeId || String(req.employeeId) === selectedEmployeeId;
+            const status = req.status?.toLowerCase() || 'pending';
+            
+            if (activeTab === 'pending') {
+                return matchesEmployee && status === 'pending';
+            } else {
+                return matchesEmployee && status !== 'pending';
+            }
+        }).sort((a, b) => new Date(b.requestDate || b.logDate).getTime() - new Date(a.requestDate || a.logDate).getTime());
+    }, [requests, selectedEmployeeId, activeTab]);
+
+    const employeeOptions = useMemo<SearchableOption[]>(() => eligibleEmployees.map((emp) => ({
+        value: String(emp.id),
+        label: `${emp.firstName} ${emp.lastName}`.trim() || `Employee ${emp.id}`,
+    })), [eligibleEmployees]);
+
+    const getInitials = (name: string) => name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'EM';
+    const formatDate = (dateString?: string | null) => {
         if (!dateString) return 'N/A';
         try {
-            return new Date(dateString).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-            });
+            return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
         } catch {
             return dateString;
         }
     };
 
-    const statusCounts = statusCountsCache;
+    if (loading && requests.length === 0) return <LoadingSkeleton />;
 
     return (
-        <div className="space-y-6 max-w-5xl mx-auto p-2 sm:p-4">
-            {/* Filter and Search Controls */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                {/* Search Bar */}
-                <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search employee..."
-                        className="pl-9 h-10 text-sm"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    {searchTerm && (
-                        <button 
-                            onClick={() => setSearchTerm('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+        <div className="mx-auto w-full max-w-none py-4 space-y-4">
+            <Tabs defaultValue="pending" value={activeTab} onValueChange={(val) => { setActiveTab(val); setCurrentPage(0); }} className="space-y-4">
+                <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+                    <TabsList className="grid h-9 w-full grid-cols-2 p-1 sm:w-[320px]">
+                        <TabsTrigger value="pending">Pending requests</TabsTrigger>
+                        <TabsTrigger value="history">Request history</TabsTrigger>
+                    </TabsList>
+                    
+                    <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                        <div className="min-w-[220px] flex-1 sm:max-w-[300px]">
+                            <Label className="sr-only">Employee</Label>
+                            <SearchableSelect
+                                options={employeeOptions}
+                                value={selectedEmployeeId || undefined}
+                                onSelect={(option) => { setSelectedEmployeeId(option?.value ?? ''); setCurrentPage(0); }}
+                                placeholder="All employees"
+                                searchPlaceholder="Search employees..."
+                                emptyMessage="No employees found"
+                                allowClear
+                                triggerClassName="h-9 w-full bg-background text-sm shadow-none"
+                            />
+                        </div>
+
+                        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5 text-amber-600" />
+                            <span><span className="font-semibold text-foreground">{statusCounts.pending}</span> pending</span>
+                            <span className="text-border">•</span>
+                            <span><span className="font-semibold text-foreground">{statusCounts.total}</span> total</span>
+                        </div>
+
+                        <Button 
+                            variant="outline" 
+                            size="icon" 
+                            onClick={() => { fetchRequests(); fetchStatusCounts(); }} 
+                            disabled={isRefreshing}
+                            className="h-9 w-9 shrink-0 shadow-none"
+                            aria-label="Refresh approval requests"
                         >
-                            Clear
-                        </button>
-                    )}
+                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                        </Button>
+                    </div>
                 </div>
 
-                {/* Status Tabs for Desktop */}
-                <div className="hidden sm:flex items-center gap-1 bg-muted p-1 rounded-lg">
-                    {[
-                        { key: 'all', label: 'All', count: statusCounts.all },
-                        { key: 'pending', label: 'Pending', count: statusCounts.pending },
-                        { key: 'approved', label: 'Approved', count: statusCounts.approved },
-                        { key: 'rejected', label: 'Rejected', count: statusCounts.rejected },
-                    ].map((tab) => {
-                        const isActive = statusFilter === tab.key;
-                        return (
-                            <button
-                                key={tab.key}
-                                onClick={() => {
-                                    setStatusFilter(tab.key);
+                {error && (
+                    <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
+                        <span>{error}</span>
+                        <Button size="sm" variant="ghost" onClick={fetchRequests} className="h-7 text-xs">Retry</Button>
+                    </div>
+                )}
+
+                <Card className="overflow-hidden border border-border/70 bg-card shadow-sm gap-0 py-0">
+                    <div className="w-full align-middle">
+                        <div className="hidden lg:grid grid-cols-12 gap-4 border-b bg-muted/30 px-5 py-2.5 text-[11px] font-medium text-muted-foreground">
+                            <div className="col-span-4">Employee</div>
+                            <div className="col-span-3">Request dates</div>
+                            <div className="col-span-2">Attendance</div>
+                            <div className="col-span-3 text-right">Actions</div>
+                        </div>
+
+                        <div className="divide-y divide-border">
+                            {processedRequests.length === 0 ? (
+                                <EmptyState activeTab={activeTab} />
+                            ) : (
+                                processedRequests.map((req) => (
+                                    <RequestRow
+                                        key={req.id}
+                                        req={req}
+                                        saving={savingIds.includes(req.id)}
+                                        activeTab={activeTab}
+                                        approvalType={approvalType}
+                                        setApprovalType={setApprovalType}
+                                        handleAction={handleAction}
+                                        formatDate={formatDate}
+                                        getInitials={getInitials}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </Card>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs">
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="pageSize" className="text-muted-foreground">Rows per page:</Label>
+                            <Select
+                                value={pageSize.toString()}
+                                onValueChange={(val) => {
                                     setCurrentPage(0);
+                                    setPageSize(parseInt(val));
                                 }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                                    isActive 
-                                        ? 'bg-background text-foreground shadow-sm font-semibold' 
-                                        : 'text-muted-foreground hover:text-foreground'
-                                }`}
                             >
-                                <span>{tab.label}</span>
-                                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-muted-foreground/15 text-muted-foreground font-semibold">
-                                    {tab.count}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
+                                <SelectTrigger id="pageSize" className="w-16 h-8 text-xs shadow-none">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {[10, 20, 50, 100].map(s => (
+                                        <SelectItem key={s} value={s.toString()} className="text-xs">{s}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <span className="text-muted-foreground">Showing {processedRequests.length} of {totalElements}</span>
+                        </div>
 
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { fetchRequests(); fetchStatusCounts(); }}
-                    disabled={loading}
-                    className="shrink-0 text-xs"
-                >
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </Button>
-
-                {/* Mobile Filter Button */}
-                <div className="sm:hidden">
-                    <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-                        <SheetTrigger asChild>
-                            <Button variant="outline" className="w-full justify-between text-xs h-10">
-                                <span className="flex items-center gap-2">
-                                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                                    Filter: <strong className="capitalize">{statusFilter}</strong>
-                                </span>
+                        <div className="flex items-center gap-2">
+                            <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                                disabled={currentPage === 0 || loading}
+                                className="h-8 text-xs shadow-none"
+                            >
+                                Previous
                             </Button>
-                        </SheetTrigger>
-                        <SheetContent side="bottom" className="rounded-t-2xl">
-                            <SheetHeader className="pb-3">
-                                <SheetTitle className="text-base font-bold">Filter Requests</SheetTitle>
-                            </SheetHeader>
-                            <div className="space-y-2 py-2">
-                                {[
-                                    { key: 'all', label: 'All Requests', count: statusCounts.all },
-                                    { key: 'pending', label: 'Pending Approvals', count: statusCounts.pending },
-                                    { key: 'approved', label: 'Approved Requests', count: statusCounts.approved },
-                                    { key: 'rejected', label: 'Rejected Requests', count: statusCounts.rejected },
-                                ].map((tab) => (
-                                    <Button
-                                        key={tab.key}
-                                        variant={statusFilter === tab.key ? "default" : "outline"}
-                                        onClick={() => {
-                                            setStatusFilter(tab.key);
-                                            setCurrentPage(0);
-                                            setIsFilterOpen(false);
-                                        }}
-                                        className="w-full justify-between h-11 text-xs"
-                                    >
-                                        <span>{tab.label}</span>
-                                        <Badge variant="secondary">{tab.count}</Badge>
-                                    </Button>
-                                ))}
+                            <span className="font-medium text-muted-foreground">
+                                Page {currentPage + 1} of {totalPages}
+                            </span>
+                            <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => setCurrentPage(p => p + 1)}
+                                disabled={loading || currentPage >= totalPages - 1}
+                                className="h-8 text-xs shadow-none"
+                            >
+                                Next
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Tabs>
+        </div>
+    );
+}
+
+// --- Sub Components ---
+
+interface RequestRowProps {
+    saving: boolean;
+    req: ProcessedApprovalRequest;
+    activeTab: string;
+    approvalType: ApprovalTypeState;
+    setApprovalType: React.Dispatch<React.SetStateAction<ApprovalTypeState>>;
+    handleAction: (id: number, action: 'approved' | 'rejected') => Promise<void> | void;
+    formatDate: (date?: string | null) => string;
+    getInitials: (name: string) => string;
+}
+
+function RequestRow({ 
+    saving,
+    req, 
+    activeTab, 
+    approvalType, 
+    setApprovalType, 
+    handleAction, 
+    formatDate,
+    getInitials 
+}: RequestRowProps) {
+    const isPending = activeTab === 'pending';
+    const currentType = approvalType[req.id] || (req.requestedStatus as ApprovalTypeValue) || 'full day';
+
+    const rowClass = req.isDuplicate 
+        ? "bg-orange-50/40 dark:bg-orange-950/20 hover:bg-orange-50 dark:hover:bg-orange-950/30" 
+        : "bg-card hover:bg-muted/30";
+
+    return (
+        <div
+            className={`group flex flex-col gap-4 border-l-2 px-4 py-4 transition-colors lg:grid lg:grid-cols-12 lg:px-5 ${req.isDuplicate ? 'border-l-orange-500' : 'border-l-transparent'} ${rowClass}`}
+        >
+            {/* 1. Employee Info & Reason */}
+            <div className="col-span-4 w-full">
+                <div className="flex items-start gap-3">
+                    <Avatar className="mt-0.5 h-10 w-10 border border-border shrink-0">
+                        <AvatarFallback className="bg-muted text-xs font-semibold text-foreground">
+                            {getInitials(req.employeeName)}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                        <div className="mb-0.5 flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold text-foreground">{req.employeeName}</h3>
+                            {req.isDuplicate && (
+                                <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-orange-500/50 text-orange-600 dark:text-orange-400 bg-orange-100/50">
+                                    <AlertTriangle className="h-3 w-3 mr-1" />
+                                    Duplicate #{req.duplicateIndex}
+                                </Badge>
+                            )}
+                        </div>
+                        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <Briefcase className="h-3 w-3" />
+                            <span>ID: {req.employeeId}</span>
+                        </div>
+                        
+                        {req.description && (
+                            <div className="relative rounded-md border border-border/50 bg-muted/40 p-2 mt-1">
+                                <div className="flex gap-2 items-start">
+                                    <MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <p className="line-clamp-2 text-xs italic leading-relaxed text-foreground">
+                                        <span aria-hidden="true">&ldquo;</span>
+                                        {req.description}
+                                        <span aria-hidden="true">&rdquo;</span>
+                                    </p>
+                                </div>
                             </div>
-                        </SheetContent>
-                    </Sheet>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Error Message */}
-            {error && (
-                <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
-                    <span>{error}</span>
-                    <Button size="sm" variant="ghost" onClick={fetchRequests} className="h-7 text-xs">Retry</Button>
-                </div>
-            )}
-
-            {/* Requests List */}
-            <div className="space-y-3">
-                {loading ? (
-                    <div className="space-y-3">
-                        {[...Array(3)].map((_, i) => (
-                            <Card key={i}>
-                                <CardContent className="p-4">
-                                    <div className="space-y-2">
-                                        <Skeleton className="h-5 w-40" />
-                                        <Skeleton className="h-4 w-60" />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
+            {/* 2. Date Info */}
+            <div className="col-span-3 flex w-full justify-between gap-1 border-t border-dashed pt-3 lg:flex-col lg:justify-center lg:border-t-0 lg:pt-0">
+                <div>
+                    <div className="flex w-fit items-center gap-2 rounded py-1 text-xs font-semibold text-foreground lg:w-full lg:py-0">
+                        <Calendar className="h-3.5 w-3.5 text-primary" />
+                        Attendance: {formatDate(req.logDate)}
                     </div>
-                ) : requests.length === 0 ? (
-                    <Card className="border-dashed">
-                        <CardContent className="p-8 text-center">
-                            <Inbox className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                            <p className="font-semibold text-sm">No requests found</p>
-                            <p className="text-xs text-muted-foreground mt-1">There are no approval requests matching your filter.</p>
-                        </CardContent>
-                    </Card>
+                </div>
+                <div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground pt-0.5">
+                        <Clock className="h-3.5 w-3.5" />
+                        Submitted: {formatDate(req.requestDate)}
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Type Selector */}
+            <div className="col-span-2 flex w-full items-center">
+                {isPending ? (
+                    <div className="w-full">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold block mb-2 lg:hidden">Attendance Type</span>
+                        <div className="flex w-full rounded-md bg-muted/60 p-1 lg:w-auto">
+                            <button
+                                onClick={() => setApprovalType((prev) => ({ ...prev, [req.id]: 'full day' }))}
+                                disabled={saving}
+                                className={`flex-1 rounded px-2.5 py-1 text-xs font-medium transition-all ${
+                                    currentType === 'full day' 
+                                    ? 'bg-background text-foreground shadow-xs ring-1 ring-black/5 dark:ring-white/10 font-semibold' 
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                            >
+                                Full Day
+                            </button>
+                            <button
+                                onClick={() => setApprovalType((prev) => ({ ...prev, [req.id]: 'half day' }))}
+                                disabled={saving}
+                                className={`flex-1 rounded px-2.5 py-1 text-xs font-medium transition-all ${
+                                    currentType === 'half day' 
+                                    ? 'bg-background text-foreground shadow-xs ring-1 ring-black/5 dark:ring-white/10 font-semibold' 
+                                    : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                            >
+                                Half Day
+                            </button>
+                        </div>
+                    </div>
                 ) : (
-                    <AnimatePresence mode="popLayout">
-                        {requests.map((request) => {
-                            const isPending = request.status?.toLowerCase() === 'pending';
-                            const isApproved = request.status?.toLowerCase() === 'approved';
-                            const isRejected = request.status?.toLowerCase() === 'rejected';
-                            const currentType = approvalType[request.id] || 'full day';
-
-                            return (
-                                <motion.div
-                                    key={request.id}
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.15 }}
-                                >
-                                    <Card className="hover:border-primary/40 transition-colors shadow-none border">
-                                        <CardContent className="p-4">
-                                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                {/* Employee & Request Info */}
-                                                <div className="space-y-2 flex-1">
-                                                    <div className="flex items-center justify-between sm:justify-start gap-3">
-                                                        <h3 className="font-bold text-base text-foreground">
-                                                            {request.employeeName}
-                                                        </h3>
-                                                        <Badge 
-                                                            variant="outline"
-                                                            className={`capitalize text-xs px-2.5 py-0.5 ${
-                                                                isApproved 
-                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800' 
-                                                                    : isRejected 
-                                                                        ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800' 
-                                                                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
-                                                            }`}
-                                                        >
-                                                            {request.status || 'Pending'}
-                                                        </Badge>
-                                                    </div>
-
-                                                    {/* Date Meta Info */}
-                                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                                        <span className="flex items-center gap-1">
-                                                            <Calendar className="h-3.5 w-3.5" />
-                                                            Request Date: <strong className="text-foreground">{formatDate(request.requestDate)}</strong>
-                                                        </span>
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock className="h-3.5 w-3.5" />
-                                                            Submitted: <strong className="text-foreground">{formatDate(request.logDate)}</strong>
-                                                        </span>
-                                                        {request.requestedStatus && (
-                                                            <span className="bg-muted px-2 py-0.5 rounded text-[11px] font-medium text-foreground">
-                                                                {request.requestedStatus}
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Clean Reason Box */}
-                                                    <div className="text-xs bg-muted/50 p-2.5 rounded-lg border border-border/40 text-foreground">
-                                                        <span className="font-semibold text-muted-foreground">Reason: </span>
-                                                        <span>{request.description?.trim() || 'No reason provided'}</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Action Controls for Pending Requests */}
-                                                {isPending && (
-                                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 md:pt-0 border-t md:border-t-0 shrink-0">
-                                                        {/* Full / Half Day Segment Switch */}
-                                                        <div className="flex items-center bg-muted p-1 rounded-lg border">
-                                                            <button
-                                                                onClick={() => handleTypeChange(request.id, 'full day')}
-                                                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                                                                    currentType === 'full day' 
-                                                                        ? 'bg-background text-foreground shadow-sm font-semibold' 
-                                                                        : 'text-muted-foreground hover:text-foreground'
-                                                                }`}
-                                                            >
-                                                                <Sun className="h-3 w-3 text-amber-500" />
-                                                                Full Day
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleTypeChange(request.id, 'half day')}
-                                                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                                                                    currentType === 'half day' 
-                                                                        ? 'bg-background text-foreground shadow-sm font-semibold' 
-                                                                        : 'text-muted-foreground hover:text-foreground'
-                                                                }`}
-                                                            >
-                                                                <SunDim className="h-3 w-3 text-indigo-500" />
-                                                                Half Day
-                                                            </button>
-                                                        </div>
-
-                                                        {/* Approve & Reject Buttons */}
-                                                        <div className="flex items-center gap-2">
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => handleApproval(request.id, 'approved')}
-                                                                disabled={actionLoadingId === request.id}
-                                                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 font-semibold"
-                                                            >
-                                                                <Check className="h-3.5 w-3.5 mr-1" />
-                                                                Approve
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => handleApproval(request.id, 'rejected')}
-                                                                disabled={actionLoadingId === request.id}
-                                                                className="border-rose-200 text-rose-600 hover:bg-rose-50 text-xs h-8 px-3 dark:border-rose-900 dark:text-rose-400"
-                                                            >
-                                                                <X className="h-3.5 w-3.5 mr-1" />
-                                                                Reject
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </motion.div>
-                            );
-                        })}
-                    </AnimatePresence>
+                    <div className="flex items-center">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mr-2 lg:hidden">Type:</span>
+                        <Badge variant="secondary" className="capitalize px-3 py-1 text-xs">
+                            {req.requestedStatus || 'Full day'}
+                        </Badge>
+                    </div>
                 )}
             </div>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs">
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="pageSize" className="text-muted-foreground">Rows per page:</Label>
-                        <Select
-                            value={pageSize.toString()}
-                            onValueChange={(val) => {
-                                setCurrentPage(0);
-                                setPageSize(parseInt(val));
-                            }}
-                        >
-                            <SelectTrigger id="pageSize" className="w-16 h-8 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {[10, 20, 50, 100].map(s => (
-                                    <SelectItem key={s} value={s.toString()} className="text-xs">{s}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <span className="text-muted-foreground">Total {totalElements}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
+            {/* 4. Actions */}
+            <div className="col-span-3 flex w-full items-center lg:justify-end">
+                {isPending ? (
+                    <div className="flex w-full gap-2 lg:w-auto">
                         <Button 
-                            variant="outline" 
+                            onClick={() => handleAction(req.id, 'approved')}
+                            disabled={saving}
                             size="sm"
-                            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                            disabled={currentPage === 0 || loading}
-                            className="h-8 text-xs"
+                            className="h-8 flex-1 bg-emerald-600 text-xs text-white shadow-none hover:bg-emerald-700 lg:flex-none font-medium"
                         >
-                            Previous
+                            <Check className="h-3.5 w-3.5 mr-1.5" />
+                            Approve
                         </Button>
-                        <span className="font-medium text-muted-foreground">
-                            Page {currentPage + 1} of {totalPages}
-                        </span>
                         <Button 
-                            variant="outline" 
+                            variant="outline"
+                            onClick={() => handleAction(req.id, 'rejected')}
+                            disabled={saving}
                             size="sm"
-                            onClick={() => setCurrentPage(p => p + 1)}
-                            disabled={loading || currentPage >= totalPages - 1}
-                            className="h-8 text-xs"
+                            className="h-8 flex-1 border-destructive/25 text-xs text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive lg:flex-none font-medium"
                         >
-                            Next
+                            <X className="h-3.5 w-3.5 mr-1.5" />
+                            Reject
                         </Button>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="w-full lg:w-auto flex justify-end">
+                        <StatusBadge status={req.status} />
+                    </div>
+                )}
+            </div>
         </div>
     );
-};
+}
 
-export default ApprovalsPage;
+function StatusBadge({ status }: { status?: string }) {
+    const s = status?.toLowerCase();
+    
+    if (s === 'approved') {
+        return (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Approved
+            </div>
+        );
+    }
+    if (s === 'rejected') {
+        return (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                <XCircle className="h-3.5 w-3.5" /> Rejected
+            </div>
+        );
+    }
+    return (
+        <Badge variant="outline" className="capitalize text-xs">{status || 'Pending'}</Badge>
+    );
+}
+
+function EmptyState({ activeTab }: { activeTab: string }) {
+    return (
+        <div className="flex w-full flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
+                {activeTab === 'pending' 
+                    ? <Check className="h-6 w-6 text-muted-foreground/50" />
+                    : <Search className="h-6 w-6 text-muted-foreground/50" />
+                }
+            </div>
+            <h3 className="text-base font-semibold text-foreground">
+                {activeTab === 'pending' ? "All caught up!" : "No records found"}
+            </h3>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                {activeTab === 'pending' 
+                    ? "There are no pending requests requiring your attention right now." 
+                    : "Try adjusting your search filters to find past requests."}
+            </p>
+        </div>
+    );
+}
+
+function LoadingSkeleton() {
+    return (
+        <div className="w-full space-y-4 py-4">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <Skeleton className="h-9 w-full sm:w-80" />
+                <div className="flex gap-2">
+                    <Skeleton className="h-9 w-64" />
+                    <Skeleton className="h-9 w-9" />
+                </div>
+            </div>
+            <div className="border border-border/70 rounded-xl bg-card overflow-hidden">
+                <div className="divide-y divide-border p-0">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="flex items-center gap-4 p-4">
+                            <Skeleton className="h-10 w-10 rounded-full" />
+                            <div className="w-full flex-1 space-y-2">
+                                <Skeleton className="h-4 w-1/3" />
+                                <Skeleton className="h-3 w-2/3" />
+                            </div>
+                            <Skeleton className="h-8 w-28" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}

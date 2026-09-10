@@ -11,7 +11,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const pageHeadings: Record<string, { heading: string; subheading: string }> = {
     "/dashboard": {
       heading: "Dashboard",
-      subheading: "Welcome to your sales dashboard"
+      subheading: "Sales and employee activity overview"
     },
     "/dashboard/visits": {
       heading: "Visits",
@@ -112,8 +112,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     // Check for detail pages with dynamic routes
     if (pathname.match(/^\/dashboard\/visits\/\d+/)) {
       return {
-        heading: "Visit Detail",
-        subheading: "View and manage visit information"
+        heading: "Visit Details",
+        subheading: `Visit #${pathname.split('/').pop()} - Detailed information and analysis`
       };
     }
     if (pathname.match(/^\/dashboard\/activities\/\d+/)) {

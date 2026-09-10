@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,272 +19,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, Building2, ClipboardList, Eye, Plus, ChevronDown, Check, ChevronsUpDown, Image as ImageIcon } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Card, CardContent } from "@/components/ui/card";
+import { CalendarIcon, DownloadIcon, ChevronLeft, ChevronRight, Loader2, User, ChevronDown, ChevronUp, Filter } from "lucide-react";
 import { format } from "date-fns";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { useRouter } from "next/navigation";
+import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { Badge } from "@/components/ui/badge";
-// Removed dropdown menu imports as Actions now shows a direct link
-import { API, type CombinedTimelineItem, type VisitDto, type ActivityDto, type CurrentUserDto } from "@/lib/api";
-import {
-  addDays,
-  differenceInCalendarDays,
-  endOfMonth,
-  format as formatDate,
-  formatDistanceToNow,
-  isToday,
-  isYesterday,
-  parseISO,
-  startOfMonth,
-  subDays,
-} from "date-fns";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useRouter } from "next/navigation";
+import { API, type VisitDto, type VisitResponse, type EmployeeUserDto } from "@/lib/api";
+import { format as formatDate } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import { extractAuthorityRoles, hasAnyRole, normalizeRoleValue } from "@/lib/role-utils";
+import { formatTimeTo12Hour, formatDateToUserFriendly, formatLastUpdated } from "@/lib/utils";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
+import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
+import { isAdminEmployeeRole } from "@/lib/employee-role";
 
-const VISITS_STATE_STORAGE_KEY = "visitsTableState";
-const DEFAULT_QUICK_RANGE = "today";
-
-type PurposeComboboxProps = {
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-  triggerClassName?: string;
-  placeholder?: string;
-  disabled?: boolean;
-  allLabel?: string;
-};
-
-const PurposeCombobox = ({
-  value,
-  onChange,
-  options,
-  triggerClassName,
-  placeholder = "Select option",
-  disabled,
-  allLabel = "All",
-}: PurposeComboboxProps) => {
-  const [open, setOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-
-  useEffect(() => {
-    if (!open) {
-      setSearchTerm("");
-    }
-  }, [open]);
-
-  const normalizedOptions = useMemo(() => {
-    const unique = Array.from(new Set(options));
-    return unique.map((option) => ({
-      value: option,
-      label: option,
-    }));
-  }, [options]);
-
-  const filteredOptions = useMemo(() => {
-    const baseOptions = [
-      { value: "all", label: allLabel },
-      ...normalizedOptions,
-    ];
-
-    const query = searchTerm.trim().toLowerCase();
-    if (!query) {
-      return baseOptions;
-    }
-
-    return baseOptions.filter((option) =>
-      option.label.toLowerCase().includes(query)
-    );
-  }, [normalizedOptions, searchTerm, allLabel]);
-
-  const handleSelect = (nextValue: string) => {
-    onChange(nextValue);
-    setOpen(false);
-  };
-
-  const selectedLabel =
-    value === "all"
-      ? allLabel
-      : normalizedOptions.find((item) => item.value === value)?.label || value || placeholder;
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          disabled={disabled}
-          className={cn("w-full justify-between", triggerClassName)}
-        >
-          <span className="truncate">{selectedLabel}</span>
-          <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0 w-64" align="start">
-        <div className="p-2">
-          <Input
-            placeholder="Search purpose"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            autoFocus
-          />
-        </div>
-        <ScrollArea className="max-h-60">
-          <div className="py-1">
-            {filteredOptions.length === 0 ? (
-              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                No purposes found
-              </div>
-            ) : (
-              filteredOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted",
-                    value === option.value ? "bg-muted" : undefined
-                  )}
-                  onClick={() => handleSelect(option.value)}
-                >
-                  <Check
-                    className={cn(
-                      "h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
-  );
-};
-
-const ExecutiveCombobox = ({
-  value,
-  onChange,
-  options,
-  triggerClassName,
-  placeholder = "Select executive",
-  disabled,
-}: PurposeComboboxProps) => {
-  const [open, setOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-
-  useEffect(() => {
-    if (!open) {
-      setSearchTerm("");
-    }
-  }, [open]);
-
-  const normalizedOptions = useMemo(() => {
-    const unique = Array.from(new Set(options));
-    return unique.map((option) => ({
-      value: option,
-      label: option,
-    }));
-  }, [options]);
-
-  const filteredOptions = useMemo(() => {
-    const baseOptions = [
-      { value: "all", label: "All Executives" },
-      ...normalizedOptions,
-    ];
-
-    const query = searchTerm.trim().toLowerCase();
-    if (!query) {
-      return baseOptions;
-    }
-
-    return baseOptions.filter((option) =>
-      option.label.toLowerCase().includes(query)
-    );
-  }, [normalizedOptions, searchTerm]);
-
-  const handleSelect = (nextValue: string) => {
-    onChange(nextValue);
-    setOpen(false);
-  };
-
-  const selectedLabel =
-    value === "all"
-      ? "All Executives"
-      : normalizedOptions.find((item) => item.value === value)?.label || value || placeholder;
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className={cn("w-full justify-between", triggerClassName)}
-          disabled={disabled}
-        >
-          <span className="truncate">{selectedLabel}</span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-full p-0">
-        <div className="p-2">
-          <Input
-            placeholder="Search executive"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-8"
-          />
-        </div>
-        <ScrollArea className="h-72">
-          <div className="p-1">
-            {filteredOptions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                No executives found
-              </div>
-            ) : (
-              filteredOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted",
-                    value === option.value ? "bg-muted" : undefined
-                  )}
-                  onClick={() => handleSelect(option.value)}
-                >
-                  <Check
-                    className={cn(
-                      "h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
-  );
-};
+const VISITS_TABLE_STORAGE_KEY = "visits.table.state.v2";
 
 type Row = {
   id: number;
   customerName: string;
   executive: string;
+  employeeId?: number;
   date: string; // yyyy-MM-dd
   status?: string;
   purpose?: string;
@@ -301,139 +62,152 @@ type Row = {
   checkoutTime?: string;
 };
 
-type ActivityRow = {
-  id: number;
-  type: 'activity';
-  title: string;
-  description: string;
-  executive: string;
-  date: string;
-  startTime?: string;
-  endTime?: string;
-  status?: string;
-  location?: string;
-  imageCount?: number | null;
+function Ellipsis({ value }: { value: string | number | null | undefined }) {
+  const displayValue = value === null || value === undefined || value === "" ? "—" : String(value);
+  return (
+    <span className="block min-w-0 truncate" title={displayValue}>
+      {displayValue}
+    </span>
+  );
+}
+
+const buildEmployeeFilterName = (employee: EmployeeUserDto): string => {
+  const primary = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
+  const secondary = employee.userDto
+    ? [employee.userDto.firstName, employee.userDto.lastName].filter(Boolean).join(" ").trim()
+    : "";
+  const fallback = employee.userName || employee.userDto?.username || employee.email || `Employee ${employee.id}`;
+  return (primary || secondary || fallback).trim();
 };
 
-type CombinedDisplayRow = { type: 'VISIT'; data: Row } | { type: 'ACTIVITY'; data: ActivityRow };
+type VisitListStatus = "Assigned" | "Ongoing" | "Completed";
 
-const formatActivityPhotoCount = (count?: number | null) => {
-  if (!count || count <= 0) return null;
-  return `${count} ${count === 1 ? "photo" : "photos"}`;
-};
-
-// Helper function to format time to 12-hour format
-const formatTime = (timeStr?: string): string => {
-  if (!timeStr) return '—';
-  
-  try {
-    // Handle different time formats (with or without milliseconds)
-    const cleanTime = timeStr.split('.')[0]; // Remove milliseconds if present
-    const [hours, minutes, seconds] = cleanTime.split(':');
-    
-    if (hours && minutes) {
-      const date = new Date();
-      date.setHours(parseInt(hours), parseInt(minutes), seconds ? parseInt(seconds) : 0);
-      return formatDate(date, 'h:mm a');
-    }
-  } catch {
-    // Fallback to original format if parsing fails
-    return timeStr;
+const hasVisitTime = (value?: string | null): boolean => {
+  if (value === null || value === undefined) {
+    return false;
   }
-  
-  return timeStr;
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== "" && normalized !== "null" && normalized !== "undefined" && normalized !== "-";
 };
 
-// Helper function to format last updated date
-const formatLastUpdated = (dateStr: string, timeStr?: string): string => {
-  if (!dateStr) return '—';
-  
-  try {
-    // Parse the date and time
-    const dateTimeStr = timeStr ? `${dateStr}T${timeStr}` : dateStr;
-    const date = parseISO(dateTimeStr);
-    
-    if (isToday(date)) {
-      // Today: show "today 05:45 PM"
-      const timeFormat = formatDate(date, 'h:mm a');
-      return `today ${timeFormat}`;
-    } else if (isYesterday(date)) {
-      // Yesterday: show "yesterday" or "yesterday 05:45 PM"
-      if (timeStr) {
-        const timeFormat = formatDate(date, 'h:mm a');
-        return `yesterday ${timeFormat}`;
-      }
-      return 'yesterday';
-    } else {
-      // Other dates: show "25 Sep '25 05:00PM"
-      const dateFormat = formatDate(date, "d MMM ''yy");
-      const timeFormat = formatDate(date, 'h:mm a');
-      return `${dateFormat} ${timeFormat}`;
-    }
-  } catch {
-    // Fallback to original format if parsing fails
-    return timeStr ? `${dateStr} ${timeStr}` : dateStr;
+const deriveVisitStatus = (visit: Pick<VisitDto, "checkinTime" | "checkoutTime">): VisitListStatus => {
+  const hasCheckin = hasVisitTime(visit.checkinTime);
+  const hasCheckout = hasVisitTime(visit.checkoutTime);
+
+  if (hasCheckin && hasCheckout) {
+    return "Completed";
   }
+
+  if (hasCheckin) {
+    return "Ongoing";
+  }
+
+  return "Assigned";
 };
 
 export default function VisitsTable() {
-  const { userRole, currentUser } = useAuth();
-  const [currentUserDetails, setCurrentUserDetails] = useState<CurrentUserDto | null>(null);
+  const { userRole, userData } = useAuth();
+  const router = useRouter();
+  const [navigatingVisitId, setNavigatingVisitId] = useState<number | null>(null);
+  const [isNavigating, startTransition] = useTransition();
+  const filterInitialisedRef = useRef(false);
+  const hasHydratedRef = useRef(false);
+  const [isStateHydrated, setIsStateHydrated] = useState(false);
   
-  // Set default date range to today.
-  const defaultDate = new Date();
+  // Set default date range to last 7 days
+  const defaultEndDate = new Date();
+  const defaultStartDate = new Date();
+  defaultStartDate.setDate(defaultEndDate.getDate() - 7);
   
-  const [startDate, setStartDate] = useState<Date | undefined>(defaultDate);
-  const [endDate, setEndDate] = useState<Date | undefined>(defaultDate);
-  const [quickRange, setQuickRange] = useState<string>(DEFAULT_QUICK_RANGE);
+  const [startDate, setStartDate] = useState<Date | undefined>(defaultStartDate);
+  const [endDate, setEndDate] = useState<Date | undefined>(defaultEndDate);
+  const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
   const [selectedPurpose, setSelectedPurpose] = useState<string>("all");
   const [selectedExecutive, setSelectedExecutive] = useState<string>("all");
   const [customerName, setCustomerName] = useState<string>("");
-  const [combinedItems, setCombinedItems] = useState<CombinedTimelineItem[]>([]);
-  const [availablePurposes, setAvailablePurposes] = useState<string[]>([]);
-  const [availableExecutives, setAvailableExecutives] = useState<string[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false);
-  const [isRestoringState, setIsRestoringState] = useState(true);
-  const router = useRouter();
-  const MAX_RANGE_DAYS = 31;
-  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
-  const hasInitializedFiltersRef = useRef(false);
+  const [expandedCards, setExpandedCards] = useState<number[]>([]);
+  const [areFiltersVisible, setAreFiltersVisible] = useState(true);
+
+  const [employees, setEmployees] = useState<EmployeeUserDto[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadEmployees = async () => {
+      try {
+        setIsLoadingEmployees(true);
+        const employeeList = await API.getAllEmployees();
+        if (!isMounted) {
+          return;
+        }
+        setEmployees(employeeList.filter((employee) => !isAdminEmployeeRole(employee.role)));
+      } catch (err) {
+        console.error("Failed to load employees list:", err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingEmployees(false);
+        }
+      }
+    };
+
+    loadEmployees();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const isManager = Boolean(userRole && userRole.toLowerCase().includes('manager'));
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setIsRestoringState(false);
+    if (typeof window === 'undefined') {
       return;
     }
 
-    const restoreState = () => {
-      try {
-        const stored = window.localStorage.getItem(VISITS_STATE_STORAGE_KEY);
-        if (!stored) {
-          return;
-        }
+    if (hasHydratedRef.current) {
+      setIsStateHydrated(true);
+      return;
+    }
 
-        const parsed = JSON.parse(stored) as {
+    hasHydratedRef.current = true;
+
+    try {
+      const storedState = sessionStorage.getItem(VISITS_TABLE_STORAGE_KEY);
+      if (storedState) {
+        const parsed = JSON.parse(storedState) as {
           startDate?: string;
           endDate?: string;
-          quickRange?: string;
           selectedPurpose?: string;
           selectedExecutive?: string;
           customerName?: string;
           currentPage?: number;
           pageSize?: number;
+          expandedCards?: number[];
         };
 
-        // Always open the visit list on today's date by default. Other filters
-        // can persist, but stale stored dates should not override the default.
-        setStartDate(new Date());
-        setEndDate(new Date());
-        setQuickRange(DEFAULT_QUICK_RANGE);
+        if (parsed.startDate) {
+          const parsedStart = new Date(parsed.startDate);
+          if (!Number.isNaN(parsedStart.getTime())) {
+            setStartDate(parsedStart);
+          }
+        }
+
+        if (parsed.endDate) {
+          const parsedEnd = new Date(parsed.endDate);
+          if (!Number.isNaN(parsedEnd.getTime())) {
+            setEndDate(parsedEnd);
+          }
+        }
 
         if (parsed.selectedPurpose) {
           setSelectedPurpose(parsed.selectedPurpose);
@@ -447,404 +221,215 @@ export default function VisitsTable() {
           setCustomerName(parsed.customerName);
         }
 
-        if (typeof parsed.currentPage === "number" && parsed.currentPage >= 0) {
+        if (typeof parsed.currentPage === "number") {
           setCurrentPage(parsed.currentPage);
         }
 
         if (typeof parsed.pageSize === "number" && parsed.pageSize > 0) {
           setPageSize(parsed.pageSize);
         }
-      } catch (error) {
-        console.error("Failed to restore visits filters:", error);
-      }
-    };
 
-    restoreState();
-
-    const finalizeRestore = () => setIsRestoringState(false);
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(finalizeRestore);
-    } else {
-      setTimeout(finalizeRestore, 0);
-    }
-  }, []);
-
-  const endDateDisabled = useMemo(() => {
-    if (!startDate) return undefined;
-    const minAllowed = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const maxAllowed = addDays(minAllowed, MAX_RANGE_DAYS - 1);
-    return (date: Date) => {
-      const current = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      return current < minAllowed || current > maxAllowed;
-    };
-  }, [startDate]);
-
-  const QUICK_RANGES = [
-    { value: "today", label: "Today" },
-    { value: "last7Days", label: "Last 7 Days" },
-    { value: "last15Days", label: "Last 15 Days" },
-    { value: "thisMonth", label: "This Month" },
-    { value: "lastMonth", label: "Last Month" },
-  ] as const;
-
-  const viewDetails = (id: number) => {
-    if (typeof window !== "undefined") {
-      const returnContext = {
-        route: "/dashboard/visits",
-        timestamp: Date.now(),
-      };
-      try {
-        window.localStorage.setItem("visitReturnContext", JSON.stringify(returnContext));
-      } catch (error) {
-        console.error("Failed to store return context for visits:", error);
-      }
-    }
-    setIsNavigating(true);
-    router.push(`/dashboard/visits/${id}`);
-  };
-
-  const viewActivityDetails = (id: number) => {
-    setIsNavigating(true);
-    router.push(`/dashboard/activities/${id}`);
-  };
-  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
-  const applyQuickRange = (range: string) => {
-    const today = new Date();
-    let newStart: Date | undefined;
-    let newEnd: Date = new Date(today);
-
-    switch (range) {
-      case "today":
-        newStart = today;
-        newEnd = today;
-        break;
-      case "last7Days":
-        newStart = subDays(newEnd, 6);
-        break;
-      case "last15Days":
-        newStart = subDays(newEnd, 14);
-        break;
-      case "thisMonth":
-        newStart = startOfMonth(today);
-        newEnd = today;
-        break;
-      case "lastMonth": {
-        const lastMonthReference = subDays(startOfMonth(today), 1);
-        newStart = startOfMonth(lastMonthReference);
-        newEnd = endOfMonth(lastMonthReference);
-        break;
-      }
-      default:
-        return;
-    }
-
-    if (!newStart) return;
-
-    if (differenceInCalendarDays(newEnd, newStart) > MAX_RANGE_DAYS - 1) {
-      newStart = subDays(newEnd, MAX_RANGE_DAYS - 1);
-    }
-
-    setStartDate(newStart);
-    setEndDate(newEnd);
-    setDateRangeError(null);
-  };
-
-  const handleQuickRangeChange = (value: string) => {
-    if (value === "custom") {
-      setQuickRange("custom");
-      setDateRangeError(null);
-      return;
-    }
-    setQuickRange(value);
-    applyQuickRange(value);
-  };
-
-  const handleStartDateChange = (date: Date | undefined) => {
-    setQuickRange("custom");
-    if (!date) {
-      setStartDate(undefined);
-      setDateRangeError(null);
-      return;
-    }
-
-    let adjustedEnd = endDate ? new Date(endDate) : undefined;
-
-    if (!adjustedEnd || adjustedEnd < date) {
-      adjustedEnd = date;
-    }
-
-    if (differenceInCalendarDays(adjustedEnd, date) > MAX_RANGE_DAYS - 1) {
-      adjustedEnd = addDays(date, MAX_RANGE_DAYS - 1);
-      setDateRangeError("Date range is limited to 31 days. End date adjusted automatically.");
-    } else {
-      setDateRangeError(null);
-    }
-
-    setStartDate(date);
-    setEndDate(adjustedEnd);
-  };
-
-  const handleEndDateChange = (date: Date | undefined) => {
-    setQuickRange("custom");
-    if (!date) {
-      setEndDate(undefined);
-      setDateRangeError(null);
-      return;
-    }
-
-    let adjustedStart = startDate ? new Date(startDate) : undefined;
-
-    if (!adjustedStart || date < adjustedStart) {
-      adjustedStart = date;
-    }
-
-    if (differenceInCalendarDays(date, adjustedStart) > MAX_RANGE_DAYS - 1) {
-      adjustedStart = subDays(date, MAX_RANGE_DAYS - 1);
-      setDateRangeError("Date range is limited to 31 days. Start date adjusted automatically.");
-    } else {
-      setDateRangeError(null);
-    }
-
-    setStartDate(adjustedStart);
-    setEndDate(date);
-  };
-  
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      try {
-        const data = await API.getCurrentUser();
-        if (isMounted) {
-          setCurrentUserDetails(data);
+        if (Array.isArray(parsed.expandedCards)) {
+          setExpandedCards(parsed.expandedCards);
         }
-      } catch (error) {
-        console.error('Failed to fetch current user details for visits page:', error);
       }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
+    } catch (error) {
+      console.error("Failed to restore visit table state:", error);
+    } finally {
+      setIsStateHydrated(true);
+    }
   }, []);
 
-  const {
-    isAdmin,
-    isDataManager,
-    isCoordinator,
-    isRegionalManager,
-    isAvp,
-    isFieldOfficer,
-    isHR,
-    combinedRoles,
-    normalizedContextRole,
-  } = useMemo(() => {
-    const normalizedContextRole = normalizeRoleValue(userRole);
-    const contextAuthorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
-    const apiAuthorityRoles = extractAuthorityRoles(currentUserDetails?.authorities ?? null);
-    const combinedSet = new Set<string>([...contextAuthorityRoles, ...apiAuthorityRoles]);
-    if (normalizedContextRole) {
-      combinedSet.add(normalizedContextRole);
-    }
-    const combinedArray = Array.from(combinedSet);
-
-    const isAvp = hasAnyRole(normalizedContextRole, combinedArray, ['AVP']);
-    return {
-      normalizedContextRole,
-      combinedRoles: combinedArray,
-      isAdmin: hasAnyRole(normalizedContextRole, combinedArray, ['ADMIN']),
-      isDataManager: hasAnyRole(normalizedContextRole, combinedArray, ['DATA_MANAGER']),
-      isCoordinator: hasAnyRole(normalizedContextRole, combinedArray, ['COORDINATOR']),
-      isRegionalManager:
-        isAvp ||
-        hasAnyRole(normalizedContextRole, combinedArray, ['MANAGER', 'OFFICE_MANAGER', 'REGIONAL_MANAGER']),
-      isAvp,
-      isFieldOfficer: hasAnyRole(normalizedContextRole, combinedArray, ['FIELD_OFFICER']),
-      isHR: hasAnyRole(normalizedContextRole, combinedArray, ['HR']),
-    };
-  }, [userRole, currentUser, currentUserDetails]);
-
-  // Get display role for badge
   useEffect(() => {
-    console.log('Role Detection Debug (Visits):', {
-      userRole,
-      normalizedContextRole,
-      combinedRoles,
-      isAdmin,
-      isDataManager,
-      isRegionalManager,
-      isAvp,
-      isCoordinator,
-      isFieldOfficer,
-      isHR,
-    });
-  }, [
-    userRole,
-    normalizedContextRole,
-    combinedRoles,
-    isAdmin,
-    isDataManager,
-    isRegionalManager,
-    isAvp,
-    isCoordinator,
-    isFieldOfficer,
-    isHR,
-  ]);
-
-  const getDisplayRole = useMemo(() => {
-    if (isAdmin) return 'Admin View';
-    if (isDataManager) return 'Data Manager View';
-    if (isCoordinator) return 'Coordinator View';
-    if (isRegionalManager) return isAvp ? 'AVP View' : 'Regional Manager View';
-    if (isFieldOfficer) return 'Field Officer View';
-    if (isHR) return 'HR View';
-    return 'User View';
-  }, [isAdmin, isDataManager, isCoordinator, isRegionalManager, isFieldOfficer, isHR, isAvp]);
-
-  const mapVisitToRow = (visit: VisitDto): Row => {
-    // Determine status based on checkin and checkout times
-    let status = 'Scheduled';
-    if (visit.checkinTime && visit.checkoutTime) {
-      status = 'Completed';
-    } else if (visit.checkinTime) {
-      status = 'In Progress';
-    }
-    
-    return {
-      id: visit.id,
-      customerName: visit.storeName,
-      executive: visit.employeeName,
-      date: visit.visit_date,
-      status,
-      purpose: visit.purpose ?? undefined,
-      visitStart: formatTime(visit.checkinTime),
-      visitEnd: formatTime(visit.checkoutTime),
-      intent: visit.intent ?? undefined,
-      lastUpdated: visit.updatedAt ? formatLastUpdated(visit.updatedAt, visit.updatedTime) : undefined,
-      priority: visit.priority ?? undefined,
-      outcome: visit.outcome ?? undefined,
-      feedback: visit.feedback ?? undefined,
-      city: visit.city ?? undefined,
-      state: visit.state ?? undefined,
-      checkinTime: visit.checkinTime ?? undefined,
-      checkoutTime: visit.checkoutTime ?? undefined,
-    };
-  };
-
-  const mapActivityToRow = (activity: ActivityDto, fallbackIndex: number): ActivityRow => {
-    const startTime = activity.startTime ?? activity.checkinTime ?? activity.createdTime;
-    const endTime = activity.endTime ?? activity.checkoutTime ?? undefined;
-    const attachmentCount = Array.isArray(activity.attachmentResponse) ? activity.attachmentResponse.length : 0;
-    const imageCount =
-      typeof activity.imageCount === 'number' && Number.isFinite(activity.imageCount)
-        ? activity.imageCount
-        : attachmentCount;
-
-    return {
-      id: activity.id ?? fallbackIndex,
-      type: 'activity',
-      title: activity.title ?? 'Activity',
-      description: activity.description ?? '',
-      executive: activity.employeeName ?? '',
-      date: activity.activityDate ?? '',
-      startTime: startTime ? formatTime(startTime) : undefined,
-      endTime: endTime ? formatTime(endTime) : undefined,
-      status: activity.status ?? undefined,
-      location: undefined,
-      imageCount,
-    };
-  };
-
-  useEffect(() => {
-    if (!startDate || !endDate) return;
-    if (isRestoringState) return;
-
-    const startStr = formatDate(startDate, 'yyyy-MM-dd');
-    const endStr = formatDate(endDate, 'yyyy-MM-dd');
-
-    const fetchCombinedTimeline = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await API.getCombinedTimeline({
-          start: startStr,
-          end: endStr,
-          page: currentPage,
-          size: pageSize,
-          sort: "desc",
-          storeName: customerName.trim() !== "" ? customerName : undefined,
-          purpose: selectedPurpose !== "all" ? selectedPurpose : undefined,
-          executiveName: selectedExecutive !== "all" ? selectedExecutive : undefined,
-        });
-
-        setCombinedItems(response.items || []);
-        setAvailablePurposes((response.availablePurposes || []).slice().sort((a, b) => a.localeCompare(b)));
-        setAvailableExecutives((response.availableExecutives || []).slice().sort((a, b) => a.localeCompare(b)));
-        setTotalPages(response.totalPages || 0);
-      } catch (err: unknown) {
-        console.error("Failed to load combined timeline:", err);
-        setError(err instanceof Error ? err.message : "Failed to load visits");
-        setCombinedItems([]);
-        setAvailablePurposes([]);
-        setAvailableExecutives([]);
-        setTotalPages(0);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCombinedTimeline();
-  }, [startDate, endDate, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize, isRestoringState]);
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    if (isRestoringState) return;
-    if (!hasInitializedFiltersRef.current) {
-      hasInitializedFiltersRef.current = true;
+    if (!isStateHydrated || typeof window === 'undefined') {
       return;
     }
-    setCurrentPage(0);
-  }, [startDate, endDate, selectedPurpose, customerName, selectedExecutive, pageSize, isRestoringState]);
-
-  useEffect(() => {
-    if (isRestoringState) return;
-    if (typeof window === "undefined") return;
 
     const payload = {
-      startDate: startDate ? startDate.toISOString() : null,
-      endDate: endDate ? endDate.toISOString() : null,
-      quickRange,
+      startDate: startDate ? startDate.toISOString() : undefined,
+      endDate: endDate ? endDate.toISOString() : undefined,
       selectedPurpose,
       selectedExecutive,
       customerName,
       currentPage,
       pageSize,
+      expandedCards,
     };
 
     try {
-      window.localStorage.setItem(VISITS_STATE_STORAGE_KEY, JSON.stringify(payload));
+      sessionStorage.setItem(VISITS_TABLE_STORAGE_KEY, JSON.stringify(payload));
     } catch (error) {
-      console.error("Failed to persist visits filters:", error);
+      console.error("Failed to persist visit table state:", error);
     }
-  }, [startDate, endDate, quickRange, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize, isRestoringState]);
+  }, [
+    isStateHydrated,
+    startDate,
+    endDate,
+    selectedPurpose,
+    selectedExecutive,
+    customerName,
+    currentPage,
+    pageSize,
+    expandedCards,
+  ]);
 
-  const combinedRows = useMemo<CombinedDisplayRow[]>(() => {
-    const rowsList: CombinedDisplayRow[] = [];
-    let activityIndex = 0;
-    combinedItems.forEach((item) => {
-      if (item.type === "VISIT" && item.visit) {
-        rowsList.push({ type: "VISIT", data: mapVisitToRow(item.visit) });
-      } else if (item.type === "ACTIVITY" && item.activity) {
-        rowsList.push({ type: "ACTIVITY", data: mapActivityToRow(item.activity, activityIndex) });
-        activityIndex += 1;
-      }
+  const purposes = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach(r => { if (r.purpose) set.add(r.purpose); });
+    return Array.from(set);
+  }, [rows]);
+
+  const employeeOptions = useMemo<SearchableOption[]>(() => {
+    const employeesToUse = employees.filter(
+      (employee) => !isAdminEmployeeRole(employee.role)
+    );
+    
+    const base = employeesToUse.map((employee) => {
+      const identifier = employee.userDto?.employeeId ?? null;
+      const displayName = buildEmployeeFilterName(employee);
+      const label = identifier !== null ? `${displayName} (${identifier})` : displayName;
+      return {
+        value: String(employee.id),
+        label,
+      };
     });
-    return rowsList;
-   }, [combinedItems]);
 
-   const effectiveTotalPages = totalPages > 0 ? totalPages : 1;
+    base.sort((a, b) => a.label.localeCompare(b.label));
 
+    return [{ value: "all", label: "All employees" }, ...base];
+  }, [employees]);
 
-  const csvEscape = (val: unknown) => {
+  useEffect(() => {
+    if (selectedExecutive === "all" || employees.length === 0) {
+      return;
+    }
+
+    const hasExactMatch = employeeOptions.some((option) => option.value === selectedExecutive);
+    if (hasExactMatch) {
+      return;
+    }
+
+    const legacyMatch = employees.find((employee) => {
+      const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
+      const displayName = fullName || employee.userName || employee.email || `Employee ${employee.id}`;
+      return fullName === selectedExecutive || displayName === selectedExecutive;
+    });
+
+    if (legacyMatch) {
+      setSelectedExecutive(String(legacyMatch.id));
+    } else {
+      setSelectedExecutive("all");
+    }
+  }, [selectedExecutive, employeeOptions, employees]);
+
+  const toggleCardExpansion = (visitId: number) => {
+    setExpandedCards(prev => 
+      prev.includes(visitId) 
+        ? prev.filter(id => id !== visitId)
+        : [...prev, visitId]
+    );
+  };
+
+  const handleViewDetails = (visitId: number) => {
+    if (navigatingVisitId !== null || isNavigating) {
+      return;
+    }
+    setNavigatingVisitId(visitId);
+    startTransition(() => {
+      router.push(`/dashboard/visits/${visitId}`);
+    });
+  };
+
+  useEffect(() => {
+    if (!isNavigating && navigatingVisitId !== null) {
+      setNavigatingVisitId(null);
+    }
+  }, [isNavigating, navigatingVisitId]);
+
+  useEffect(() => {
+    if (!isStateHydrated) return;
+    if (!startDate || !endDate || dateRangeInvalid) return;
+    
+    const startStr = formatDate(startDate, 'yyyy-MM-dd');
+    const endStr = formatDate(endDate, 'yyyy-MM-dd');
+
+    const run = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const storeNameFilter = customerName.trim() !== '' ? customerName : undefined;
+        
+        const response: VisitResponse = await API.getVisitsByDateSorted(
+          startStr,
+          endStr,
+          currentPage,
+          pageSize,
+          'visitDate,desc',
+          storeNameFilter
+        );
+        
+        const visits: VisitDto[] = response.content || [];
+        
+        const mapped: Row[] = visits.map(v => ({
+          id: v.id,
+          customerName: v.storeName,
+          executive: v.employeeName,
+          employeeId: v.employeeId,
+          date: v.visit_date,
+          status: deriveVisitStatus(v),
+          purpose: v.purpose ?? undefined,
+          visitStart: v.checkinTime ?? undefined,
+          visitEnd: v.checkoutTime ?? undefined,
+          intent: v.intent ?? undefined,
+          lastUpdated: v.updatedAt ? `${v.updatedAt} ${v.updatedTime || ''}` : undefined,
+          priority: v.priority ?? undefined,
+          outcome: v.outcome ?? undefined,
+          feedback: v.feedback ?? undefined,
+          city: v.city ?? undefined,
+          state: v.state ?? undefined,
+          checkinTime: v.checkinTime ?? undefined,
+          checkoutTime: v.checkoutTime ?? undefined,
+        }));
+        
+        setRows(mapped);
+        const resolvedTotalPages = response.totalPages && response.totalPages > 0 ? response.totalPages : 1;
+        setTotalPages(resolvedTotalPages);
+        setTotalElements(response.totalElements || 0);
+
+        if (currentPage >= resolvedTotalPages) {
+          const nextPage = Math.max(resolvedTotalPages - 1, 0);
+          if (nextPage !== currentPage) {
+            setCurrentPage(nextPage);
+          }
+        }
+      } catch (err) {
+        setError((err as Error)?.message || 'Failed to load visits');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    run();
+  }, [isStateHydrated, startDate, endDate, dateRangeInvalid, selectedPurpose, customerName, currentPage, pageSize]);
+
+  useEffect(() => {
+    if (!isStateHydrated) return;
+    if (!filterInitialisedRef.current) {
+      filterInitialisedRef.current = true;
+      return;
+    }
+    setCurrentPage(0);
+  }, [isStateHydrated, startDate, endDate, selectedPurpose, selectedExecutive, customerName]);
+
+  const filteredVisits = rows.filter(visit => {
+    if (customerName.trim() !== '' && !visit.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) {
+      return false;
+    }
+    if (selectedPurpose !== "all" && visit.purpose !== selectedPurpose) return false;
+    if (selectedExecutive !== "all" && String(visit.employeeId ?? '') !== selectedExecutive) return false;
+    return true;
+  });
+
+  const csvEscape = (val: string | number | null | undefined): string => {
     if (val === null || val === undefined) return '';
     let s = String(val);
     if (s.includes('"')) s = s.replace(/"/g, '""');
@@ -861,130 +446,106 @@ export default function VisitsTable() {
       'Purpose',
       'Visit Start',
       'Visit End',
+      'Intent',
       'Last Updated',
+      'Outcome',
       'City',
       'State',
     ];
 
-    const lines = [headers.map(csvEscape).join(',')];
+    const csvLines = [headers.map(csvEscape).join(',')];
 
-    for (const r of rowsForCsv) {
-      // Determine status based on checkin and checkout times
-      let status = 'Scheduled';
-      if (r.checkinTime && r.checkoutTime) {
-        status = 'Completed';
-      } else if (r.checkinTime) {
-        status = 'In Progress';
-      }
-      // For CSV, use original date format, not the formatted version
-      const lastUpdated = r.lastUpdated ?? '';
+    rowsForCsv.forEach(r => {
       const line = [
         r.customerName,
         r.executive,
-        r.date,
-        status,
+        formatDateToUserFriendly(r.date),
+        r.status ?? '',
         r.purpose ?? '',
-        r.visitStart ?? '',
-        r.visitEnd ?? '',
-        lastUpdated,
+        r.visitStart ? formatTimeTo12Hour(r.visitStart) : '',
+        r.visitEnd ? formatTimeTo12Hour(r.visitEnd) : '',
+        r.intent ?? '',
+        r.lastUpdated ? formatLastUpdated(r.lastUpdated) : '',
+        r.outcome ?? '',
         r.city ?? '',
         r.state ?? '',
-      ].map(csvEscape).join(',');
-      lines.push(line);
-    }
+      ];
+      csvLines.push(line.map(csvEscape).join(','));
+    });
 
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'visits.csv';
-    link.click();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Visits_${startDate ? formatDate(startDate, 'yyyyMMdd') : ''}_${endDate ? formatDate(endDate, 'yyyyMMdd') : ''}.csv`;
+    a.click();
     URL.revokeObjectURL(url);
   };
 
-  const TruncatedWithTooltip = ({
-    value,
-    className,
-    emptyFallback = "—",
-  }: {
-    value?: string | null;
-    className?: string;
-    emptyFallback?: string;
-  }) => {
-    const text = (value ?? "").trim();
-    if (!text) {
-      return <span className={className}>{emptyFallback}</span>;
-    }
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className={cn("block truncate", className)}>{text}</span>
-        </TooltipTrigger>
-        <TooltipContent side="top" sideOffset={8} className="max-w-[520px] break-words">
-          {text}
-        </TooltipContent>
-      </Tooltip>
-    );
-  };
-
   const handleExport = async () => {
+    if (!startDate || !endDate || dateRangeInvalid) return;
     try {
       setIsExporting(true);
-      if (!(isAdmin || isDataManager)) {
-        return;
-      }
-      if (!startDate || !endDate) return;
       const startStr = formatDate(startDate, 'yyyy-MM-dd');
       const endStr = formatDate(endDate, 'yyyy-MM-dd');
-      const filters = {
-        storeName: customerName.trim() !== '' ? customerName : undefined,
-        purpose: selectedPurpose !== 'all' ? selectedPurpose : undefined,
-        executiveName: selectedExecutive !== 'all' ? selectedExecutive : undefined,
-      } as const;
-
-      const exportRows: Row[] = [];
+      let all: VisitDto[] = [];
       let page = 0;
-      let totalPagesForExport = 0;
+      const size = 100;
 
-      do {
-        const response = await API.getCombinedTimeline({
-          start: startStr,
-          end: endStr,
+      const first = await API.getVisitsByDateSorted(
+        startStr,
+        endStr,
+        page,
+        size,
+        'visitDate,desc',
+        customerName.trim() !== '' ? customerName : undefined
+      );
+      all = all.concat(first.content || []);
+      const total = first.totalPages || 1;
+
+      for (page = 1; page < total; page++) {
+        const res = await API.getVisitsByDateSorted(
+          startStr,
+          endStr,
           page,
-          size: 500,
-          sort: 'desc',
-          ...filters,
-        });
-
-         const visits = response.items
-           .filter((item) => item.type === 'VISIT' && item.visit)
-           .map((item) => {
-             const visit = item.visit as VisitDto;
-             const row = mapVisitToRow(visit);
-             // For CSV export, use original date and time formats
-             row.lastUpdated = visit.updatedAt ? `${visit.updatedAt} ${visit.updatedTime || ''}` : undefined;
-             row.visitStart = visit.checkinTime ?? undefined;
-             row.visitEnd = visit.checkoutTime ?? undefined;
-             return row;
-           });
-
-        exportRows.push(...visits);
-
-        totalPagesForExport = response.totalPages ?? 0;
-        if (totalPagesForExport === 0 && response.totalElements > 0) {
-          totalPagesForExport = 1;
-        }
-
-        page += 1;
-      } while (page < totalPagesForExport);
-
-      if (exportRows.length === 0) {
-        alert('No visits available for export with the selected filters.');
-        return;
+          size,
+          'visitDate,desc',
+          customerName.trim() !== '' ? customerName : undefined
+        );
+        all = all.concat(res.content || []);
       }
 
-      buildCsvAndDownload(exportRows);
+      all = Array.from(new Map(all.map((visit) => [visit.id, visit])).values());
+
+      const mapped: Row[] = all.map((v) => ({
+        id: v.id,
+        customerName: v.storeName,
+        executive: v.employeeName,
+        employeeId: v.employeeId,
+        date: v.visit_date,
+        status: deriveVisitStatus(v),
+        purpose: v.purpose ?? undefined,
+        visitStart: v.checkinTime ?? undefined,
+        visitEnd: v.checkoutTime ?? undefined,
+        intent: v.intent ?? undefined,
+        lastUpdated: v.updatedAt ? `${v.updatedAt} ${v.updatedTime || ''}` : undefined,
+        priority: v.priority ?? undefined,
+        outcome: v.outcome ?? undefined,
+        feedback: v.feedback ?? undefined,
+        city: v.city ?? undefined,
+        state: v.state ?? undefined,
+        checkinTime: v.checkinTime ?? undefined,
+        checkoutTime: v.checkoutTime ?? undefined,
+      }));
+
+      const rowsForCsv = mapped.filter(visit => {
+        if (customerName.trim() !== '' && !visit.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
+        if (selectedPurpose !== 'all' && visit.purpose !== selectedPurpose) return false;
+        if (selectedExecutive !== 'all' && String(visit.employeeId ?? '') !== selectedExecutive) return false;
+        return true;
+      });
+
+      buildCsvAndDownload(rowsForCsv);
     } catch (e) {
       console.error('Export failed', e);
       alert('Failed to export CSV');
@@ -993,687 +554,231 @@ export default function VisitsTable() {
     }
   };
 
-  return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Visits</CardTitle>
-          <div className="flex items-center gap-3">
-            {userRole && (
-              <Badge variant={isRegionalManager ? "secondary" : "default"} className="text-xs">
-                {getDisplayRole}
-              </Badge>
-            )}
-            {(isRegionalManager || isDataManager) && (
-              <Button 
-                size="sm" 
-                onClick={() => router.push('/dashboard/visits/add')}
-                className="flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add Visit
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="w-full">
-        {error && (
-          <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>
-        )}
-        {dateRangeError && (
-          <div className="mb-4 text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded p-3">
-            {dateRangeError}
-          </div>
-        )}
-        
-        {/* Status indicator */}
-        {!startDate || !endDate ? (
-          <div className="mb-4 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-3">
-            Please select both start and end dates to load visits data.
-          </div>
-        ) : isLoading ? (
-          <div className="mb-4 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
-            Loading visits data...
-          </div>
-        ) : null}
-        
-        {/* Mobile Filters trigger */}
-        <div className="mb-4 md:hidden">
-          <Button variant="outline" size="sm" onClick={() => setIsMobileFilterOpen(true)}>
-            <CalendarIcon className="mr-2 h-4 w-4" /> Filters
-          </Button>
-        </div>
+  const statusClassName = (status?: string) => {
+    if (status === "Completed") return "bg-emerald-50 text-emerald-700 ring-emerald-600/15";
+    if (status === "Ongoing") return "bg-amber-50 text-amber-700 ring-amber-600/15";
+    return "bg-blue-50 text-blue-700 ring-blue-600/15";
+  };
 
-        {/* Desktop Filters */}
-        <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
-          <div className="space-y-2">
-            <Label>Quick Range</Label>
-            <Select value={quickRange} onValueChange={handleQuickRangeChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select range" />
-              </SelectTrigger>
-              <SelectContent>
-                {QUICK_RANGES.map((range) => (
-                  <SelectItem key={range.value} value={range.value}>
-                    {range.label}
-                  </SelectItem>
-                ))}
-                <SelectItem value="custom">Custom</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Start Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-left font-normal"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {startDate ? (
-                    format(startDate, "LLL dd, y")
-                  ) : (
-                    <span>Select start date</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  initialFocus
-                  mode="single"
-                  defaultMonth={startDate}
-                  selected={startDate}
-                  onSelect={handleStartDateChange}
-                  numberOfMonths={1}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          
-          <div className="space-y-2">
-            <Label>End Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-left font-normal"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {endDate ? (
-                    format(endDate, "LLL dd, y")
-                  ) : (
-                    <span>Select end date</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  initialFocus
-                  mode="single"
-                  defaultMonth={endDate}
-                  selected={endDate}
-                  onSelect={handleEndDateChange}
-                  disabled={endDateDisabled}
-                  numberOfMonths={1}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Purpose</Label>
-            <PurposeCombobox
-              value={selectedPurpose}
-              onChange={setSelectedPurpose}
-              options={availablePurposes}
-              allLabel="All Purposes"
-              placeholder="Select purpose"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Customer Name</Label>
-            <Input
-              placeholder="Search customer"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label>Executive</Label>
-            <ExecutiveCombobox
-              value={selectedExecutive}
-              onChange={setSelectedExecutive}
-              options={availableExecutives}
-              placeholder="Select executive"
-            />
-          </div>
-          
-          {(isAdmin || isDataManager) && (
-          <div className="flex items-end">
-            <Button onClick={handleExport} className="w-full" disabled={isExporting}>
-              {isExporting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <DownloadIcon className="mr-2 h-4 w-4" />
-                  Export CSV
-                </>
-              )}
+  return (
+    <Card className="gap-0 border-border/70 py-0 shadow-sm">
+      <CardContent className="space-y-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setAreFiltersVisible((visible) => !visible)}>
+              <Filter className="mr-2 h-4 w-4" />
+              {areFiltersVisible ? "Hide Filters" : "Show Filters"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={isExporting || dateRangeInvalid || !startDate || !endDate}
+            >
+              {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadIcon className="mr-2 h-4 w-4" />}
+              {isExporting ? "Exporting…" : "Export"}
             </Button>
           </div>
+          {userRole && (
+            <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
+              {isManager ? "Manager View" : "Admin View"}
+            </Badge>
           )}
         </div>
 
-        {/* Mobile Filters Sheet */}
-        <Sheet open={isMobileFilterOpen} onOpenChange={setIsMobileFilterOpen}>
-          <SheetContent>
-            <SheetHeader>
-              <SheetTitle>Visit Filters</SheetTitle>
-            </SheetHeader>
-            <div className="py-4 space-y-4">
-              <div className="space-y-2">
-                <Label>Quick Range</Label>
-                <Select value={quickRange} onValueChange={handleQuickRangeChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select range" />
-                  </SelectTrigger>
+        {error && <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">{error}</div>}
+        <DateRangeError fromDate={startDate} toDate={endDate} />
+
+        {areFiltersVisible && (
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="min-w-0">
+                <Label className="sr-only">Start Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-8 w-full justify-start bg-background px-2.5 text-xs font-normal shadow-none">
+                      <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                      {startDate ? format(startDate, "MMM dd, yyyy") : "Start date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <SpacedCalendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={setStartDate} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="min-w-0">
+                <Label className="sr-only">End Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-8 w-full justify-start bg-background px-2.5 text-xs font-normal shadow-none">
+                      <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                      {endDate ? format(endDate, "MMM dd, yyyy") : "End date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <SpacedCalendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={setEndDate} />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="min-w-0">
+                <Label className="sr-only">Purpose</Label>
+                <Select value={selectedPurpose} onValueChange={setSelectedPurpose}>
+                  <SelectTrigger className="h-8 w-full bg-background text-xs shadow-none"><SelectValue placeholder="Purpose" /></SelectTrigger>
                   <SelectContent>
-                    {QUICK_RANGES.map((range) => (
-                      <SelectItem key={range.value} value={range.value}>
-                        {range.label}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="custom">Custom</SelectItem>
+                    <SelectItem value="all">All Purposes</SelectItem>
+                    {purposes.map((purpose) => <SelectItem key={purpose} value={purpose}>{purpose}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={`w-full justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {startDate ? format(startDate, "LLL dd, y") : <span>Select start date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar initialFocus mode="single" defaultMonth={startDate} selected={startDate} onSelect={handleStartDateChange} numberOfMonths={1} />
-                  </PopoverContent>
-                </Popover>
-              </div>
 
-              <div className="space-y-2">
-                <Label>End Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={`w-full justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {endDate ? format(endDate, "LLL dd, y") : <span>Select end date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar initialFocus mode="single" defaultMonth={endDate} selected={endDate} onSelect={handleEndDateChange} numberOfMonths={1} disabled={endDateDisabled} />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Purpose</Label>
-                <PurposeCombobox
-                  value={selectedPurpose}
-                  onChange={setSelectedPurpose}
-                  options={availablePurposes}
-                  triggerClassName="w-full"
-                  allLabel="All Purposes"
-                  placeholder="Select purpose"
+              <div className="min-w-0">
+                <Label htmlFor="visit-customer-filter" className="sr-only">Customer Name</Label>
+                <Input
+                  id="visit-customer-filter"
+                  type="search"
+                  autoComplete="off"
+                  placeholder="Customer name"
+                  value={customerName}
+                  onChange={(event) => setCustomerName(event.target.value)}
+                  className="h-8 bg-background text-xs shadow-none"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>Customer Name</Label>
-                <Input placeholder="Search customer" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Executive</Label>
-                <ExecutiveCombobox
+              <div className="min-w-0">
+                <Label className="sr-only">Employee</Label>
+                <SearchableSelect
+                  options={employeeOptions}
                   value={selectedExecutive}
-                  onChange={setSelectedExecutive}
-                  options={availableExecutives}
-                  placeholder="Select executive"
-                  triggerClassName="w-full"
+                  onSelect={(option) => setSelectedExecutive(!option || option.value === "all" ? "all" : option.value)}
+                  placeholder="All employees"
+                  loading={isLoadingEmployees}
+                  triggerClassName="h-8 w-full justify-between bg-background text-xs shadow-none"
+                  contentClassName="w-[var(--radix-popover-trigger-width)]"
+                  searchPlaceholder="Search employees..."
                 />
               </div>
             </div>
-            <SheetFooter className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setQuickRange('last7Days');
-                  applyQuickRange('last7Days');
-                  setSelectedPurpose('all');
-                  setSelectedExecutive('all');
-                  setCustomerName('');
-                  setDateRangeError(null);
-                }}
-              >
-                Clear All
-              </Button>
-              <Button onClick={() => setIsMobileFilterOpen(false)}>Apply Filters</Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
-        
-        {/* Mobile Cards */}
-        <div className="md:hidden space-y-3 mb-4">
-          {!startDate || !endDate ? (
-            <div className="text-sm text-muted-foreground border rounded-lg p-4 text-center bg-card">
-              <CalendarIcon className="mx-auto h-8 w-8 mb-2 text-muted-foreground" />
-              <p>Select both start and end dates to view data</p>
-            </div>
-          ) : isLoading ? (
-            <div className="text-sm text-muted-foreground border rounded-lg p-4 text-center bg-card">
-              <Loader2 className="mx-auto h-8 w-8 mb-2 animate-spin text-muted-foreground" />
-              <p>Loading data…</p>
-            </div>
-          ) : combinedRows.length > 0 ? (
-            <>
-              {/* Activity Cards */}
-              {combinedRows.filter(row => row.type === 'ACTIVITY').map((row) => {
-                const activity = row.data;
-                const photoLabel = formatActivityPhotoCount(activity.imageCount);
-                return (
-              <Card
-                key={`activity-${activity.id}`}
-                className="overflow-hidden shadow-sm border-l-4 border-l-purple-500 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => viewActivityDetails(activity.id)}
-              >
-                  <CardHeader className="pb-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base font-semibold line-clamp-2 flex-1" title={activity.title}>
-                        {activity.title}
-                      </CardTitle>
-                      <div className="flex items-center gap-2">
-                        <div className="shrink-0 p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors" title="Activity">
-                          <ClipboardList className="h-4 w-4" />
-                        </div>
-                        <Badge className="shrink-0 bg-purple-100 text-purple-800 hover:bg-black hover:text-white cursor-pointer transition-colors">
-                          Activity
-                        </Badge>
-                        {photoLabel && (
-                          <Badge variant="outline" className="shrink-0 gap-1 border-purple-200 text-purple-800 dark:border-purple-900/60 dark:text-purple-200">
-                            <ImageIcon className="h-3 w-3" />
-                            {photoLabel}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <CalendarIcon className="h-3.5 w-3.5" />
-                      <span>{activity.date}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0 space-y-3 text-sm">
-                    {activity.description && (
-                      <div className="text-sm text-muted-foreground">
-                        {activity.description}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground">Employee</div>
-                        <div className="font-medium text-foreground truncate">{activity.executive}</div>
-                      </div>
-                      {activity.status && (
-                        <div className="space-y-1">
-                          <div className="text-xs text-muted-foreground">Status</div>
-                          <div className="font-medium text-foreground truncate">{activity.status}</div>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {(activity.startTime || activity.endTime) && (
-                      <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-                        {activity.startTime && (
-                          <div className="space-y-1">
-                            <div className="text-xs text-muted-foreground">Start</div>
-                            <div className="font-medium text-foreground text-xs">{activity.startTime}</div>
-                          </div>
-                        )}
-                        {activity.endTime && (
-                          <div className="space-y-1">
-                            <div className="text-xs text-muted-foreground">End</div>
-                            <div className="font-medium text-foreground text-xs">{activity.endTime}</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    
-                    {activity.location && (
-                      <div className="flex flex-wrap gap-2 pt-2 border-t">
-                        <div className="flex items-center gap-1 text-xs">
-                          <span className="text-muted-foreground">Location:</span>
-                          <span className="font-medium">{activity.location}</span>
-                        </div>
-                      </div>
-                    )}
-                    <div className="pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full flex items-center justify-center gap-2"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          viewActivityDetails(activity.id);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                        View Details
-                      </Button>
-                    </div>
-                </CardContent>
-                </Card>
-                );
-              })}
+          </div>
+        )}
 
-              {/* Visit Cards */}
-              {combinedRows.filter(row => row.type === 'VISIT').map((row) => {
-                const visit = row.data;
-                return (
-              <Card key={visit.id} className="overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base font-semibold line-clamp-2 flex-1" title={visit.customerName}>{visit.customerName}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <div className="p-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors" title="Visit">
-                        <Building2 className="h-4 w-4" />
-                      </div>
-                      <Badge className={`shrink-0 cursor-pointer transition-colors ${
-                        visit.status === 'Completed'
-                          ? 'bg-green-100 text-green-800 hover:bg-black hover:text-white'
-                          : visit.status === 'Scheduled'
-                          ? 'bg-blue-100 text-blue-800 hover:bg-black hover:text-white'
-                          : visit.status === 'In Progress'
-                          ? 'bg-yellow-100 text-yellow-800 hover:bg-black hover:text-white'
-                          : 'bg-gray-100 text-gray-800 hover:bg-black hover:text-white'
-                      }`}>
-                        {visit.status ?? 'N/A'}
-                      </Badge>
+        <div className="hidden min-w-0 md:block">
+          <Table className="table-fixed text-xs font-poppins">
+            <colgroup>
+              <col className="w-[16%]" /><col className="w-[15%]" /><col className="w-[10%]" />
+              <col className="w-[10%]" /><col className="w-[10%]" /><col className="w-[8%]" />
+              <col className="w-[8%]" /><col className="w-[5%]" /><col className="w-[13%]" /><col className="w-[5%]" />
+            </colgroup>
+            <TableHeader>
+              <TableRow>
+                {['Customer Name', 'Executive', 'Date', 'Status', 'Purpose', 'Visit Start', 'Visit End', 'Intent', 'Last Updated', 'Actions'].map((heading) => (
+                  <TableHead key={heading} className="overflow-hidden text-ellipsis whitespace-nowrap" title={heading}>{heading}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!startDate || !endDate ? (
+                <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">Select both dates to view visits</TableCell></TableRow>
+              ) : isLoading ? (
+                Array.from({ length: 3 }, (_, index) => (
+                  <TableRow key={`visit-skeleton-${index}`}>{Array.from({ length: 10 }, (_, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full max-w-24" /></TableCell>)}</TableRow>
+                ))
+              ) : filteredVisits.length > 0 ? (
+                filteredVisits.map((visit) => (
+                  <TableRow key={visit.id}>
+                    <TableCell className="font-medium"><Ellipsis value={visit.customerName} /></TableCell>
+                    <TableCell><Ellipsis value={visit.executive} /></TableCell>
+                    <TableCell><Ellipsis value={formatDateToUserFriendly(visit.date)} /></TableCell>
+                    <TableCell>
+                      <span className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${statusClassName(visit.status)}`}>
+                        {visit.status ?? '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell><Ellipsis value={visit.purpose} /></TableCell>
+                    <TableCell><Ellipsis value={visit.visitStart ? formatTimeTo12Hour(visit.visitStart) : '—'} /></TableCell>
+                    <TableCell><Ellipsis value={visit.visitEnd ? formatTimeTo12Hour(visit.visitEnd) : '—'} /></TableCell>
+                    <TableCell><Ellipsis value={visit.intent} /></TableCell>
+                    <TableCell><Ellipsis value={visit.lastUpdated ? formatLastUpdated(visit.lastUpdated) : '—'} /></TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
+                        {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No visits match the selected filters</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        <div className="space-y-3 md:hidden">
+          {!startDate || !endDate ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Select both dates to view visits</div>
+          ) : isLoading ? (
+            Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-36 w-full rounded-xl" />)
+          ) : filteredVisits.length > 0 ? (
+            filteredVisits.map((visit) => (
+              <Card key={visit.id} className="overflow-hidden shadow-none border">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground" title={visit.customerName}>{visit.customerName}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{formatDateToUserFriendly(visit.date)}</p>
                     </div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${statusClassName(visit.status)}`}>{visit.status ?? '—'}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CalendarIcon className="h-3.5 w-3.5" />
-                    <span>{visit.date}</span>
+                  <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-1.5"><User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><Ellipsis value={visit.executive} /></div>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => toggleCardExpansion(visit.id)} aria-label="Toggle visit details">
+                      {expandedCards.includes(visit.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
                   </div>
-                </CardHeader>
-                <CardContent className="pt-0 space-y-3 text-sm">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Executive</div>
-                      <div className="font-medium text-foreground truncate">{visit.executive}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Purpose</div>
-                      <div className="font-medium text-foreground truncate">{visit.purpose ?? '—'}</div>
-                    </div>
-                  </div>
-                  
-                  {(visit.visitStart || visit.visitEnd) && (
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground">Check-in</div>
-                        <div className="font-medium text-foreground text-xs">{visit.visitStart ?? '—'}</div>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground">Check-out</div>
-                        <div className="font-medium text-foreground text-xs">{visit.visitEnd ?? '—'}</div>
-                      </div>
+                  {expandedCards.includes(visit.id) && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 text-xs">
+                      <div><span className="text-muted-foreground">Purpose</span><p className="truncate font-medium text-foreground">{visit.purpose ?? '—'}</p></div>
+                      <div><span className="text-muted-foreground">Intent</span><p className="font-medium text-foreground">{visit.intent ?? '—'}</p></div>
+                      <div><span className="text-muted-foreground">Start</span><p className="font-medium text-foreground">{visit.visitStart ? formatTimeTo12Hour(visit.visitStart) : '—'}</p></div>
+                      <div><span className="text-muted-foreground">End</span><p className="font-medium text-foreground">{visit.visitEnd ? formatTimeTo12Hour(visit.visitEnd) : '—'}</p></div>
                     </div>
                   )}
-                  
-                  {(visit.city || visit.state) && (
-                    <div className="flex flex-wrap gap-2 pt-2 border-t">
-                      <div className="flex items-center gap-1 text-xs">
-                        <span className="text-muted-foreground">Location:</span>
-                        <span className="font-medium">{[visit.city, visit.state].filter(Boolean).join(', ')}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="pt-2">
-                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2" onClick={() => viewDetails(visit.id)}>
-                      <Eye className="h-4 w-4" />
-                      View Details
+                  <div className="mt-3 flex justify-end">
+                    <Button variant="outline" size="sm" className="h-7 px-3 text-xs" onClick={() => handleViewDetails(visit.id)} disabled={navigatingVisitId !== null}>
+                      {navigatingVisitId === visit.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "View details"}
                     </Button>
                   </div>
                 </CardContent>
               </Card>
-              );
-            })}
-            </>
+            ))
           ) : (
-            <div className="text-center text-sm text-muted-foreground border rounded-lg p-8 bg-card">
-              <p className="font-medium mb-1">No data found</p>
-              <p className="text-xs">Try adjusting your filters</p>
-            </div>
+            <div className="py-10 text-center text-sm text-muted-foreground">No visits match the selected filters</div>
           )}
         </div>
 
-        {/* Table Container - Hidden on mobile */}
-        <div className="hidden md:block rounded-md border overflow-hidden w-full">
-          <div className="overflow-x-auto w-full">
-            <Table className="w-full table-fixed">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Type</TableHead>
-                  <TableHead className="w-48">Customer/Activity</TableHead>
-                  <TableHead className="w-24">Executive</TableHead>
-                  <TableHead className="w-24">Date</TableHead>
-                  <TableHead className="w-20">Status</TableHead>
-                  <TableHead className="w-40">Purpose/Description</TableHead>
-                  <TableHead className="w-20">Start Time</TableHead>
-                  <TableHead className="w-20">End Time</TableHead>
-                  <TableHead className="w-32">Last Updated</TableHead>
-                  <TableHead className="w-16">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {!startDate || !endDate ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center text-gray-500">
-                      Select both start and end dates to view visits
-                    </TableCell>
-                  </TableRow>
-                ) : isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center">Loading data…</TableCell>
-                  </TableRow>
-                ) : combinedRows.length > 0 ? (
-                  combinedRows.map((row, index) => {
-                    if (row.type === 'ACTIVITY') {
-                      const activity = row.data;
-                      const photoLabel = formatActivityPhotoCount(activity.imageCount);
-                      return (
-                        <TableRow
-                          key={`activity-${activity.id}-${index}`}
-                          className="bg-purple-50/50 hover:bg-purple-100 dark:bg-purple-950/20 dark:hover:bg-purple-950/35 cursor-pointer"
-                          onClick={() => viewActivityDetails(activity.id)}
-                        >
-                          <TableCell className="w-16">
-                            <div className="flex items-center justify-center">
-                              <div
-                                className="p-1 rounded bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors"
-                                title="Activity"
-                              >
-                                <ClipboardList className="h-4 w-4" />
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-medium w-48">
-                            <TruncatedWithTooltip value={activity.title} />
-                          </TableCell>
-                          <TableCell className="w-24">
-                            <TruncatedWithTooltip value={activity.executive} />
-                          </TableCell>
-                          <TableCell className="w-24">{activity.date || "—"}</TableCell>
-                          <TableCell className="w-20">
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="px-2 py-1 rounded-full text-xs whitespace-nowrap bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60 transition-colors">
-                                Activity
-                              </span>
-                              {photoLabel && (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-purple-200 px-2 py-0.5 text-xs text-purple-800 dark:border-purple-900/60 dark:text-purple-200">
-                                  <ImageIcon className="h-3 w-3" />
-                                  {photoLabel}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="w-40">
-                            <TruncatedWithTooltip value={activity.description} emptyFallback="—" />
-                          </TableCell>
-                          <TableCell className="w-20">{activity.startTime || "—"}</TableCell>
-                          <TableCell className="w-20">{activity.endTime || "—"}</TableCell>
-                          <TableCell className="w-32">—</TableCell>
-                          <TableCell className="w-24">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="p-2"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                viewActivityDetails(activity.id);
-                              }}
-                              title="View Details"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }
-
-                    const visit = row.data;
-                    return (
-                      <TableRow key={`visit-${visit.id}`} className="hover:bg-muted/40">
-                        <TableCell className="w-16">
-                          <div className="flex items-center justify-center">
-                            <div
-                              className="p-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60 transition-colors"
-                              title="Visit"
-                            >
-                              <Building2 className="h-4 w-4" />
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium w-48">
-                          <TruncatedWithTooltip value={visit.customerName} />
-                        </TableCell>
-                        <TableCell className="w-24">
-                          <TruncatedWithTooltip value={visit.executive} />
-                        </TableCell>
-                        <TableCell className="w-24">{visit.date}</TableCell>
-                        <TableCell className="w-20">
-                          <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap cursor-pointer transition-colors ${
-                            visit.status === "Completed" 
-                              ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-950/40 dark:text-green-200 dark:hover:bg-green-950/60" 
-                              : visit.status === "Scheduled" 
-                                ? "bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60" 
-                                : visit.status === "In Progress" 
-                                  ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-200 dark:hover:bg-yellow-950/60" 
-                                  : "bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
-                          }`}>
-                            {visit.status ?? '—'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="w-40">
-                          <TruncatedWithTooltip value={visit.purpose} emptyFallback="—" />
-                        </TableCell>
-                        <TableCell className="w-20">{visit.visitStart ?? '—'}</TableCell>
-                        <TableCell className="w-20">{visit.visitEnd ?? '—'}</TableCell>
-                        <TableCell className="w-32">
-                          <TruncatedWithTooltip value={visit.lastUpdated} emptyFallback="—" />
-                        </TableCell>
-                        <TableCell className="w-16">
-                          <Button variant="outline" size="sm" className="p-2" onClick={() => viewDetails(visit.id)} title="View Details">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={10} className="h-24 text-center">
-                      No visits found matching the selected filters
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-
-        {isNavigating && (
-          <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
-            <div className="flex items-center gap-3 rounded-md border bg-card px-4 py-3 shadow-sm">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Opening details…</span>
+        {startDate && endDate && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-2 text-xs">
+              <Label htmlFor="pageSize" className="text-xs font-normal">Rows per page:</Label>
+              <Select value={pageSize.toString()} onValueChange={(value) => setPageSize(parseInt(value, 10))}>
+                <SelectTrigger id="pageSize" className="h-8 w-16 text-xs shadow-none"><SelectValue /></SelectTrigger>
+                <SelectContent>{[10, 25, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}</SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground ml-2">
+                Showing {filteredVisits.length} of {totalElements} visits
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-8 px-2 text-xs shadow-none" onClick={() => setCurrentPage(Math.max(0, currentPage - 1))} disabled={currentPage === 0}>
+                <ChevronLeft className="h-3.5 w-3.5" /><span className="hidden sm:inline">Previous</span>
+              </Button>
+              <span className="text-xs text-muted-foreground">Page {currentPage + 1} of {Math.max(totalPages, 1)}</span>
+              <Button variant="outline" size="sm" className="h-8 px-2 text-xs shadow-none" onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))} disabled={currentPage >= totalPages - 1}>
+                <span className="hidden sm:inline">Next</span><ChevronRight className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
-        )}
-        
-        {/* Pagination Controls - Hidden on mobile */}
-        {startDate && endDate && (
-          <div className="hidden md:flex items-center justify-between mt-4">
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="pageSize">Rows per page:</Label>
-            <Select value={pageSize.toString()} onValueChange={(value) => setPageSize(parseInt(value))}>
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            
-              <span className="text-sm text-muted-foreground">
-              Page {currentPage + 1} of {effectiveTotalPages}
-            </span>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.min(effectiveTotalPages - 1, currentPage + 1))}
-              disabled={currentPage >= effectiveTotalPages - 1}
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
         )}
       </CardContent>
     </Card>

@@ -168,7 +168,7 @@
     @apply scroll-m-20 text-xl font-semibold tracking-tight;
   }
   
-  p {
+  p:not(:where(.icon-dashboard *, .icon-dashboard-header *, .icon-teams *, .icon-employee-create *, .icon-reports *, .icon-visit-details *, .icon-employee-detail *, .icon-survey-detail *)) {
     @apply leading-7 [&:not(:first-child)]:mt-6;
   }
   

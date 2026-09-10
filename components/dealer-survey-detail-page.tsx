@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heading, Text } from "@/components/ui/typography";
+import { useDashboardHeader } from "@/components/dashboard-header-context";
 import { API, API_BASE_URL, formatStockQuantity, getStock, type SurveyDealerDto, type SurveyDealerPhotoResponse } from "@/lib/api";
 
 type IconComponent = ComponentType<{ className?: string }>;
@@ -230,18 +231,12 @@ function MetricCard({
   value: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border bg-card p-5 transition-colors hover:bg-muted/20">
-      <div className="min-w-0 space-y-1">
-        <Text size="xs" tone="muted" className="uppercase tracking-wide">
-          {label}
-        </Text>
-        <div className="break-words text-base font-semibold text-foreground">
-          {value}
-        </div>
+    <div className="min-w-0 rounded-lg border bg-card px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="truncate uppercase tracking-wide">{label}</span>
+        <Icon className="hidden h-4 w-4 shrink-0 sm:block text-muted-foreground" />
       </div>
-      <div className="rounded-md bg-primary/10 p-2 text-primary">
-        <Icon className="h-4 w-4" />
-      </div>
+      <div className="mt-1 text-base font-semibold tabular-nums text-foreground">{value}</div>
     </div>
   );
 }
@@ -256,11 +251,11 @@ function SidebarRow({
   stacked?: boolean;
 }) {
   return (
-    <div className={stacked ? "space-y-1" : "flex items-start justify-between gap-3"}>
+    <div className={stacked ? "col-span-full space-y-1" : "min-w-0 space-y-1 lg:flex lg:items-start lg:justify-between lg:gap-3 lg:space-y-0"}>
       <Text size="xs" tone="muted" className="font-medium">
         {label}
       </Text>
-      <div className={stacked ? "break-words text-sm font-medium text-foreground" : "max-w-[52%] break-words text-right text-sm font-medium text-foreground"}>
+      <div className={stacked ? "break-words text-sm font-medium text-foreground" : "break-words text-sm font-medium text-foreground lg:max-w-[52%] lg:text-right"}>
         {value ?? EMPTY_VALUE}
       </div>
     </div>
@@ -277,14 +272,14 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <Card className="rounded-2xl">
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2 border-b pb-3 text-lg">
-          <Icon className="h-5 w-5 text-primary" />
+    <Card className="gap-0 py-0 shadow-none">
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+          <Icon className="h-4 w-4 text-muted-foreground" />
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="px-4 pb-4">{children}</CardContent>
     </Card>
   );
 }
@@ -325,7 +320,7 @@ function FieldBlock({
   const isEmptyText = value === EMPTY_VALUE || value === null || value === undefined;
 
   return (
-    <div className={wide ? "space-y-1 md:col-span-2" : "space-y-1"}>
+    <div className={wide ? "min-w-0 space-y-1 col-span-full" : "min-w-0 space-y-1"}>
       <Text size="xs" tone="muted" className="font-semibold">
         {label}
       </Text>
@@ -360,6 +355,12 @@ export default function DealerSurveyDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
+  const handleBack = useCallback(() => router.back(), [router]);
+  useDashboardHeader({
+    heading: 'Survey Dealer Detail',
+    subheading: dealer?.dealerName || 'View surveyed dealer information',
+    onBack: handleBack,
+  });
 
   const fetchDealer = useCallback(async () => {
     if (!Number.isFinite(dealerId)) {
@@ -453,40 +454,31 @@ export default function DealerSurveyDetailPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-3 sm:p-6">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-9 w-9"
-        onClick={() => router.back()}
-        aria-label="Go back"
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </Button>
-
-      <div className="grid gap-8 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
+    <div className="icon-survey-detail min-w-0 py-2 sm:py-4">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
         <aside>
-          <Card className="rounded-2xl">
-            <CardContent className="flex flex-col items-center gap-6 p-6">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full border bg-primary/10 text-2xl font-bold text-primary">
+          <Card className="gap-0 py-0 shadow-none">
+            <CardContent className="flex flex-col items-center gap-3 p-4">
+              <div className="flex w-full items-center gap-3">
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-dashed bg-muted font-semibold text-muted-foreground text-lg">
                 {getInitials(dealer.dealerName)}
               </div>
 
-              <div className="space-y-2 text-center">
-                <Heading as="h2" size="lg" className="break-words">
+              <div className="min-w-0 space-y-1">
+                <Heading as="h2" size="sm" className="break-words font-semibold text-foreground">
                   {formatText(dealer.dealerName)}
                 </Heading>
                 {isPresent(dealer.dealerType) && (
-                  <Badge variant="outline" className="mx-auto">
+                  <Badge variant="outline" className="mx-auto text-xs">
                     {formatLabel(dealer.dealerType)}
                   </Badge>
                 )}
               </div>
+              </div>
 
               <Separator className="w-full" />
 
-              <div className="w-full space-y-4">
+              <div className="grid w-full grid-cols-2 gap-x-4 gap-y-3 lg:flex lg:flex-col lg:gap-2.5">
                 <SidebarRow label="Survey Dealer ID" value={`#${dealer.id ?? dealerId}`} />
                 <SidebarRow label="Primary Contact" value={formatText(dealer.primaryContact)} />
                 <SidebarRow label="Email" value={formatText(dealer.email)} />
@@ -500,8 +492,8 @@ export default function DealerSurveyDetailPage() {
           </Card>
         </aside>
 
-        <main className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="min-w-0 space-y-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
             <MetricCard icon={Building2} label="Stock" value={formatStockQuantity(getStock(dealer), EMPTY_VALUE)} />
             <MetricCard icon={CheckCircle} label="Status" value={<StatusBadge status={status} />} />
             <MetricCard icon={Clock} label="Completed" value={completionDisplay} />
@@ -509,8 +501,8 @@ export default function DealerSurveyDetailPage() {
           </div>
 
           <SectionCard icon={CheckCircle} title="Completion Evidence">
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="grid grid-cols-2 items-start gap-x-4 gap-y-3">
                 <FieldBlock label="Completion Status" value={<StatusBadge status={status} />} />
                 <FieldBlock label="Completed Timestamp" value={completionDisplay} />
                 <FieldBlock
@@ -563,10 +555,11 @@ export default function DealerSurveyDetailPage() {
                   <div className="space-y-3">
                     <button
                       type="button"
-                      className="group block w-full overflow-hidden rounded-xl border bg-muted text-left"
+                      className="group block w-full overflow-hidden rounded-lg border bg-muted text-left"
+                      aria-label="Preview survey photo"
                       onClick={() => setIsPhotoPreviewOpen(true)}
                     >
-                      <div className="aspect-[4/3] overflow-hidden">
+                      <div className="h-36 overflow-hidden sm:h-40">
                         <img
                           src={surveyPhotoUrl}
                           alt={surveyPhoto.fileName || "Dealer survey photo"}
@@ -599,8 +592,8 @@ export default function DealerSurveyDetailPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-6 text-center">
-                    <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                  <div className="flex items-center gap-3 rounded-lg border border-dashed bg-muted/20 p-3">
+                    <ImageIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
                     <Text size="sm" tone="muted">
                       {photoCount > 0
                         ? `${formatPhotoCount(photoCount)} recorded, but the photo file was not returned by the backend.`
@@ -612,38 +605,38 @@ export default function DealerSurveyDetailPage() {
             </div>
           </SectionCard>
 
-          <Card className="rounded-2xl">
-            <CardContent className="p-6 sm:p-8">
-              <Tabs defaultValue="overview" className="space-y-6">
-                <TabsList className="h-auto w-full justify-start gap-8 overflow-x-auto rounded-none border-b bg-transparent p-0">
+          <Card className="min-w-0 gap-0 py-0 shadow-none">
+            <CardContent className="min-w-0 p-4">
+              <Tabs defaultValue="overview" className="min-w-0 gap-0 space-y-4">
+                <TabsList className="flex h-auto w-full flex-wrap justify-start gap-x-4 gap-y-1 rounded-none border-b bg-transparent p-0">
                   <TabsTrigger
                     value="overview"
-                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-1 py-2 text-xs shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
                   >
                     Overview
                   </TabsTrigger>
                   <TabsTrigger
                     value="address"
-                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-1 py-2 text-xs shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
                   >
                     Address & Location
                   </TabsTrigger>
                   <TabsTrigger
                     value="brands"
-                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-1 py-2 text-xs shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
                   >
                     Brands
                   </TabsTrigger>
                   <TabsTrigger
                     value="audit"
-                    className="rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+                    className="rounded-none border-b-2 border-transparent bg-transparent px-1 py-2 text-xs shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
                   >
                     Audit
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview" className="mt-0">
-                  <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 xl:grid-cols-3">
                     <FieldBlock label="Dealer Name" value={formatText(dealer.dealerName)} />
                     <FieldBlock label="Owner Name" value={getOwnerName(dealer)} />
                     <FieldBlock label="Primary Contact" value={formatText(dealer.primaryContact)} />
@@ -656,9 +649,9 @@ export default function DealerSurveyDetailPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="address" className="mt-0 space-y-5">
+                <TabsContent value="address" className="mt-0 space-y-3">
                   <FieldBlock label="Full Address" value={getAddress(dealer) || EMPTY_VALUE} wide />
-                  <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 xl:grid-cols-3">
                     <FieldBlock label="Address Line 1" value={formatText(dealer.addressLine1)} />
                     <FieldBlock label="Address Line 2" value={formatText(dealer.addressLine2)} />
                     <FieldBlock label="Landmark" value={formatText(dealer.landmark)} />
@@ -693,8 +686,8 @@ export default function DealerSurveyDetailPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="brands" className="mt-0 space-y-5">
-                  <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+                <TabsContent value="brands" className="mt-0 space-y-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 xl:grid-cols-3">
                     <FieldBlock
                       label="Product Categories"
                       value={
@@ -745,8 +738,8 @@ export default function DealerSurveyDetailPage() {
                   )}
                 </TabsContent>
 
-                <TabsContent value="audit" className="mt-0 space-y-6">
-                  <div className="grid gap-x-6 gap-y-5 md:grid-cols-2">
+                <TabsContent value="audit" className="mt-0 space-y-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 xl:grid-cols-3">
                     <FieldBlock label="Employee ID" value={formatNumber(dealer.employeeId)} />
                     <FieldBlock label="Employee Name" value={formatText(dealer.employeeName)} />
                     <FieldBlock label="Status" value={<StatusBadge status={status} />} />
@@ -760,7 +753,7 @@ export default function DealerSurveyDetailPage() {
               </Tabs>
             </CardContent>
           </Card>
-        </main>
+        </div>
       </div>
 
       <Dialog open={isPhotoPreviewOpen} onOpenChange={setIsPhotoPreviewOpen}>

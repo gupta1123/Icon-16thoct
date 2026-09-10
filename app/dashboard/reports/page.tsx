@@ -1,1145 +1,523 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useAuth } from '@/components/auth-provider';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  CalendarIcon, 
-  DownloadIcon, 
-  Building,
-  MapPin,
-  User,
-  Target,
-  TrendingUp,
-  Loader,
-  ChevronDown,
-  ChevronUp,
-  Calendar,
-  Package
-} from "lucide-react";
-import { formatStockQuantity } from '@/lib/api';
-import { Matcher } from "react-day-picker";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar as DatePicker } from "@/components/ui/calendar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CalendarIcon, DownloadIcon, Building, Loader } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SpacedCalendar } from "@/components/ui/spaced-calendar";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { SearchableSelect } from "@/components/ui/searchable-select2";
+import { DateRangeError, isDateRangeInvalid } from "@/components/date-range-error";
+import { formatStockQuantity } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Input } from "@/components/ui/input";
+import dayjs from "dayjs";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
-import dayjs from 'dayjs';
+  ADMIN_REPORT_EMPLOYEE_ROLES, normalizeEmployeeRole,
+  DISPLAY_CUSTOMER_TYPES, getCustomerTypeLabel, getCustomerTypeFallbackRaw,
+  summarizeCustomerTypes, getReportDateRange, fetchReportJson,
+  type Employee, type FieldOfficerStatsResponse, type VisitDetail, type DisplayCustomerTypeKey,
+} from "@/lib/visit-report";
 
-interface AttendanceStats {
-    absences: number;
-    halfDays: number;
-    fullDays: number;
-}
+export default function ReportsPage() {
+  const { token, userData } = useAuth();
+  const [fieldOfficers, setFieldOfficers] = useState<Employee[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(true);
+  const [employeesError, setEmployeesError] = useState<string | null>(null);
+  const [employeeReload, setEmployeeReload] = useState(0);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [rangeSelect, setRangeSelect] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
+  const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportData, setReportData] = useState<FieldOfficerStatsResponse | null>(null);
+  const [visitDetails, setVisitDetails] = useState<VisitDetail[] | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<DisplayCustomerTypeKey | null>(null);
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
+  const reportRequest = useRef<AbortController | null>(null);
+  const detailsRequest = useRef<AbortController | null>(null);
+  const today = dayjs().endOf("day").toDate();
 
-interface VisitsByCustomerType {
-    [key: string]: number; 
-}
+  // Resolve access before loading officers. Team-scoped users never fall through
+  // to the all-employees endpoint while their role request is still pending.
+  useEffect(() => {
+    const request = new AbortController();
+    reportRequest.current?.abort();
+    detailsRequest.current?.abort();
+    setReportData(null);
+    setSelectedCustomerTypeForDetails(null);
+    setVisitDetails(null);
+    setReportLoading(false);
+    setDetailsLoading(false);
+    setReportError(null);
+    setDetailsError(null);
+    setFieldOfficers([]);
+    setSelectedEmployeeId("");
+    setEmployeesLoading(true);
+    setEmployeesError(null);
+    if (!token) return () => request.abort();
 
-interface FieldOfficerStatsResponse {
-    totalVisits: number;
-    attendanceStats: AttendanceStats;
-    completedVisits: number;
-    visitsByCustomerType: VisitsByCustomerType;
-}
-
-interface EmployeeUserDto {
-    username: string;
-    password?: string | null;
-    roles?: string[] | null;
-    employeeId?: string | null;
-    firstName?: string | null;
-    lastName?: string | null;
-    plainPassword?: string;
-}
-
-interface Employee {
-    id: number;
-    firstName: string;
-    lastName: string;
-    employeeId: string;
-    primaryContact: number;
-    secondaryContact?: number;
-    departmentName: string;
-    email: string;
-    role: string; 
-    addressLine1: string;
-    addressLine2?: string;
-    city: string;
-    state: string;
-    country: string;
-    pincode: number;
-    dateOfJoining: string;
-    createdAt: string;
-    updatedAt: string;
-    userDto?: EmployeeUserDto;
-    teamId?: string | null;
-    isOfficeManager?: boolean;
-    assignedCity?: string[];
-    travelAllowance?: number | null;
-    dearnessAllowance?: number | null;
-    createdTime?: string;
-    updatedTime?: string;
-    companyId?: string | null;
-    companyName?: string | null;
-    fullMonthSalary?: number | null;
-    status?: string | null; 
-}
-
-const ADMIN_REPORT_EMPLOYEE_ROLES = new Set([
-    'FIELD OFFICER',
-    'COORDINATOR',
-    'MANAGER',
-    'OFFICE MANAGER',
-    'REGIONAL MANAGER',
-    'REGIONAL OFFICER',
-    'AVP',
-]);
-
-const normalizeEmployeeRole = (role?: string | null): string =>
-    (role ?? '')
-        .trim()
-        .replace(/^ROLE_/i, '')
-        .replace(/_/g, ' ')
-        .replace(/\s+/g, ' ')
-        .toUpperCase();
-
-interface VisitDetail {
-    avgIntentLevel: number;
-    avgStock?: number;
-    avgMonthlySales?: number;
-    visitCount: number;
-    lastVisited: string; 
-    city: string;
-    taluka: string;
-    state: string;
-    customerName: string;
-    customerType: string; 
-    storeId: number; 
-}
-
-type DisplayCustomerTypeKey = "dealer" | "professional" | "siteVisit";
-
-const CUSTOMER_TYPE_CONFIG: Record<DisplayCustomerTypeKey, { label: string; fallback: string }> = {
-    dealer: { label: "Dealer/Shop", fallback: "dealer" },
-    professional: { label: "Engineer/Architect/Contractor", fallback: "professional" },
-    siteVisit: { label: "Site Visit/Project", fallback: "site visit" },
-};
-
-const DISPLAY_CUSTOMER_TYPES: DisplayCustomerTypeKey[] = ["dealer", "professional", "siteVisit"];
-
-const RAW_TO_DISPLAY_CUSTOMER_TYPE_KEY: Record<string, DisplayCustomerTypeKey> = {
-    dealer: "dealer",
-    "dealer/shop": "dealer",
-    shop: "dealer",
-    retailer: "dealer",
-    wholesaler: "dealer",
-    distributor: "dealer",
-    "dealer shop": "dealer",
-    "dealer (shop)": "dealer",
-    professional: "professional",
-    architect: "professional",
-    engineer: "professional",
-    contractor: "professional",
-    builder: "professional",
-    "engineer/architect": "professional",
-    "architect/engineer": "professional",
-    "engineer architect": "professional",
-    "engineer/architect/contractor": "professional",
-    "engineer architect contractor": "professional",
-    "site visit": "siteVisit",
-    site: "siteVisit",
-    project: "siteVisit",
-    "site_visit": "siteVisit",
-    "site visit/project": "siteVisit",
-    "site visit - project": "siteVisit",
-    "site visit/project site": "siteVisit",
-    "site visit/project site visit": "siteVisit",
-    "site visit/project visit": "siteVisit",
-};
-
-const normalizeCustomerTypeKey = (value: string): string => (value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/\s*\/\s*/g, "/");
-
-const mapCustomerTypeToDisplayKey = (rawType: string): DisplayCustomerTypeKey => {
-    const normalized = normalizeCustomerTypeKey(rawType);
-    return RAW_TO_DISPLAY_CUSTOMER_TYPE_KEY[normalized] ?? "dealer";
-};
-
-const getCustomerTypeLabel = (key: DisplayCustomerTypeKey): string =>
-    CUSTOMER_TYPE_CONFIG[key].label;
-
-const getCustomerTypeFallbackRaw = (key: DisplayCustomerTypeKey): string =>
-    CUSTOMER_TYPE_CONFIG[key].fallback;
-
-const createEmptyVisitCounts = (): Record<DisplayCustomerTypeKey, number> =>
-    DISPLAY_CUSTOMER_TYPES.reduce((acc, key) => {
-        acc[key] = 0;
-        return acc;
-    }, {} as Record<DisplayCustomerTypeKey, number>);
-
-const createEmptyRawGroups = (): Record<DisplayCustomerTypeKey, string[]> =>
-    DISPLAY_CUSTOMER_TYPES.reduce((acc, key) => {
-        acc[key] = [];
-        return acc;
-    }, {} as Record<DisplayCustomerTypeKey, string[]>);
-
-const formatAverageStock = (num: number): string => formatStockQuantity(num, '0 tons');
-
-const getAverageStock = (detail: VisitDetail): number => {
-    return detail.avgStock ?? detail.avgMonthlySales ?? 0;
-};
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = 6, delay = 1000): Promise<Response> {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(url, options);
-            if (!response.ok) throw new Error(await response.text() || response.statusText);
-            return response;
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            await new Promise(res => setTimeout(res, delay));
+    async function loadOfficers() {
+      try {
+        const currentUser = await fetchReportJson<{ authorities?: { authority: string }[] }>(
+          "/user/manage/current-user", token!, request.signal,
+        );
+        const roles = new Set(currentUser.authorities?.map(({ authority }) => authority) ?? []);
+        const isAdmin = roles.has("ROLE_ADMIN");
+        const isTeamRole = ["ROLE_COORDINATOR", "ROLE_MANAGER", "ROLE_REGIONAL_MANAGER", "ROLE_AVP"].some(role => roles.has(role));
+        let officers: Employee[];
+        if (!isAdmin && isTeamRole) {
+          if (!userData?.employeeId) throw new Error("Your employee profile is unavailable. Please sign in again.");
+          const teams = await fetchReportJson<{ fieldOfficers?: Employee[] }[]>(
+            `/employee/team/getByEmployee?id=${encodeURIComponent(userData.employeeId)}`, token!, request.signal,
+          );
+          // Preserve Icon's current team scope.
+          officers = teams[0]?.fieldOfficers ?? [];
+        } else {
+          const [all, inactive] = await Promise.all([
+            fetchReportJson<Employee[]>("/employee/getAll", token!, request.signal),
+            fetchReportJson<Employee[]>("/employee/getAllInactive", token!, request.signal),
+          ]);
+          const inactiveIds = new Set(inactive.map(employee => employee.id));
+          officers = all.filter(employee => !inactiveIds.has(employee.id) && (
+            isAdmin
+              ? ADMIN_REPORT_EMPLOYEE_ROLES.has(normalizeEmployeeRole(employee.role))
+              : normalizeEmployeeRole(employee.role) === "FIELD OFFICER"
+          ));
         }
-    }
-    throw new Error('Failed after retries');
-}
-
-const ReportsPage: React.FC = () => {
-    const { token, userData } = useAuth();
-
-    const [fieldOfficers, setFieldOfficers] = useState<Employee[]>([]);
-    const [employeesLoading, setEmployeesLoading] = useState<boolean>(true);
-    const [employeesError, setEmployeesError] = useState<string | null>(null);
-    const [isAdmin, setIsAdmin] = useState(false);
-    const [isCoordinator, setIsCoordinator] = useState(false);
-    const [isManager, setIsManager] = useState(false);
-    const [teamId, setTeamId] = useState<number | null>(null);
-
-    const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-    const [rangeSelect, setRangeSelect] = useState<string>('');
-    
-    const [startDate, setStartDate] = useState<string>('');
-    const [endDate, setEndDate] = useState<string>('');
-
-    const [isStartDatePopoverOpen, setIsStartDatePopoverOpen] = useState(false);
-    const [isEndDatePopoverOpen, setIsEndDatePopoverOpen] = useState(false);
-
-    const [reportLoading, setReportLoading] = useState<boolean>(false);
-    const [reportError, setReportError] = useState<string | null>(null);
-
-    const [showReport, setShowReport] = useState<boolean>(false);
-    const [summaryHeader, setSummaryHeader] = useState<React.ReactNode>(null);
-    const [summaryRow, setSummaryRow] = useState<React.ReactNode>(null);
-    const [reportData, setReportData] = useState<FieldOfficerStatsResponse | null>(null);
-    const [categorizedVisits, setCategorizedVisits] = useState<Record<DisplayCustomerTypeKey, number>>(
-        () => createEmptyVisitCounts()
-    );
-    const [customerTypeRawGroups, setCustomerTypeRawGroups] = useState<Record<DisplayCustomerTypeKey, string[]>>(
-        () => createEmptyRawGroups()
-    );
-
-    const [visitDetails, setVisitDetails] = useState<VisitDetail[] | null>(null);
-    const [detailsLoading, setDetailsLoading] = useState<boolean>(false);
-    const [detailsError, setDetailsError] = useState<string | null>(null);
-    const [selectedCustomerTypeForDetails, setSelectedCustomerTypeForDetails] = useState<DisplayCustomerTypeKey | null>(null);
-    const [employeeSearchTerm, setEmployeeSearchTerm] = useState<string>("");
-    const searchInputRef = useRef<HTMLInputElement>(null);
-    const [dateRangeError, setDateRangeError] = useState<string | null>(null);
-    const [expandedSummaryCards, setExpandedSummaryCards] = useState<boolean>(true);
-    const [expandedVisitCards, setExpandedVisitCards] = useState<Set<number>>(new Set());
-
-    const today = useMemo(() => dayjs().endOf('day').toDate(), []);
-    const startDateDisabled = useMemo(() => ({ after: today }), [today]);
-    const endDateDisabled = useMemo<Matcher[]>(() => {
-        const matchers: Matcher[] = [{ after: today }];
-        if (startDate) {
-            matchers.push({ before: dayjs(startDate).toDate() });
-        }
-        return matchers;
-    }, [startDate, today]);
-
-    // Detect user role
-    useEffect(() => {
-        const fetchCurrentUser = async () => {
-            if (!token) return;
-            
-            try {
-                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-                
-                if (response.ok) {
-                    const user = await response.json();
-                    const authorities: Array<{ authority?: string }> = user.authorities || [];
-                    const roles = new Set(authorities.map(({ authority }) => authority).filter(Boolean));
-
-                    setIsAdmin(roles.has('ROLE_ADMIN'));
-                    setIsCoordinator(roles.has('ROLE_COORDINATOR'));
-                    setIsManager(
-                        roles.has('ROLE_MANAGER') ||
-                        roles.has('ROLE_REGIONAL_MANAGER') ||
-                        roles.has('ROLE_AVP')
-                    );
-                }
-            } catch (error) {
-                console.error('Error fetching current user:', error);
-            }
-        };
-
-        fetchCurrentUser();
-    }, [token]);
-
-    // Fetch team data for coordinators and managers
-    useEffect(() => {
-        const loadTeamData = async () => {
-            if (isAdmin || (!isCoordinator && !isManager) || !userData?.employeeId) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${userData.employeeId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-                
-                if (response.ok) {
-                    const teamData = await response.json();
-                    if (teamData.length > 0) {
-                        setTeamId(teamData[0].id);
-                    }
-                }
-            } catch (err) {
-                console.error('Failed to load team data:', err);
-            }
-        };
-
-        loadTeamData();
-    }, [isAdmin, isCoordinator, isManager, userData?.employeeId, token]);
-
-    useEffect(() => {
-        const fetchAllEmployeeData = async () => {
-            if (!token) return;
-            
-            setEmployeesLoading(true);
-            setEmployeesError(null);
-            try {
-                let activeFieldOfficers: Employee[] = [];
-                
-                if ((isCoordinator || isManager) && !isAdmin) {
-                    // For coordinators/managers, fetch team members only
-                    if (teamId) {
-                        const teamResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/team/getByEmployee?id=${userData?.employeeId}`, {
-                            headers: { Authorization: `Bearer ${token}` },
-                        });
-                        if (teamResponse.ok) {
-                            const teamData = await teamResponse.json();
-                            if (teamData.length > 0 && teamData[0].fieldOfficers) {
-                                activeFieldOfficers = teamData[0].fieldOfficers.map((fo: { id: number; firstName: string; lastName: string; role: string; city: string; state: string; primaryContact: string; email: string }) => ({
-                                    id: fo.id,
-                                    firstName: fo.firstName,
-                                    lastName: fo.lastName,
-                                    role: fo.role,
-                                    city: fo.city,
-                                    state: fo.state,
-                                    primaryContact: fo.primaryContact,
-                                    email: fo.email,
-                                }));
-                            }
-                        }
-                    }
-                } else {
-                    // Admins can report on field officers and leadership roles.
-                    // Other non-team roles retain the field-officer-only view.
-                    const [allEmployeesResponse, inactiveEmployeesResponse] = await Promise.all([
-                        fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }),
-                        fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAllInactive', {
-                            headers: { Authorization: `Bearer ${token}` },
-                        }),
-                    ]);
-                    if (!allEmployeesResponse.ok) throw new Error(`Failed to fetch all employees: ${allEmployeesResponse.statusText}`);
-                    if (!inactiveEmployeesResponse.ok) throw new Error(`Failed to fetch inactive employees: ${inactiveEmployeesResponse.statusText}`);
-                    const allEmployees: Employee[] = await allEmployeesResponse.json();
-                    const inactiveEmployees: Employee[] = await inactiveEmployeesResponse.json();
-                    const inactiveEmployeeIds = new Set(inactiveEmployees.map(emp => emp.id));
-                    activeFieldOfficers = allEmployees
-                        .filter((emp) => {
-                            if (inactiveEmployeeIds.has(emp.id)) return false;
-                            const normalizedRole = normalizeEmployeeRole(emp.role);
-                            return isAdmin
-                                ? ADMIN_REPORT_EMPLOYEE_ROLES.has(normalizedRole)
-                                : normalizedRole === 'FIELD OFFICER';
-                        })
-                        .sort((a, b) => {
-                            const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
-                            const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
-                            if (nameA < nameB) return -1;
-                            if (nameA > nameB) return 1;
-                            return 0;
-                        });
-                }
-                
-                setFieldOfficers(activeFieldOfficers);
-                if (activeFieldOfficers.length > 0) {
-                    setSelectedEmployeeId((prev) => prev || activeFieldOfficers[0].id.toString());
-                }
-            } catch (err: unknown) {
-                setEmployeesError(err instanceof Error ? err.message : 'Could not fetch employee data.');
-                setFieldOfficers([]);
-            } finally {
-                setEmployeesLoading(false);
-            }
-        };
-        if (token) fetchAllEmployeeData();
-    }, [token, isAdmin, isCoordinator, isManager, teamId, userData?.employeeId]);
-
-    useEffect(() => {
-        const now = new Date();
-        let startDt: Date | undefined, endDt: Date | undefined;
-        switch (rangeSelect) {
-            case 'last-7-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 6); break;
-            case 'last-15-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 14); break;
-            case 'last-30-days': endDt = new Date(now); startDt = new Date(now); startDt.setDate(now.getDate() - 29); break;
-            case 'last-week': { const day = now.getDay(); startDt = new Date(now); startDt.setDate(now.getDate() - (day + 6)); endDt = new Date(startDt); endDt.setDate(startDt.getDate() + 6); break; }
-            case 'last-month': { const y = now.getFullYear(), m = now.getMonth(); startDt = new Date(y, m - 1, 1); endDt = new Date(y, m, 0); break; }
-            default: return;
-        }
-        setStartDate(dayjs(startDt).format('YYYY-MM-DD'));
-        setEndDate(dayjs(endDt).format('YYYY-MM-DD'));
-    }, [rangeSelect]);
-
-    const fetchCustomerTypeDetails = async (displayCategory: DisplayCustomerTypeKey) => {
-        if (!selectedEmployeeId || !startDate || !endDate) {
-            setDetailsError("Please generate the main report first.");
-            return;
-        }
-        setDetailsLoading(true);
-        setDetailsError(null);
-        setVisitDetails(null); 
-        setSelectedCustomerTypeForDetails(displayCategory);
-        const displayCategoryLabel = getCustomerTypeLabel(displayCategory);
-
-        try {
-            const rawTypes = customerTypeRawGroups[displayCategory] ?? [];
-            const fallbackRaw = getCustomerTypeFallbackRaw(displayCategory);
-            const apiTypes = rawTypes.length > 0 ? rawTypes : [fallbackRaw];
-            const aggregatedDetails: VisitDetail[] = [];
-            const seenStoreIds = new Set<number>();
-
-            for (const rawType of apiTypes) {
-                const normalizedKey = normalizeCustomerTypeKey(rawType);
-                if (!normalizedKey) {
-                    continue;
-                }
-
-                const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/customer-visit-details?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}&customerType=${encodeURIComponent(normalizedKey)}`;
-                const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
-                const data: VisitDetail[] = await response.json();
-
-                data.forEach((detail) => {
-                    const normalizedTypeKey = mapCustomerTypeToDisplayKey(detail.customerType);
-                    const displayLabel = getCustomerTypeLabel(normalizedTypeKey);
-                    const adjustedDetail = {
-                        ...detail,
-                        customerType: displayLabel,
-                    };
-
-                    if (!seenStoreIds.has(adjustedDetail.storeId)) {
-                        aggregatedDetails.push(adjustedDetail);
-                        seenStoreIds.add(adjustedDetail.storeId);
-                    }
-                });
-            }
-
-            setVisitDetails(aggregatedDetails);
-        } catch (err: unknown) {
-            setDetailsError(err instanceof Error ? err.message : `Failed to fetch details for ${displayCategoryLabel}.`);
-            setVisitDetails(null);
-        } finally {
-            setDetailsLoading(false);
-        }
-    };
-
-    const handleGenerateReport = async () => {
-        if (!rangeSelect) {
-            setDateRangeError('Please select a Date Range.');
-            return;
-        }
-        if (!selectedEmployeeId || !startDate || !endDate) {
-            setDateRangeError(null);
-            alert('Select an employee and both dates.');
-        return;
-    }
-        setDateRangeError(null);
-        setReportLoading(true); setReportError(null); setShowReport(false);
-        try {
-            const url = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/field-officer-stats?employeeId=${selectedEmployeeId}&startDate=${startDate}&endDate=${endDate}`;
-            const response = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, 6, 1000);
-            const data: FieldOfficerStatsResponse = await response.json();
-
-            const displayCategories = DISPLAY_CUSTOMER_TYPES;
-            const categorizedAccumulator = displayCategories.reduce((acc, category) => {
-                acc[category] = 0;
-                return acc;
-            }, {} as Record<DisplayCustomerTypeKey, number>);
-            const groupedRawTypes = displayCategories.reduce((acc, category) => {
-                acc[category] = new Set<string>();
-                return acc;
-            }, {} as Record<DisplayCustomerTypeKey, Set<string>>);
-
-            Object.entries(data.visitsByCustomerType ?? {}).forEach(([apiType, countValue]) => {
-                const originalType = typeof apiType === "string" ? apiType : "";
-                const normalizedKey = normalizeCustomerTypeKey(originalType);
-                if (!normalizedKey) {
-                    return;
-                }
-                const category = mapCustomerTypeToDisplayKey(originalType);
-                const numericCount = typeof countValue === "number" ? countValue : Number(countValue) || 0;
-                categorizedAccumulator[category] += numericCount;
-                groupedRawTypes[category].add(normalizedKey);
-            });
-
-            const categorizedVisitsResult = displayCategories.reduce((acc, category) => {
-                acc[category] = categorizedAccumulator[category] ?? 0;
-                return acc;
-            }, {} as Record<DisplayCustomerTypeKey, number>);
-
-            const rawTypesResult = displayCategories.reduce((acc, category) => {
-                acc[category] = Array.from(groupedRawTypes[category]);
-                return acc;
-            }, {} as Record<DisplayCustomerTypeKey, string[]>);
-
-            setSummaryHeader(
-                <>
-                    <tr>
-                        <th rowSpan={2} className="text-center">Total Visits</th><th rowSpan={2} className="text-center">Completed Visits</th>
-                        <th colSpan={3} className="text-center">Attendance</th><th colSpan={displayCategories.length} className="text-center">Visits by Customer Type</th>
-                    </tr>
-                    <tr>
-                        <th className="text-center">Full Days</th><th className="text-center">Half Days</th><th className="text-center">Absences</th>
-                        {displayCategories.map(displayCat => (
-                            <th key={displayCat} className="text-center">
-                                <button
-                                    onClick={() => fetchCustomerTypeDetails(displayCat)}
-                                    className="text-blue-600 underline hover:text-blue-800 bg-transparent border-none p-0 m-0 cursor-pointer disabled:text-gray-400"
-                                    disabled={reportLoading || detailsLoading}
-                                    type="button"
-                                >
-                                    {getCustomerTypeLabel(displayCat)}
-                                </button>
-                            </th>
-                        ))}
-                    </tr>
-                </>
-            );
-            setSummaryRow(
-                <>
-                    <td className="text-center">{data.totalVisits}</td><td className="text-center">{data.completedVisits}</td>
-                    <td className="text-center">{data.attendanceStats.fullDays}</td><td className="text-center">{data.attendanceStats.halfDays}</td><td className="text-center">{data.attendanceStats.absences}</td>
-                    {displayCategories.map(type => (<td key={type} className="text-center">{categorizedVisitsResult[type]}</td>))}
-                </>
-            );
-            setReportData(data);
-            setCategorizedVisits(categorizedVisitsResult);
-            setCustomerTypeRawGroups(rawTypesResult);
-            setShowReport(true);
-            setVisitDetails(null);
-            setDetailsError(null);
-            setSelectedCustomerTypeForDetails(null);
-        } catch (err: unknown) {
-            setReportError(err instanceof Error ? err.message : 'Failed to fetch report data.');
-            setShowReport(false);
-        } finally {
-            setReportLoading(false);
-        }
-    };
-
-    const handleStartDateSelect = (date: Date | undefined) => {
-        if (date) {
-            setStartDate(dayjs(date).format('YYYY-MM-DD'));
-            if (endDate && dayjs(date).isAfter(dayjs(endDate))) {
-                setEndDate('');
-            }
-        }
-        setIsStartDatePopoverOpen(false);
-    };
-
-    const handleEndDateSelect = (date: Date | undefined) => {
-        if (date) {
-            setEndDate(dayjs(date).format('YYYY-MM-DD'));
-        }
-        setIsEndDatePopoverOpen(false);
-    };
-    
-    const selectedEmployeeName = fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName + ' ' + fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName || "Select Employee";
-    const selectedCustomerTypeLabel = selectedCustomerTypeForDetails
-        ? getCustomerTypeLabel(selectedCustomerTypeForDetails)
-        : "";
-
-    const filteredFieldOfficers = fieldOfficers.filter(officer => 
-        `${officer.firstName} ${officer.lastName}`.toLowerCase().includes(employeeSearchTerm.toLowerCase())
-    );
-
-  const toggleVisitCardExpansion = (index: number) => {
-    setExpandedVisitCards(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else {
-        newSet.add(index);
+        if (request.signal.aborted) return;
+        setFieldOfficers([...officers].sort((a, b) =>
+          `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+        ));
+      } catch (error) {
+        if (!request.signal.aborted) setEmployeesError(error instanceof Error ? error.message : "Could not load field officers.");
+      } finally {
+        if (!request.signal.aborted) setEmployeesLoading(false);
       }
-      return newSet;
-    });
-  };
+    }
+    void loadOfficers();
+    return () => request.abort();
+  }, [token, userData?.employeeId, employeeReload]);
+
+  useEffect(() => () => {
+    reportRequest.current?.abort();
+    detailsRequest.current?.abort();
+  }, []);
+
+  const categories = useMemo(() => summarizeCustomerTypes(reportData?.visitsByCustomerType ?? {}), [reportData]);
+  const reportSummary = reportData ? { ...reportData, categorizedVisits: categories.counts } : null;
+  const fieldOfficerOptions = fieldOfficers.map(officer => ({
+    value: String(officer.id), label: [officer.firstName, officer.lastName].filter(Boolean).join(" "),
+  }));
+  const selectedEmployeeName = fieldOfficerOptions.find(officer => officer.value === selectedEmployeeId)?.label ?? "";
+  const selectedCustomerTypeLabel = selectedCustomerTypeForDetails ? getCustomerTypeLabel(selectedCustomerTypeForDetails) : "";
+  const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
+
+  function invalidateReport() {
+    reportRequest.current?.abort();
+    detailsRequest.current?.abort();
+    setReportData(null);
+    setReportLoading(false);
+    setReportError(null);
+    setSelectedCustomerTypeForDetails(null);
+    setVisitDetails(null);
+    setDetailsLoading(false);
+    setDetailsError(null);
+    setDateRangeError(null);
+  }
+
+  function handleRangeChange(value: string) {
+    invalidateReport();
+    setRangeSelect(value);
+    const range = getReportDateRange(value);
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+  }
+
+  function handleStartDateSelect(date: Date | undefined) {
+    if (date) {
+      invalidateReport();
+      const value = dayjs(date).format("YYYY-MM-DD");
+      setRangeSelect("custom");
+      setStartDate(value);
+      if (endDate && value > endDate) setEndDate("");
+    }
+    setIsStartDatePopoverOpen(false);
+  }
+
+  function handleEndDateSelect(date: Date | undefined) {
+    if (date) {
+      invalidateReport();
+      setRangeSelect("custom");
+      setEndDate(dayjs(date).format("YYYY-MM-DD"));
+    }
+    setIsEndDatePopoverOpen(false);
+  }
+
+  async function handleGenerateReport() {
+    if (!token || !selectedEmployeeId || !startDate || !endDate || dateRangeInvalid) {
+      setDateRangeError("Select a field officer and a valid date range.");
+      return;
+    }
+    invalidateReport();
+    const request = new AbortController();
+    reportRequest.current = request;
+    setReportLoading(true);
+    try {
+      const query = new URLSearchParams({ employeeId: selectedEmployeeId, startDate, endDate });
+      const data = await fetchReportJson<FieldOfficerStatsResponse>(
+        `/visit/field-officer-stats?${query}`, token, request.signal,
+      );
+      if (!request.signal.aborted) setReportData(data);
+    } catch (error) {
+      if (!request.signal.aborted) setReportError(error instanceof Error ? error.message : "Failed to load the report.");
+    } finally {
+      if (!request.signal.aborted) setReportLoading(false);
+    }
+  }
+
+  async function fetchCustomerTypeDetails(category: DisplayCustomerTypeKey) {
+    if (!token || !reportData) return;
+    detailsRequest.current?.abort();
+    const request = new AbortController();
+    detailsRequest.current = request;
+    setSelectedCustomerTypeForDetails(category);
+    setVisitDetails(null);
+    setDetailsError(null);
+    setDetailsLoading(true);
+    try {
+      const rawTypes = categories.rawGroups[category];
+      const apiTypes = rawTypes.length ? rawTypes : [getCustomerTypeFallbackRaw(category)];
+      const rows = new Map<number, VisitDetail>();
+      for (const customerType of apiTypes) {
+        const query = new URLSearchParams({ employeeId: selectedEmployeeId, startDate, endDate, customerType });
+        const data = await fetchReportJson<VisitDetail[]>(
+          `/visit/customer-visit-details?${query}`, token, request.signal,
+        );
+        if (request.signal.aborted) return;
+        for (const detail of data) {
+          if (!rows.has(detail.storeId)) rows.set(detail.storeId, detail);
+        }
+      }
+      if (!request.signal.aborted) setVisitDetails([...rows.values()]);
+    } catch (error) {
+      if (!request.signal.aborted) setDetailsError(error instanceof Error ? error.message : "Failed to load visit details.");
+    } finally {
+      if (!request.signal.aborted) setDetailsLoading(false);
+    }
+  }
 
   return (
-    <div className="space-y-6">
-            {/* Filters Section */}
-            <div className="flex flex-col lg:flex-row gap-4 p-4 bg-muted/30 rounded-lg">
-                <div className="flex flex-col sm:flex-row gap-4 flex-1 flex-wrap">
-                        <div className="space-y-2 flex-1 min-w-[200px]">
-                            <Label htmlFor="employeeSelectTrigger" className="text-sm text-muted-foreground">Employee</Label>
-                            {employeesLoading ? (
-                                <div className="flex items-center justify-center h-10 w-full">
-                                    <Loader className="w-4 h-4 animate-spin text-muted-foreground"/>
-                                </div>
-                            ) : employeesError ? (
-                                <div className="text-destructive text-sm">Error loading employees</div>
-                            ) : (
-                                <DropdownMenu modal={false}>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" id="employeeSelectTrigger" className="w-full justify-between">
-                                            {selectedEmployeeId && fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId) 
-                                                ? `${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.firstName} ${fieldOfficers.find(emp => emp.id.toString() === selectedEmployeeId)?.lastName}` 
-                                                : "Select Employee"}
-                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] overflow-hidden">
-                                        <div className="p-2 pb-1">
-                                            <Input 
-                                                ref={searchInputRef}
-                                                placeholder="Search employee..."
-                                                value={employeeSearchTerm}
-                                                onChange={(e) => {
-                                                    const newValue = e.target.value;
-                                                    setEmployeeSearchTerm(newValue);
-                                                    setTimeout(() => {
-                                                        if (searchInputRef.current && document.activeElement !== searchInputRef.current) {
-                                                             searchInputRef.current.focus();
-                                                        }
-                                                    }, 0);
-                                                }}
-                                                className="w-full h-8"
-                                            />
-                                        </div>
-                                        <div className="max-h-64 overflow-y-auto overscroll-contain px-1 pb-1">
-                                            <DropdownMenuRadioGroup value={selectedEmployeeId} onValueChange={(value) => {
-                                                setSelectedEmployeeId(value);
-                                                setEmployeeSearchTerm("");
-                                            }}>
-                                                {filteredFieldOfficers.length === 0 ? (
-                                                    <DropdownMenuRadioItem value="" disabled>
-                                                        No matching employees
-                                                    </DropdownMenuRadioItem>
-                                                ) : filteredFieldOfficers.map(officer => (
-                                                    <DropdownMenuRadioItem key={officer.id} value={officer.id.toString()}>
-                                                        {`${officer.firstName} ${officer.lastName}`}
-                                                    </DropdownMenuRadioItem>
-                                                ))}
-                                            </DropdownMenuRadioGroup>
-                                        </div>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            )}
+    <div className="icon-reports min-w-0 space-y-4 overflow-visible [&_h3]:tracking-normal">
+      <div className="mb-4 flex h-[46px] items-center rounded-lg border bg-card p-1 shadow-sm">
+        <h2 className="rounded-sm bg-background px-3 py-1.5 text-sm font-medium tracking-normal shadow-sm">Field Officer Visit Report</h2>
+      </div>
+      <div className="space-y-5">
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 border-b pb-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.3fr)_minmax(145px,.8fr)_minmax(155px,.9fr)_minmax(155px,.9fr)_minmax(180px,auto)] xl:items-end">
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="employeeSelectTrigger" className="text-xs font-medium text-foreground">Field officer</Label>
+              {employeesLoading ? (
+                <div className="flex items-center justify-center h-10 w-full">
+                  <Loader className="w-4 h-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : employeesError ? (
+                <div role="alert" className="space-y-2 text-xs text-destructive">
+                  <p>{employeesError}</p>
+                  <Button variant="outline" size="sm" onClick={() => setEmployeeReload(value => value + 1)}>Try again</Button>
+                </div>
+              ) : (
+                <SearchableSelect
+                  triggerId="employeeSelectTrigger"
+                  placeholder={fieldOfficers.length ? "Select Field Officer" : "No officers available"}
+                  options={fieldOfficerOptions}
+                  value={selectedEmployeeId || undefined}
+                  onSelect={(option) => { invalidateReport(); setSelectedEmployeeId(option?.value ?? ''); }}
+                  searchPlaceholder="Search officers..."
+                  emptyMessage="No officers available"
+                  noResultsMessage="No matching officers"
+                  allowClear
+                  loading={employeesLoading}
+                  disabled={fieldOfficerOptions.length === 0}
+                  triggerClassName="h-9 w-full"
+                  contentClassName="w-[min(360px,calc(100vw-2rem))]"
+                />
+              )}
             </div>
-            
-            <div className="space-y-2 flex-1 min-w-[200px]">
-                            <Label htmlFor="rangeSelectTrigger" className="text-sm text-muted-foreground">Date Range</Label>
-                            <Select value={rangeSelect} onValueChange={(value) => { 
-                                setRangeSelect(value); 
-                                setDateRangeError(null);
-                                if (value === 'custom') {
-                                    setStartDate('');
-                                    setEndDate('');
-                                }
-                            }}>
-                                <SelectTrigger id="rangeSelectTrigger" className="w-full">
-                                    <SelectValue placeholder="Select Range" />
+
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="rangeSelectTrigger" className="text-xs font-medium text-foreground">Date range</Label>
+              <Select value={rangeSelect} onValueChange={handleRangeChange}>
+                <SelectTrigger id="rangeSelectTrigger" className="h-9 w-full">
+                  <SelectValue placeholder="Select Range" />
                 </SelectTrigger>
                 <SelectContent>
-                                    <SelectItem value="custom">Custom</SelectItem>
-                                    <SelectItem value="last-7-days">Last 7 Days</SelectItem>
-                                    <SelectItem value="last-15-days">Last 15 Days</SelectItem>
-                                    <SelectItem value="last-30-days">Last 30 Days</SelectItem>
-                                    <SelectItem value="last-week">Last Week</SelectItem>
-                                    <SelectItem value="last-month">Last Month</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                  <SelectItem value="last-7-days">Last 7 Days</SelectItem>
+                  <SelectItem value="last-15-days">Last 15 Days</SelectItem>
+                  <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                  <SelectItem value="this-week">This Week</SelectItem>
+                  <SelectItem value="this-month">This Month</SelectItem>
+                  <SelectItem value="last-week">Last Week</SelectItem>
+                  <SelectItem value="last-month">Last Month</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            
-            <div className="space-y-2 flex-1 min-w-[200px]">
-                            <Label htmlFor="startDateTrigger" className="text-sm text-muted-foreground">From Date</Label>
-                            <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
+
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="startDateTrigger" className="text-xs font-medium text-foreground">From date</Label>
+              <Popover open={isStartDatePopoverOpen} onOpenChange={setIsStartDatePopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
-                                        id="startDateTrigger"
+                    id="startDateTrigger"
                     variant="outline"
-                                        className={cn("w-full justify-start text-left font-normal", !startDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
-                                        disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
+                    className={cn("h-9 w-full justify-start text-left font-normal", !startDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
+                    disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {startDate ? dayjs(startDate).format('MMM D, YYYY') : <span>Pick a date</span>}
+                    {startDate ? dayjs(startDate).format('MMM DD, YYYY') : <span>Pick a date</span>}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <DatePicker
-                                        mode="single"
-                                        selected={startDate ? dayjs(startDate).toDate() : undefined}
-                                        onSelect={handleStartDateSelect}
-                                        disabled={startDateDisabled}
+                  <SpacedCalendar
+                    mode="single"
+                    selected={startDate ? dayjs(startDate).toDate() : undefined}
+                    onSelect={handleStartDateSelect}
+                    disabled={{ after: today }}
                     initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-            
-                        <div className="space-y-2 flex-1 min-w-[200px]">
-                            <Label htmlFor="endDateTrigger" className="text-sm text-muted-foreground">To Date</Label>
-                            <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        id="endDateTrigger"
-                                        variant="outline"
-                                        className={cn("w-full justify-start text-left font-normal", !endDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
-                                        disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
-                                    >
-                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {endDate ? dayjs(endDate).format('MMM D, YYYY') : <span>Pick a date</span>}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <DatePicker
-                                        mode="single"
-                                        selected={endDate ? dayjs(endDate).toDate() : undefined}
-                                        onSelect={handleEndDateSelect}
-                                        disabled={endDateDisabled}
-                                        initialFocus
                   />
                 </PopoverContent>
               </Popover>
             </div>
-                </div>
-            
-            <div className="flex items-end shrink-0">
-                            <Button
-                                onClick={handleGenerateReport}
-                                className="w-full sm:w-auto min-w-[180px]"
-                                disabled={reportLoading || fieldOfficers.length === 0 || !selectedEmployeeId || !startDate || !endDate}
-                            >
-                                {reportLoading ? (
-                                    <>
-                                        <Loader className="mr-2 h-4 w-4 animate-spin" />
-                                        Generating...
-                                    </>
-                                ) : (
-                                    <>
-                <DownloadIcon className="mr-2 h-4 w-4" />
-                Generate Report
-                                    </>
-                                )}
+
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="endDateTrigger" className="text-xs font-medium text-foreground">To date</Label>
+              <Popover open={isEndDatePopoverOpen} onOpenChange={setIsEndDatePopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="endDateTrigger"
+                    variant="outline"
+                    className={cn("h-9 w-full justify-start text-left font-normal", !endDate && "text-muted-foreground", rangeSelect !== 'custom' && rangeSelect !== '' && "opacity-50 cursor-not-allowed")}
+                    disabled={rangeSelect !== 'custom' && rangeSelect !== ''}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {endDate ? dayjs(endDate).format('MMM DD, YYYY') : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <SpacedCalendar
+                    mode="single"
+                    selected={endDate ? dayjs(endDate).toDate() : undefined}
+                    onSelect={handleEndDateSelect}
+                    disabled={[{ after: today }, ...(startDate ? [{ before: dayjs(startDate).toDate() }] : [])]}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="flex flex-col justify-end gap-2 sm:col-span-2 xl:col-span-1">
+              <DateRangeError fromDate={startDate} toDate={endDate} />
+              <Button
+                onClick={handleGenerateReport}
+                className="h-9 w-full min-w-[160px] whitespace-nowrap"
+                disabled={reportLoading || fieldOfficers.length === 0 || !selectedEmployeeId || !startDate || !endDate || dateRangeInvalid}
+              >
+                {reportLoading ? (
+                  <>
+                    <Loader className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <DownloadIcon className="mr-2 h-4 w-4" />
+                    Generate report
+                  </>
+                )}
               </Button>
             </div>
+          </div>
+
+          {dateRangeError && (
+            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+              {dateRangeError}
             </div>
+          )}
 
-            {dateRangeError && (
-                        <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                            {dateRangeError}
-                        </div>
-                    )}
+          {reportLoading && (
+            <div role="status" className="flex justify-center items-center py-12">
+              <div className="flex flex-col items-center gap-3">
+                <Loader className="w-8 h-8 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Generating report...</p>
+              </div>
+            </div>
+          )}
 
-            {reportLoading && (
+          {reportError && (
+            <div role="alert" className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+              <div className="flex items-center justify-between">
+                <p><strong>Error:</strong> {reportError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateReport}
+                  disabled={reportLoading}
+                >
+                  Try Again
+                </Button>
+              </div>
+            </div>
+          )}
+          {reportSummary && !reportLoading && !reportError && (
+            <section className="border-y bg-card/30">
+              <div className="border-b px-1 py-3">
+                <h3 className="text-sm font-semibold text-foreground">Report summary</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">Visits and attendance for the selected period. Choose a customer type to inspect its visits.</p>
+              </div>
+              <div className="grid lg:grid-cols-[.8fr_1.15fr_2.1fr]">
+                <div className="py-4 pr-5 lg:border-r">
+                  <p className="text-[11px] leading-5 font-semibold uppercase tracking-wide text-muted-foreground">Visits</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center"><p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.totalVisits}</p><p className="mt-1.5 text-xs leading-none text-muted-foreground">Total</p></div>
+                    <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center"><p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.completedVisits}</p><p className="mt-1.5 text-xs leading-none text-muted-foreground">Completed</p></div>
+                  </div>
+                </div>
+                <div className="border-t py-4 lg:border-r lg:border-t-0 lg:px-5">
+                  <p className="text-[11px] leading-5 font-semibold uppercase tracking-wide text-muted-foreground">Attendance</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center"><p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.fullDays}</p><p className="mt-1.5 text-xs leading-none text-muted-foreground">Full days</p></div>
+                    <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center"><p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.halfDays}</p><p className="mt-1.5 text-xs leading-none text-muted-foreground">Half days</p></div>
+                    <div className="flex min-h-16 flex-col items-center justify-center rounded-md bg-muted/35 px-2 py-2 text-center"><p className="text-xl font-semibold leading-none tabular-nums">{reportSummary.attendanceStats.absences}</p><p className="mt-1.5 text-xs leading-none text-muted-foreground">Absent</p></div>
+                  </div>
+                </div>
+                <div className="border-t py-4 lg:border-t-0 lg:pl-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] leading-5 font-semibold uppercase tracking-wide text-muted-foreground">Customer types</p>
+                    <p className="text-[11px] leading-5 text-muted-foreground">Select to view visits</p>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {DISPLAY_CUSTOMER_TYPES.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        aria-pressed={selectedCustomerTypeForDetails === category}
+                        disabled={reportLoading || detailsLoading}
+                        onClick={() => fetchCustomerTypeDetails(category)}
+                        className={cn(
+                          "group flex min-h-16 cursor-pointer flex-col items-center justify-center rounded-md border bg-background px-2 py-2 text-center transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/[0.04] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
+                          selectedCustomerTypeForDetails === category && "border-primary bg-primary/10 text-primary shadow-sm"
+                        )}
+                      >
+                        <span className="block text-xl font-semibold leading-none tabular-nums">{reportSummary.categorizedVisits[category]}</span>
+                        <span className={cn("mt-1.5 block max-w-full text-xs leading-tight sm:leading-none text-muted-foreground group-hover:text-foreground", selectedCustomerTypeForDetails === category && "text-primary")}>
+                          {getCustomerTypeLabel(category).split("/").map((part, index, parts) => (
+                            <span className="inline-block whitespace-nowrap" key={part}>{part}{index < parts.length - 1 ? "/" : ""}</span>
+                          ))}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {selectedCustomerTypeForDetails && (
+            <section className="border-t bg-card/20">
+              <div className="border-b px-1 py-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {selectedCustomerTypeLabel} visits
+                </h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {selectedEmployeeName !== "Select Field Officer" && `${selectedEmployeeName} · ${dayjs(startDate).format('MMM DD, YYYY')} – ${dayjs(endDate).format('MMM DD, YYYY')}`}
+                </p>
+              </div>
+
+              {detailsLoading && (
                 <div className="flex justify-center items-center py-12">
-                    <div className="flex flex-col items-center gap-3">
-                        <Loader className="w-8 h-8 animate-spin text-primary" />
-                        <p className="text-sm text-muted-foreground">Generating report...</p>
-                    </div>
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Loading visit details...</p>
+                  </div>
                 </div>
-            )}
-            
-            {reportError && (
-                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                    <div className="flex items-center justify-between">
-                        <p><strong>Error:</strong> {reportError}</p>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleGenerateReport}
-                            disabled={reportLoading}
-                        >
-                            Try Again
-                        </Button>
-                    </div>
+              )}
+
+              {detailsError && (
+                <div role="alert" className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md m-4">
+                  <p><strong>Error:</strong> {detailsError}</p>
+                  <Button className="mt-3" variant="outline" size="sm" onClick={() => fetchCustomerTypeDetails(selectedCustomerTypeForDetails)}>Try again</Button>
                 </div>
-            )}
-            {showReport && !reportLoading && !reportError && (
-                        <div className="space-y-6">
-                            <div className="rounded-lg border bg-card">
-                                <div className="p-4 border-b">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <h3 className="text-base font-medium text-foreground">Report Summary</h3>
-                                            <p className="text-sm text-muted-foreground">Overview of visits, attendance, and customer types</p>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => setExpandedSummaryCards(!expandedSummaryCards)}
-                                            className="md:hidden"
-                                        >
-                                            {expandedSummaryCards ? (
-                                                <ChevronUp className="h-4 w-4" />
-                                            ) : (
-                                                <ChevronDown className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    </div>
-                                </div>
-                                
-                                {/* Desktop Table View */}
-                                <div className="hidden md:block overflow-x-auto">
-                                    <Table>
-                                        <TableHeader>{summaryHeader}</TableHeader>
-                                        <TableBody><TableRow>{summaryRow}</TableRow></TableBody>
-                                    </Table>
-                                </div>
+              )}
 
-                                {/* Mobile Card View */}
-                                <div className="md:hidden">
-                                    {expandedSummaryCards && reportData && (
-                                        <div className="p-4 space-y-4">
-                                            {/* Total Visits & Completed Visits */}
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <Card className="p-4">
-                                                    <div className="flex items-center space-x-2">
-                                                        <Target className="h-5 w-5 text-blue-500" />
-                                                        <div>
-                                                            <p className="text-sm font-medium text-muted-foreground">Total Visits</p>
-                                                            <p className="text-2xl font-bold">{reportData.totalVisits}</p>
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                                <Card className="p-4">
-                                                    <div className="flex items-center space-x-2">
-                                                        <TrendingUp className="h-5 w-5 text-green-500" />
-                                                        <div>
-                                                            <p className="text-sm font-medium text-muted-foreground">Completed</p>
-                                                            <p className="text-2xl font-bold">{reportData.completedVisits}</p>
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                            </div>
-
-                                            {/* Attendance Stats */}
-                                            <div>
-                                                <h4 className="text-sm font-medium text-foreground mb-3 flex items-center">
-                                                    <User className="h-4 w-4 mr-2" />
-                                                    Attendance
-                                                </h4>
-                                                <div className="grid grid-cols-3 gap-3">
-                                                    <Card className="p-3">
-                                                        <div className="text-center">
-                                                            <p className="text-xs text-muted-foreground">Full Days</p>
-                                                            <p className="text-lg font-semibold text-green-600">{reportData.attendanceStats.fullDays}</p>
-                                                        </div>
-                                                    </Card>
-                                                    <Card className="p-3">
-                                                        <div className="text-center">
-                                                            <p className="text-xs text-muted-foreground">Half Days</p>
-                                                            <p className="text-lg font-semibold text-yellow-600">{reportData.attendanceStats.halfDays}</p>
-                                                        </div>
-                                                    </Card>
-                                                    <Card className="p-3">
-                                                        <div className="text-center">
-                                                            <p className="text-xs text-muted-foreground">Absences</p>
-                                                            <p className="text-lg font-semibold text-red-600">{reportData.attendanceStats.absences}</p>
-                                                        </div>
-                                                    </Card>
-                                                </div>
-                                            </div>
-
-                                            {/* Customer Types */}
-                                            <div>
-                                                <h4 className="text-sm font-medium text-foreground mb-3 flex items-center">
-                                                    <Building className="h-4 w-4 mr-2" />
-                                                    Visits by Customer Type
-                                                </h4>
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    {DISPLAY_CUSTOMER_TYPES.map((customerTypeKey) => {
-                                                        const count = categorizedVisits[customerTypeKey] ?? 0;
-                                                        const label = getCustomerTypeLabel(customerTypeKey);
-                                                        return (
-                                                            <Card key={customerTypeKey} className="p-3">
-                                                                <button
-                                                                    onClick={() => fetchCustomerTypeDetails(customerTypeKey)}
-                                                                    className="w-full text-left hover:bg-gray-50 rounded-md p-2 -m-2 transition-colors"
-                                                                    disabled={reportLoading || detailsLoading}
-                                                                >
-                                                                    <div className="flex items-center justify-between">
-                                                                        <div>
-                                                                            <p className="text-sm font-medium">{label}</p>
-                                                                            <p className="text-lg font-semibold text-blue-600">{count}</p>
-                                                                        </div>
-                                                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                                                    </div>
-                                                                </button>
-                                                            </Card>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-            {selectedCustomerTypeForDetails && (
-                        <div className="rounded-lg border bg-card">
-                            <div className="p-4 border-b">
-                                <h3 className="text-base font-medium text-foreground">
-                                    Visit Details for {selectedCustomerTypeLabel}
-                                </h3>
-                                <p className="text-sm text-muted-foreground">
-                                    {selectedEmployeeName !== "Select Employee" && `Employee: ${selectedEmployeeName} • ${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`}
-                                </p>
-                            </div>
-                            
-                            {detailsLoading && (
-                                <div className="flex justify-center items-center py-12">
-                                    <div className="flex flex-col items-center gap-3">
-                                        <Loader className="w-8 h-8 animate-spin text-primary" />
-                                        <p className="text-sm text-muted-foreground">Loading visit details...</p>
-                                    </div>
-                                </div>
-                            )}
-                            
-                            {detailsError && (
-                                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md m-4">
-                                    <p><strong>Error:</strong> {detailsError}</p>
-                                </div>
-                            )}
-                            
-                            {!detailsLoading && !detailsError && visitDetails && (
-                                visitDetails.length > 0 ? (
-                                    <>
-                                        {/* Desktop Table View */}
-                                        <div className="hidden md:block overflow-x-auto">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead>Customer Name</TableHead>
-                                                        <TableHead>City</TableHead>
-                                                        <TableHead>Taluka</TableHead>
-                                                        <TableHead>State</TableHead>
-                                                        <TableHead>Last Visited</TableHead>
-                                                        <TableHead>Visit Count</TableHead>
-                                                        <TableHead>Average Stock</TableHead>
-                                                        <TableHead>Customer Type</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {visitDetails
-                                                        .slice()
-                                                        .sort((a, b) => {
-                                                            const dateA = new Date(a.lastVisited).getTime();
-                                                            const dateB = new Date(b.lastVisited).getTime();
-                                                            return dateB - dateA;
-                                                        })
-                                                        .map((detail, index) => (
-                                                            <TableRow key={index}>
-                                                                <TableCell className="font-medium">
-                                                                    <Link 
-                                                                      href={`/dashboard/customers/${detail.storeId}`}
-                                                                      className="text-primary hover:text-primary/80 hover:underline"
-                                                                    >
-                                                                      {detail.customerName}
-                                                                    </Link>
-                                                                </TableCell>
-                                                                <TableCell>{detail.city}</TableCell>
-                                                                <TableCell>{detail.taluka}</TableCell>
-                                                                <TableCell>{detail.state}</TableCell>
-                                                                <TableCell>{dayjs(detail.lastVisited).format('MMM D, YYYY')}</TableCell>
-                                                                <TableCell>{detail.visitCount}</TableCell>
-                                                                <TableCell>
-                                                                    {(() => {
-                                                                        const val = getAverageStock(detail);
-                                                                        if (val % 1 === 0) return formatAverageStock(val);
-                                                                        const rounded = Math.round(val * 10) / 10;
-                                                                        return formatAverageStock(rounded);
-                                                                    })()}
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <Badge variant="outline">
-                                                                        {detail.customerType}
-                                                                    </Badge>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-
-                                        {/* Mobile Card View */}
-                                        <div className="md:hidden space-y-4 p-4">
-                                            {visitDetails
-                                                .slice()
-                                                .sort((a, b) => {
-                                                    const dateA = new Date(a.lastVisited).getTime();
-                                                    const dateB = new Date(b.lastVisited).getTime();
-                                                    return dateB - dateA;
-                                                })
-                                                .map((detail, index) => (
-                                                    <Card key={index} className="overflow-hidden">
-                                                        <CardHeader className="pb-3">
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex-1">
-                                                                    <Link 
-                                                                        href={`/dashboard/customers/${detail.storeId}`}
-                                                                        className="text-primary hover:text-primary/80 hover:underline"
-                                                                    >
-                                                                        <CardTitle className="text-base font-medium">
-                                                                            {detail.customerName}
-                                                                        </CardTitle>
-                                                                    </Link>
-                                                                    <div className="flex items-center space-x-2 mt-1">
-                                                                        <Badge variant="outline" className="text-xs">
-                                                                            {detail.customerType}
-                                                                        </Badge>
-                                                                    </div>
-                                                                </div>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    onClick={() => toggleVisitCardExpansion(index)}
-                                                                >
-                                                                    {expandedVisitCards.has(index) ? (
-                                                                        <ChevronUp className="h-5 w-5" />
-                                                                    ) : (
-                                                                        <ChevronDown className="h-5 w-5" />
-                                                                    )}
-                                                                </Button>
-                                                            </div>
-                                                        </CardHeader>
-                                                        <CardContent className="pt-0">
-                                                            <div className="grid grid-cols-2 gap-4">
-                                                                <div className="flex items-center space-x-2">
-                                                                    <MapPin className="h-4 w-4 text-blue-500" />
-                                                                    <div>
-                                                                        <p className="text-xs text-muted-foreground">Location</p>
-                                                                        <p className="text-sm font-medium">{detail.city}, {detail.state}</p>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center space-x-2">
-                                                                    <Calendar className="h-4 w-4 text-green-500" />
-                                                                    <div>
-                                                                        <p className="text-xs text-muted-foreground">Last Visit</p>
-                                                                        <p className="text-sm font-medium">{dayjs(detail.lastVisited).format('MMM D, YYYY')}</p>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {expandedVisitCards.has(index) && (
-                                                                <div className="mt-4 space-y-3 pt-4 border-t">
-                                                                    <div className="grid grid-cols-2 gap-4">
-                                                                        <div className="flex items-center space-x-2">
-                                                                            <Target className="h-4 w-4 text-purple-500" />
-                                                                            <div>
-                                                                                <p className="text-xs text-muted-foreground">Visit Count</p>
-                                                                                <p className="text-sm font-medium">{detail.visitCount}</p>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex items-center space-x-2">
-                                                                            <Package className="h-4 w-4 text-yellow-500" />
-                                                                            <div>
-                                                                                <p className="text-xs text-muted-foreground">Stock</p>
-                                                                                <p className="text-sm font-medium">
-                                                                                    {(() => {
-                                                                                        const val = getAverageStock(detail);
-                                                                                        if (val % 1 === 0) return formatAverageStock(val);
-                                                                                        const rounded = Math.round(val * 10) / 10;
-                                                                                        return formatAverageStock(rounded);
-                                                                                    })()}
-                                                                                </p>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                    {detail.taluka && (
-                                                                        <div className="flex items-center space-x-2">
-                                                                            <Building className="h-4 w-4 text-gray-500" />
-                                                                            <div>
-                                                                                <p className="text-xs text-muted-foreground">Taluka</p>
-                                                                                <p className="text-sm font-medium">{detail.taluka}</p>
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </CardContent>
-                                                    </Card>
-                                                ))}
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="p-8 text-center">
-                                        <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                                        <p className="text-muted-foreground">No visit details found for {selectedCustomerTypeLabel}</p>
-                                    </div>
-                                )
-                            )}
-                        </div>
-                    )}
+              {!detailsLoading && !detailsError && visitDetails && (
+                visitDetails.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table aria-label={`${selectedCustomerTypeLabel} visit details`}>
+                      <TableHeader className="bg-muted/30">
+                        <TableRow>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>City</TableHead>
+                          <TableHead>Taluka</TableHead>
+                          <TableHead>State</TableHead>
+                          <TableHead>Last visited</TableHead>
+                          <TableHead>Visits</TableHead>
+                          <TableHead>Average stock</TableHead>
+                          <TableHead>Intent</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visitDetails
+                          .slice()
+                          .sort((a, b) => {
+                            const dateA = new Date(a.lastVisited).getTime();
+                            const dateB = new Date(b.lastVisited).getTime();
+                            return dateB - dateA;
+                          })
+                          .map((detail) => (
+                            <TableRow key={detail.storeId}>
+                              <TableCell className="font-medium">
+                                <Link href={`/dashboard/customers/${detail.storeId}`} className="text-primary hover:text-primary/80 hover:underline">
+                                  {detail.customerName}
+                                </Link>
+                              </TableCell>
+                              <TableCell>{detail.city || "—"}</TableCell>
+                              <TableCell>{detail.taluka || "—"}</TableCell>
+                              <TableCell>{detail.state || "—"}</TableCell>
+                              <TableCell>{dayjs(detail.lastVisited).format('MMM DD, YYYY')}</TableCell>
+                              <TableCell>{detail.visitCount}</TableCell>
+                              <TableCell>
+                                {formatStockQuantity(detail.avgStock ?? detail.avgMonthlySales ?? 0, "0 tons")}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="secondary">
+                                  {detail.avgIntentLevel == null ? "—" : Number(detail.avgIntentLevel).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No visit details found for {selectedCustomerTypeLabel}</p>
+                  </div>
+                )
+              )}
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   );
-};
-
-export default ReportsPage;
+}
