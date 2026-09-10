@@ -3,18 +3,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { 
-  CheckCircle, 
-  Clock, 
+import {
+  CheckCircle,
+  Clock,
   XCircle,
   Check,
   X,
   Calendar,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Eye
 } from "lucide-react";
 import { format } from "date-fns";
 import { Separator } from "@/components/ui/separator";
+import type { ExpensePhotoAttachment } from "@/components/expense-details-dialog";
 
 interface Expense {
   id: number;
@@ -23,6 +25,7 @@ interface Expense {
   amount: number;
   description: string;
   status: "approved" | "pending" | "rejected";
+  attachments?: ExpensePhotoAttachment[];
 }
 
 interface Employee {
@@ -45,16 +48,18 @@ interface EmployeeExpenseCardProps {
   onReject?: (employeeName: string, expenseId: number) => void;
   onApproveMultiple?: (employeeName: string, expenseIds: number[]) => void;
   onRejectMultiple?: (employeeName: string, expenseIds: number[]) => void;
+  onViewDetails?: (expense: Expense & { employeeName: string; employeePosition: string }) => void;
 }
 
-export default function EmployeeExpenseCard({ 
-  employee, 
-  showExpenses, 
-  onToggleExpenses, 
-  onApprove, 
-  onReject, 
-  onApproveMultiple, 
-  onRejectMultiple 
+export default function EmployeeExpenseCard({
+  employee,
+  showExpenses,
+  onToggleExpenses,
+  onApprove,
+  onReject,
+  onApproveMultiple,
+  onRejectMultiple,
+  onViewDetails
 }: EmployeeExpenseCardProps) {
   const [expenses, setExpenses] = useState(employee.expenses);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<number[]>([]);
@@ -204,7 +209,7 @@ export default function EmployeeExpenseCard({
                       </p>
                       <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                         <Calendar className="h-2.5 w-2.5" />
-                        <span>{format(new Date(expense.date), "MMM d, yyyy")}</span>
+                        <span>{format(new Date(expense.date), "MMM d")}</span>
                       </div>
                     </div>
                   </div>
@@ -213,6 +218,22 @@ export default function EmployeeExpenseCard({
                     <span className="font-bold text-xs text-foreground">
                       ₹{expense.amount.toFixed(2)}
                     </span>
+                    {onViewDetails && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
+                        onClick={() => onViewDetails({
+                          ...expense,
+                          employeeName: employee.name,
+                          employeePosition: employee.position,
+                        })}
+                        title="View expense details"
+                      >
+                        <Eye className="h-3 w-3" />
+                        <span className="sr-only">View expense details</span>
+                      </Button>
+                    )}
                     {expense.status === "pending" ? (
                       <div className="flex items-center gap-1">
                         <Button

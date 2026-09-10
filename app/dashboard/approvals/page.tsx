@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
     Check, 
     X, 
@@ -15,8 +15,7 @@ import {
     MessageSquareText
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { apiService, API_BASE_URL, type TeamDataDto, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
-import { Card } from '@/components/ui/card';
+import { apiService, API_BASE_URL, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +24,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect, type SearchableOption } from '@/components/ui/searchable-select2';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SpacedCalendar } from '@/components/ui/spaced-calendar';
+import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { format } from 'date-fns';
 
 type ApprovalTypeValue = 'full day' | 'half day';
 type ApprovalTypeState = Record<number, ApprovalTypeValue>;
@@ -36,7 +39,7 @@ interface ProcessedApprovalRequest extends ApprovalRequest {
 }
 
 export default function ApprovalsPage() {
-    const { token, userData } = useAuth();
+    const { token } = useAuth();
     const [requests, setRequests] = useState<ProcessedApprovalRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -44,6 +47,8 @@ export default function ApprovalsPage() {
     
     // UI State
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+    const [startDate, setStartDate] = useState<Date>();
+    const [endDate, setEndDate] = useState<Date>();
     const [eligibleEmployees, setEligibleEmployees] = useState<{ id: number; firstName: string; lastName: string; role?: string }[]>([]);
     const [activeTab, setActiveTab] = useState<string>('pending');
     const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
@@ -54,63 +59,25 @@ export default function ApprovalsPage() {
     const [pageSize, setPageSize] = useState(10);
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
+    const requestSequence = useRef(0);
+    const statusSequence = useRef(0);
+    const hasLoadedRequests = useRef(false);
     
-    // Role State
-    const [isManager, setIsManager] = useState(false);
-    const [isAdmin, setIsAdmin] = useState(false);
-    const [isFieldOfficer, setIsFieldOfficer] = useState(false);
-    const [teamId, setTeamId] = useState<number | null>(null);
-
     // Cache for status counts
     const [statusCounts, setStatusCounts] = useState({
         pending: 0,
         total: 0
     });
 
-    // 1. Role Identification
-    useEffect(() => {
-        const fetchCurrentUser = async () => {
-            if (!token) return;
-            try {
-                const response = await fetch(`${API_BASE_URL}/user/manage/current-user`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                });
-                
-                if (response.ok) {
-                    const uData = await response.json();
-                    const authorities = uData.authorities || [];
-                    const role = authorities.length > 0 ? authorities[0].authority : null;
-                    
-                    setIsManager(role === 'ROLE_MANAGER' || role === 'ROLE_AVP');
-                    setIsAdmin(role === 'ROLE_ADMIN');
-                    setIsFieldOfficer(role === 'ROLE_FIELD OFFICER');
-                }
-            } catch (err) {
-                console.error('Error fetching current user:', err);
-            }
-        };
-        fetchCurrentUser();
-    }, [token]);
+    const selectedEmployeeName = useMemo(() => {
+        const employee = eligibleEmployees.find(item => String(item.id) === selectedEmployeeId);
+        return employee ? `${employee.firstName} ${employee.lastName}`.trim() : undefined;
+    }, [eligibleEmployees, selectedEmployeeId]);
+    const formattedStartDate = startDate ? format(startDate, 'yyyy-MM-dd') : undefined;
+    const formattedEndDate = endDate ? format(endDate, 'yyyy-MM-dd') : undefined;
+    const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
 
-    // 2. Load Team Data
-    useEffect(() => {
-        const loadTeamData = async () => {
-            if ((!isManager && !isFieldOfficer) || !userData?.employeeId) return;
-            try {
-                const teamData: TeamDataDto[] = await apiService.getTeamByEmployee(userData.employeeId);
-                if (teamData.length > 0) {
-                    setTeamId(teamData[0].id);
-                } else {
-                    setTeamId(6);
-                }
-            } catch (err) {
-                setTeamId(6);
-            }
-        };
-        loadTeamData();
-    }, [isManager, isFieldOfficer, userData?.employeeId]);
-
-    // 3. Load Employee Options
+    // 1. Load Employee Options
     useEffect(() => {
         if (!token) return;
         let isMounted = true;
@@ -145,122 +112,83 @@ export default function ApprovalsPage() {
         };
     }, [token]);
 
-    // 4. Fetch Status Counts
+    // 2. Fetch Status Counts
     const fetchStatusCounts = useCallback(async () => {
         if (!token) return;
-        if ((isManager || isFieldOfficer) && teamId === null) return;
+        const sequence = ++statusSequence.current;
+        if (dateRangeInvalid) return;
         
         try {
-            if (isAdmin || (!isManager && !isFieldOfficer)) {
-                const [allRes, pendingRes] = await Promise.allSettled([
-                    apiService.getAttendanceRequestsPaginated(0, 1, 'requestDate', 'desc'),
-                    apiService.getAttendanceRequestsByStatusPaginated('pending', 0, 1, 'requestDate', 'desc')
-                ]);
-                
-                const totalCount = allRes.status === 'fulfilled' ? allRes.value.totalElements : 0;
-                const pendingCount = pendingRes.status === 'fulfilled' ? pendingRes.value.totalElements : 0;
-                
-                setStatusCounts({ pending: pendingCount, total: totalCount });
-            } else if (teamId) {
-                const url = `${API_BASE_URL}/expense/getForTeam?id=${teamId}`;
-                const response = await fetch(url, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                
-                if (response.ok) {
-                    const data: ApprovalRequest[] = await response.json();
-                    setStatusCounts({
-                        pending: data.filter(r => r.status?.toLowerCase() === 'pending').length,
-                        total: data.length
-                    });
-                }
-            }
+            const commonFilters = {
+                startDate: formattedStartDate,
+                endDate: formattedEndDate,
+                employeeName: selectedEmployeeName,
+            };
+            const [allRes, pendingRes] = await Promise.allSettled([
+                apiService.getAttendanceRequestsByFiltersPaginated(commonFilters, 0, 1, 'requestDate', 'desc'),
+                apiService.getAttendanceRequestsByFiltersPaginated({ ...commonFilters, status: 'pending' }, 0, 1, 'requestDate', 'desc')
+            ]);
+            if (sequence !== statusSequence.current) return;
+            setStatusCounts({
+                total: allRes.status === 'fulfilled' ? allRes.value.totalElements : 0,
+                pending: pendingRes.status === 'fulfilled' ? pendingRes.value.totalElements : 0,
+            });
         } catch (err) {
             console.error('Failed to fetch status counts:', err);
         }
-    }, [token, isAdmin, isManager, isFieldOfficer, teamId]);
+    }, [token, dateRangeInvalid, formattedStartDate, formattedEndDate, selectedEmployeeName]);
 
-    // 5. Fetch Requests List
+    // 3. Fetch Requests List
     const fetchRequests = useCallback(async () => {
         if (!token) return;
-        if ((isManager || isFieldOfficer) && teamId === null) return;
+        const sequence = ++requestSequence.current;
+        if (dateRangeInvalid) {
+            setLoading(false);
+            setIsRefreshing(false);
+            return;
+        }
         
         try {
-            if (requests.length === 0) setLoading(true);
+            if (!hasLoadedRequests.current) setLoading(true);
             else setIsRefreshing(true);
             setError(null);
 
-            if ((isManager || isFieldOfficer) && teamId) {
-                const url = `${API_BASE_URL}/expense/getForTeam?id=${teamId}`;
-                const response = await fetch(url, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (!response.ok) throw new Error('Failed to fetch team requests');
-                let data: ProcessedApprovalRequest[] = await response.json();
-
-                if (selectedEmployeeId) {
-                    data = data.filter(r => String(r.employeeId) === selectedEmployeeId);
-                }
-
-                setRequests(data);
-                setTotalPages(Math.ceil(data.length / pageSize) || 1);
-                setTotalElements(data.length);
-            } else {
-                let response: AttendanceRequestPageResponse;
-                const filterStatus = activeTab === 'pending' ? 'pending' : undefined;
-
-                if (selectedEmployeeId) {
-                    const empObj = eligibleEmployees.find(e => String(e.id) === selectedEmployeeId);
-                    const empName = empObj ? `${empObj.firstName} ${empObj.lastName}`.trim() : undefined;
-
-                    response = await apiService.getAttendanceRequestsByFiltersPaginated(
-                        {
-                            status: filterStatus,
-                            employeeName: empName
-                        },
-                        currentPage,
-                        pageSize,
-                        'requestDate',
-                        'desc'
-                    );
-                } else if (activeTab === 'pending') {
-                    response = await apiService.getAttendanceRequestsByStatusPaginated(
-                        'pending',
-                        currentPage,
-                        pageSize,
-                        'requestDate',
-                        'desc'
-                    );
-                } else {
-                    response = await apiService.getAttendanceRequestsPaginated(
-                        currentPage,
-                        pageSize,
-                        'requestDate',
-                        'desc'
-                    );
-                }
-
-                setRequests(response.content || []);
-                setTotalPages(response.totalPages || 1);
-                setTotalElements(response.totalElements || 0);
-            }
+            const response: AttendanceRequestPageResponse = await apiService.getAttendanceRequestsByFiltersPaginated(
+                {
+                    status: activeTab === 'pending' ? 'pending' : undefined,
+                    startDate: formattedStartDate,
+                    endDate: formattedEndDate,
+                    employeeName: selectedEmployeeName,
+                },
+                currentPage,
+                pageSize,
+                'requestDate',
+                'desc'
+            );
+            if (sequence !== requestSequence.current) return;
+            hasLoadedRequests.current = true;
+            setRequests(response.content || []);
+            setTotalPages(response.totalPages || 1);
+            setTotalElements(response.totalElements || 0);
         } catch (err) {
+            if (sequence !== requestSequence.current) return;
             setError('Failed to fetch approval requests. Please try again.');
         } finally {
+            if (sequence !== requestSequence.current) return;
             setLoading(false);
             setIsRefreshing(false);
         }
-    }, [token, isManager, isFieldOfficer, teamId, currentPage, pageSize, activeTab, selectedEmployeeId, eligibleEmployees]);
+    }, [token, dateRangeInvalid, formattedStartDate, formattedEndDate, selectedEmployeeName, currentPage, pageSize, activeTab]);
 
     useEffect(() => {
         fetchStatusCounts();
-    }, [token, teamId, fetchStatusCounts]);
+    }, [fetchStatusCounts]);
 
     useEffect(() => {
         fetchRequests();
-    }, [token, teamId, currentPage, pageSize, activeTab, selectedEmployeeId, fetchRequests]);
+    }, [fetchRequests]);
 
-    // 6. Action Handler (Approve / Reject)
+    // 4. Action Handler (Approve / Reject)
     const handleAction = async (id: number, action: 'approved' | 'rejected') => {
         if (!token || savingIds.includes(id)) return;
         
@@ -300,7 +228,7 @@ export default function ApprovalsPage() {
         }
     };
 
-    // 7. Duplicate Processing & Filtered Results
+    // 5. Duplicate Processing & Filtered Results
     const processedRequests = useMemo(() => {
         const grouped = requests.reduce((acc, req) => {
             const key = `${req.employeeId}-${req.logDate}`;
@@ -354,13 +282,13 @@ export default function ApprovalsPage() {
         <div className="mx-auto w-full max-w-none py-4 space-y-4">
             <Tabs defaultValue="pending" value={activeTab} onValueChange={(val) => { setActiveTab(val); setCurrentPage(0); }} className="space-y-4">
                 <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-                    <TabsList className="grid h-9 w-full grid-cols-2 p-1 sm:w-[320px]">
-                        <TabsTrigger value="pending">Pending requests</TabsTrigger>
-                        <TabsTrigger value="history">Request history</TabsTrigger>
+                    <TabsList className="grid h-9 w-full shrink-0 grid-cols-2 p-1 sm:w-[300px]">
+                        <TabsTrigger value="pending" className="text-xs">Pending requests</TabsTrigger>
+                        <TabsTrigger value="history" className="text-xs">Request history</TabsTrigger>
                     </TabsList>
-                    
-                    <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        <div className="min-w-[220px] flex-1 sm:max-w-[300px]">
+
+                    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:flex-nowrap lg:justify-end">
+                        <div className="w-full sm:w-[200px] sm:shrink-0">
                             <Label className="sr-only">Employee</Label>
                             <SearchableSelect
                                 options={employeeOptions}
@@ -370,11 +298,63 @@ export default function ApprovalsPage() {
                                 searchPlaceholder="Search employees..."
                                 emptyMessage="No employees found"
                                 allowClear
-                                triggerClassName="h-9 w-full bg-background text-sm shadow-none"
+                                triggerClassName="h-9 w-full bg-background text-xs shadow-none"
                             />
                         </div>
 
-                        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="From date">
+                                    <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{startDate ? format(startDate, 'MMM dd, yyyy') : 'From date'}</span>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                                <SpacedCalendar
+                                    initialFocus
+                                    mode="single"
+                                    selected={startDate}
+                                    defaultMonth={startDate || endDate}
+                                    onSelect={(date) => {
+                                        setStartDate(date);
+                                        if (date && endDate && date > endDate) setEndDate(undefined);
+                                        setCurrentPage(0);
+                                    }}
+                                />
+                            </PopoverContent>
+                        </Popover>
+
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="To date">
+                                    <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{endDate ? format(endDate, 'MMM dd, yyyy') : 'To date'}</span>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                                <SpacedCalendar
+                                    initialFocus
+                                    mode="single"
+                                    selected={endDate}
+                                    defaultMonth={endDate || startDate}
+                                    disabled={date => Boolean(startDate && date < startDate)}
+                                    onSelect={(date) => { setEndDate(date); setCurrentPage(0); }}
+                                />
+                            </PopoverContent>
+                        </Popover>
+
+                        {(startDate || endDate) && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-2 text-xs"
+                                onClick={() => { setStartDate(undefined); setEndDate(undefined); setCurrentPage(0); }}
+                            >
+                                Clear dates
+                            </Button>
+                        )}
+
+                        <div className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
                             <Clock className="h-3.5 w-3.5 text-amber-600" />
                             <span><span className="font-semibold text-foreground">{statusCounts.pending}</span> pending</span>
                             <span className="text-border">•</span>
@@ -394,6 +374,8 @@ export default function ApprovalsPage() {
                     </div>
                 </div>
 
+                <DateRangeError fromDate={startDate} toDate={endDate} />
+
                 {error && (
                     <div className="p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-center justify-between">
                         <span>{error}</span>
@@ -401,7 +383,7 @@ export default function ApprovalsPage() {
                     </div>
                 )}
 
-                <Card className="overflow-hidden border border-border/70 bg-card shadow-sm gap-0 py-0">
+                <div className="w-full space-y-4">
                     <div className="w-full align-middle">
                         <div className="hidden lg:grid grid-cols-12 gap-4 border-b bg-muted/30 px-5 py-2.5 text-[11px] font-medium text-muted-foreground">
                             <div className="col-span-4">Employee</div>
@@ -430,10 +412,10 @@ export default function ApprovalsPage() {
                             )}
                         </div>
                     </div>
-                </Card>
+                </div>
 
                 {/* Pagination Controls */}
-                {totalPages > 1 && (
+                {totalElements > 0 && (
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs">
                         <div className="flex items-center gap-2">
                             <Label htmlFor="pageSize" className="text-muted-foreground">Rows per page:</Label>
@@ -461,7 +443,7 @@ export default function ApprovalsPage() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                                disabled={currentPage === 0 || loading}
+                                disabled={currentPage === 0 || loading || isRefreshing || dateRangeInvalid}
                                 className="h-8 text-xs shadow-none"
                             >
                                 Previous
@@ -473,7 +455,7 @@ export default function ApprovalsPage() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => setCurrentPage(p => p + 1)}
-                                disabled={loading || currentPage >= totalPages - 1}
+                                disabled={loading || isRefreshing || dateRangeInvalid || currentPage >= totalPages - 1}
                                 className="h-8 text-xs shadow-none"
                             >
                                 Next

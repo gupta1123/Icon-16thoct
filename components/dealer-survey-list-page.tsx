@@ -24,7 +24,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -186,13 +186,13 @@ function BrandBadges({ dealer }: { dealer: SurveyDealerDto }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex max-w-[140px] flex-wrap gap-1 overflow-hidden">
       {brands.slice(0, 2).map((brand, index) => (
-        <Badge key={`${brand}-${index}`} variant="outline" className="max-w-[120px] truncate text-[11px] px-1.5 py-0">
+        <Badge key={`${brand}-${index}`} variant="outline" title={brand} className="max-w-[120px] truncate text-[11px] px-1.5 py-0">
           {brand}
         </Badge>
       ))}
-      {brands.length > 2 && <Badge variant="secondary" className="text-[11px] px-1 py-0">+{brands.length - 2}</Badge>}
+      {brands.length > 2 && <Badge variant="secondary" title={`${brands.length - 2} more brands`} className="shrink-0 text-[11px] px-1 py-0">+{brands.length - 2}</Badge>}
     </div>
   );
 }
@@ -368,17 +368,16 @@ export default function DealerSurveyListPage() {
       </div>
 
       {/* Main Container */}
-      <Card className="gap-0 border-border/70 py-0 shadow-sm">
-        <CardContent className="space-y-4 p-4">
+      <div className="w-full space-y-4">
           {/* Header & Filter Controls Section */}
-          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-end lg:gap-2">
               {/* Text Search Input */}
-              <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="min-w-0 space-y-1.5 lg:w-60 lg:shrink-0">
                 <Label className="text-xs font-medium text-foreground">Search Dealer / Owner / City</Label>
                 <div className="relative">
                   <Input
-                    placeholder="Search dealer, owner, city, phone..."
+                    placeholder="Search dealer, owner, city"
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
@@ -503,7 +502,7 @@ export default function DealerSurveyListPage() {
           )}
 
           {/* Desktop Table View */}
-          <div className="hidden min-w-0 overflow-x-auto rounded-md border md:block">
+          <div className="hidden min-w-0 overflow-x-auto md:block">
             <Table className="table-fixed text-xs font-poppins">
               <colgroup>
                 <col className="w-[17%]" />
@@ -572,7 +571,7 @@ export default function DealerSurveyListPage() {
                       <TableCell className="overflow-hidden">
                         <Ellipsis value={formatDateTime(dealer.completedAt, dealer.completedTime)} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="max-w-[140px] overflow-hidden">
                         <BrandBadges dealer={dealer} />
                       </TableCell>
                       <TableCell className="text-center px-1">
@@ -715,8 +714,7 @@ export default function DealerSurveyListPage() {
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Navigating Loader Overlay */}
       {isNavigating && (

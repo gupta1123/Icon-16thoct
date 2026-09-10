@@ -561,8 +561,7 @@ export default function VisitsTable() {
   };
 
   return (
-    <Card className="gap-0 border-border/70 py-0 shadow-sm">
-      <CardContent className="space-y-4 p-4">
+    <div className="w-full space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setAreFiltersVisible((visible) => !visible)}>
@@ -780,7 +779,6 @@ export default function VisitsTable() {
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

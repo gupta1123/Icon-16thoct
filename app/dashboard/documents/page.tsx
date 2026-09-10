@@ -20,7 +20,7 @@ import { useAuth } from "@/components/auth-provider";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -269,13 +269,7 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight">Document Library</h2>
-          <p className="text-sm text-muted-foreground">
-            Upload and manage PDF documents shared with dashboard users.
-          </p>
-        </div>
+      <div className="flex flex-wrap justify-end gap-2">
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={loadDocuments} disabled={isLoading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
@@ -288,17 +282,13 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="h-5 w-5" />
-            Documents
-          </CardTitle>
+      <div className="w-full space-y-4">
+        <div className="flex flex-row items-center justify-end gap-4">
           <Badge variant="secondary">
             {documents.length} total
           </Badge>
-        </CardHeader>
-        <CardContent>
+        </div>
+        <div>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -374,8 +364,8 @@ export default function DocumentsPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Dialog
         open={isUploadOpen}

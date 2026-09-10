@@ -1,14 +1,35 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { SearchIcon, Loader2, Grid3X3, Table as TableIcon, CalendarIcon, Download, Check, X } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Grid3X3, Table as TableIcon, Download, Eye, MoreHorizontal, CheckCircle, XCircle } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import EmployeeExpenseCard from "@/components/employee-expense-card";
+import ExpenseDetailsDialog, { type ExpensePhotoAttachment, type ExpenseViewModel } from "@/components/expense-details-dialog";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select2";
 import { Text } from "@/components/ui/typography";
-import { apiService, ExpenseDto } from "@/lib/api";
+import { API, apiService, type EmployeeUserDto, type ExpenseDto } from "@/lib/api";
+import { getEmployeeRoleCategory, getEmployeeRoleLabel } from "@/lib/employee-role";
 import {
   Table,
   TableBody,
@@ -18,12 +39,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format, startOfMonth } from "date-fns";
+import { format } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 
 interface Expense {
   id: number;
@@ -32,6 +50,7 @@ interface Expense {
   amount: number;
   description: string;
   status: "approved" | "pending" | "rejected";
+  attachments: ExpensePhotoAttachment[];
 }
 
 interface Employee {
@@ -126,23 +145,53 @@ const mockEmployees = [
   },
 ];
 
+const months = [
+  { value: "all", label: "All Months" },
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+];
+
+const currentYear = new Date().getFullYear();
+const years = Array.from({ length: 2030 - currentYear + 6 }, (_, i) => currentYear - 5 + i);
+
 const today = new Date();
-const defaultStartDate = format(startOfMonth(today), 'yyyy-MM-dd');
-const defaultEndDate = format(today, 'yyyy-MM-dd');
+const defaultMonth = (today.getMonth() + 1).toString().padStart(2, "0");
+const defaultYear = today.getFullYear().toString();
+
+const normalizeExpenseAttachments = (value: unknown): ExpensePhotoAttachment[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((attachment): attachment is Record<string, unknown> => typeof attachment === "object" && attachment !== null)
+    .map((attachment) => ({
+      fileName: String(attachment.fileName ?? ""),
+      fileDownloadUri: typeof attachment.fileDownloadUri === "string" ? attachment.fileDownloadUri : undefined,
+      fileType: String(attachment.fileType ?? ""),
+    }))
+    .filter((attachment) => attachment.fileName !== "");
+};
 
 export default function ExpensesPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStartDate, setSelectedStartDate] = useState(defaultStartDate);
-  const [selectedEndDate, setSelectedEndDate] = useState(defaultEndDate);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const [selectedYear, setSelectedYear] = useState(defaultYear);
   const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState<EmployeeUserDto[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  const [selectedExpense, setSelectedExpense] = useState<ExpenseViewModel | null>(null);
   const { token, userRole, currentUser } = useAuth();
-  const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false);
-  const [isEndDatePickerOpen, setIsEndDatePickerOpen] = useState(false);
-  const [dateError, setDateError] = useState<string | null>(null);
 
   const hasAuthority = useCallback((role: string) => {
     const normalizedRole = role.replace('ROLE_', '').toUpperCase();
@@ -193,7 +242,8 @@ export default function ExpensesPage() {
         category: category,
         amount: expense.amount,
         description: expense.description,
-        status: validStatus
+        status: validStatus,
+        attachments: normalizeExpenseAttachments(expense.attachmentResponse)
       };
 
       employee.expenses.push(transformedExpense);
@@ -385,35 +435,26 @@ export default function ExpensesPage() {
     }
   };
 
-  // Load expenses data
+  // Load expenses data for the selected month/year
   const loadExpenses = useCallback(async () => {
-    if (!selectedStartDate || !selectedEndDate) {
-      setDateError('Please select both start and end dates.');
-      return;
+    let startDate: string;
+    let endDate: string;
+
+    if (selectedMonth === "all") {
+      startDate = `${selectedYear}-01-01`;
+      endDate = `${selectedYear}-12-31`;
+    } else {
+      const month = selectedMonth.padStart(2, '0');
+      startDate = `${selectedYear}-${month}-01`;
+      const lastDay = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
+      endDate = `${selectedYear}-${month}-${lastDay.toString().padStart(2, '0')}`;
     }
 
-    const start = new Date(selectedStartDate);
-    const end = new Date(selectedEndDate);
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      setDateError('Please select valid dates.');
-      return;
-    }
-
-    if (start > end) {
-      setDateError('Start date cannot be after end date.');
-      return;
-    }
-
-    setDateError(null);
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const expenses = await apiService.getExpensesByDateRange(
-        format(start, 'yyyy-MM-dd'),
-        format(end, 'yyyy-MM-dd')
-      );
+      const expenses = await apiService.getExpensesByDateRange(startDate, endDate);
       const transformedEmployees = transformExpenseData(expenses);
       setEmployees(transformedEmployees);
     } catch (err) {
@@ -423,19 +464,39 @@ export default function ExpensesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedStartDate, selectedEndDate, token]);
+  }, [selectedMonth, selectedYear, token]);
 
   useEffect(() => {
     void loadExpenses();
   }, [loadExpenses]);
 
-  const filteredEmployees = employees.filter(employee => {
-    const matchesSearch = searchTerm === "" || 
-      employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.position.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    const loadEmployeeDirectory = async () => {
+      try {
+        const directory = await API.getAllEmployees();
+        setEmployeeDirectory(directory.filter((employee) => {
+          const category = getEmployeeRoleCategory(employee.role);
+          return category === "field-officer" || category === "regional-manager";
+        }));
+      } catch (directoryError) {
+        console.error("Error loading employee directory:", directoryError);
+      }
+    };
 
-    return matchesSearch;
-  });
+    loadEmployeeDirectory();
+  }, []);
+
+  const employeeOptions = useMemo<SearchableOption[]>(() => employeeDirectory
+    .map((employee) => ({
+      value: String(employee.id),
+      label: `${employee.firstName} ${employee.lastName}`.trim(),
+      description: getEmployeeRoleLabel(employee.role),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [employeeDirectory]);
+
+  const filteredEmployees = employees.filter((employee) =>
+    !selectedEmployeeId || String(employee.id) === selectedEmployeeId
+  );
 
   const toggleCardExpansion = (id: number) => {
     setExpandedCardId(expandedCardId === id ? null : id);
@@ -456,21 +517,37 @@ export default function ExpensesPage() {
   };
 
   // Flatten expenses for table view
-  const allExpenses = employees.flatMap(employee => 
+  const allExpenses = employees.flatMap(employee =>
     employee.expenses.map(expense => ({
       ...expense,
+      employeeId: employee.id,
       employeeName: employee.name,
       employeePosition: employee.position
     }))
   );
+  const filteredTableExpenses = allExpenses.filter((expense) =>
+    !selectedEmployeeId || String(expense.employeeId) === selectedEmployeeId
+  );
+
+  const toViewModel = (expense: { id: number; date: string; category: string; amount: number; description: string; status: "approved" | "pending" | "rejected"; employeeName: string; employeePosition: string; attachments?: ExpensePhotoAttachment[] }): ExpenseViewModel => ({
+    id: expense.id,
+    date: expense.date,
+    category: expense.category,
+    amount: expense.amount,
+    description: expense.description,
+    status: expense.status,
+    employeeName: expense.employeeName,
+    employeePosition: expense.employeePosition,
+    attachments: expense.attachments ?? [],
+  });
 
   const handleExport = useCallback(() => {
-    if (!canExport || allExpenses.length === 0) {
+    if (!canExport || filteredTableExpenses.length === 0) {
       return;
     }
 
     const header = ['Employee', 'Position', 'Date', 'Category', 'Description', 'Amount', 'Status'];
-    const rows = allExpenses.map((expense) => [
+    const rows = filteredTableExpenses.map((expense) => [
       expense.employeeName,
       expense.employeePosition,
       format(new Date(expense.date), 'yyyy-MM-dd'),
@@ -495,12 +572,12 @@ export default function ExpensesPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `expenses_${selectedStartDate}_${selectedEndDate}.csv`;
+    link.download = `expenses_${selectedYear}_${selectedMonth === "all" ? "all" : selectedMonth}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [allExpenses, canExport, selectedEndDate, selectedStartDate]);
+  }, [filteredTableExpenses, canExport, selectedMonth, selectedYear]);
 
   // Helper to render the card grid (reused for mobile and desktop)
   const renderCards = () => (
@@ -520,6 +597,7 @@ export default function ExpensesPage() {
             onReject={handleReject}
             onApproveMultiple={handleApproveMultiple}
             onRejectMultiple={handleRejectMultiple}
+            onViewDetails={(expense) => setSelectedExpense(toViewModel(expense))}
           />
         ))
       )}
@@ -527,169 +605,85 @@ export default function ExpensesPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <Card className="gap-3 border border-border/60 bg-card p-4 shadow-sm rounded-xl">
-        {/* Header Row */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-1">
-          <div>
-            <h3 className="text-base font-bold text-foreground">Filters</h3>
-            <p className="!mt-1 text-xs leading-5 text-muted-foreground">
-              Track and manage employee expense reports
-            </p>
+    <div className="mx-auto w-full max-w-none py-4 px-4 sm:px-6">
+      <div className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-2 sm:grid-cols-[240px_140px_104px]">
+          <div className="min-w-0">
+            <Label className="sr-only">Employee</Label>
+            <SearchableSelect
+              options={employeeOptions}
+              value={selectedEmployeeId}
+              onSelect={(option) => setSelectedEmployeeId(option?.value ?? "")}
+              placeholder="All employees"
+              searchPlaceholder="Search employees..."
+              emptyMessage="No employees available"
+              noResultsMessage="No matching employees"
+              allowClear
+              triggerClassName="h-9 w-full bg-background text-xs shadow-none"
+              contentClassName="w-[var(--radix-popover-trigger-width)]"
+            />
           </div>
 
-          <div className="hidden md:flex items-center gap-2.5">
-            {canExport && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExport}
-                disabled={isLoading || allExpenses.length === 0}
-                className="h-8 rounded-lg text-xs font-medium"
-              >
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                Export CSV
-              </Button>
-            )}
-            <div className="flex items-center gap-1 bg-muted p-1 rounded-lg border border-border/50">
-              <span className="text-[11px] text-muted-foreground font-medium px-1.5">View:</span>
-              <button
-                onClick={() => setViewMode("card")}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
-                  viewMode === "card" 
-                    ? "bg-background text-foreground shadow-sm" 
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Grid3X3 className="h-3.5 w-3.5" />
-                Cards
-              </button>
-              <button
-                onClick={() => setViewMode("table")}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
-                  viewMode === "table" 
-                    ? "bg-background text-foreground shadow-sm" 
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <TableIcon className="h-3.5 w-3.5" />
-                Table
-              </button>
-            </div>
-          </div>
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="h-9 w-full bg-background text-xs shadow-none" aria-label="Filter by month">
+              <SelectValue placeholder="Month">
+                {months.find(month => month.value === selectedMonth)?.label || "Month"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((month) => (
+                <SelectItem key={month.value} value={month.value}>{month.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedYear} onValueChange={setSelectedYear}>
+            <SelectTrigger className="h-9 w-full bg-background text-xs shadow-none" aria-label="Filter by year">
+              <SelectValue placeholder="Year" />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((year) => (
+                <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <Separator />
-
-        {/* Inputs Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-          {/* Search Input */}
-          <div className="space-y-1 lg:col-span-4">
-            <Label className="text-xs font-semibold text-foreground">Search Employee</Label>
-            <div className="relative">
-              <SearchIcon className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by name or position..."
-                className="pl-9 h-9 text-xs rounded-lg border-border/80"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex overflow-hidden rounded-md border border-border">
+            <Button
+              variant={viewMode === "card" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("card")}
+              className="rounded-r-none h-9 text-xs"
+            >
+              <Grid3X3 className="mr-2 h-4 w-4" />
+              Cards
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("table")}
+              className="rounded-l-none h-9 text-xs"
+            >
+              <TableIcon className="mr-2 h-4 w-4" />
+              Table
+            </Button>
           </div>
-
-          {/* Start Date */}
-          <div className="space-y-1 lg:col-span-3">
-            <Label className="text-xs font-semibold text-foreground">Start Date</Label>
-            <Popover open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full h-9 justify-start text-left font-normal text-xs bg-background border-border/80 rounded-lg"
-                >
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
-                  {selectedStartDate ? format(new Date(selectedStartDate + 'T00:00:00'), 'MMM d, yyyy') : 'Start date'}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 rounded-xl" align="start">
-                <Calendar
-                  mode="single"
-                  selected={selectedStartDate ? new Date(selectedStartDate + 'T00:00:00') : undefined}
-                  onSelect={(date) => {
-                    if (date) {
-                      setSelectedStartDate(format(date, 'yyyy-MM-dd'));
-                    }
-                  }}
-                  initialFocus
-                  disabled={(date) => date > new Date()}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {/* End Date */}
-          <div className="space-y-1 lg:col-span-3">
-            <Label className="text-xs font-semibold text-foreground">End Date</Label>
-            <Popover open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full h-9 justify-start text-left font-normal text-xs bg-background border-border/80 rounded-lg"
-                >
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
-                  {selectedEndDate ? format(new Date(selectedEndDate + 'T00:00:00'), 'MMM d, yyyy') : 'End date'}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 rounded-xl" align="start">
-                <Calendar
-                  mode="single"
-                  selected={selectedEndDate ? new Date(selectedEndDate + 'T00:00:00') : undefined}
-                  onSelect={(date) => {
-                    if (date) {
-                      setSelectedEndDate(format(date, 'yyyy-MM-dd'));
-                    }
-                  }}
-                  initialFocus
-                  disabled={(date) => date > new Date()}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-1 lg:col-span-2">
-            <div className="flex gap-2">
-              {canExport && (
-                <Button
-                  variant="outline"
-                  className="md:hidden flex-1 h-9 text-xs rounded-lg"
-                  onClick={handleExport}
-                  disabled={isLoading || allExpenses.length === 0}
-                >
-                  <Download className="mr-1.5 h-3.5 w-3.5" />
-                  Export
-                </Button>
-              )}
-              <Button
-                className="w-full h-9 text-xs font-semibold rounded-lg"
-                onClick={loadExpenses}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    Refreshing...
-                  </>
-                ) : (
-                  "Refresh Data"
-                )}
-              </Button>
-            </div>
-          </div>
+          {canExport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={filteredTableExpenses.length === 0 || isLoading}
+              className="flex items-center gap-2 h-9 text-xs"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
+            </Button>
+          )}
         </div>
-        {dateError && (
-          <p className="mt-2 text-xs text-destructive">{dateError}</p>
-        )}
-      </Card>
+      </div>
 
       {error && (
         <Card className="border-red-200 bg-red-50">
@@ -709,7 +703,7 @@ export default function ExpensesPage() {
               <Text>Loading expenses...</Text>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i}>
                 <CardHeader>
@@ -745,16 +739,10 @@ export default function ExpensesPage() {
             {viewMode === "card" ? (
               renderCards()
             ) : (
-              <Card className="gap-3 border border-border/60 bg-card p-4 shadow-sm rounded-xl">
-                <div className="flex items-center justify-between pb-1">
-                  <div>
-                    <h3 className="text-base font-bold text-foreground">Expenses Table</h3>
-                    <p className="!mt-1 text-xs leading-5 text-muted-foreground">
-                      Detailed view of all expenses for the selected period
-                    </p>
-                  </div>
+              <div className="w-full space-y-4">
+                <div className="flex items-center justify-end pb-1">
                   <Badge variant="secondary" className="text-xs font-semibold rounded-lg px-2.5 py-1">
-                    {allExpenses.length} Expenses Logged
+                    {filteredTableExpenses.length} Expenses Logged
                   </Badge>
                 </div>
                 <div className="rounded-lg border border-border/60 overflow-hidden w-full">
@@ -773,19 +761,14 @@ export default function ExpensesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allExpenses.length === 0 ? (
+                    {filteredTableExpenses.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={8} className="h-24 text-center text-gray-500">
                           No expenses found for the selected period
                         </TableCell>
                       </TableRow>
                     ) : (
-                      allExpenses
-                        .filter(expense => 
-                          searchTerm === "" || 
-                          expense.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          expense.employeePosition.toLowerCase().includes(searchTerm.toLowerCase())
-                        )
+                      filteredTableExpenses
                         .map((expense) => (
                           <TableRow key={expense.id}>
                             <TableCell className="font-medium whitespace-nowrap">
@@ -800,8 +783,23 @@ export default function ExpensesPage() {
                             <TableCell className="whitespace-nowrap">
                               {expense.category}
                             </TableCell>
-                            <TableCell className="max-w-xs truncate">
-                              {expense.description}
+                            <TableCell className="text-xs py-3 max-w-[140px]">
+                              {expense.description ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="block truncate max-w-[140px] cursor-pointer">
+                                        {expense.description}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs whitespace-normal p-2">
+                                      {expense.description}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="whitespace-nowrap font-medium">
                               ₹{expense.amount.toFixed(2)}
@@ -810,32 +808,36 @@ export default function ExpensesPage() {
                               {getStatusBadge(expense.status)}
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-right">
-                              {expense.status === "pending" ? (
-                                <div className="flex justify-end gap-1.5">
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700"
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" className="h-8 w-8 p-0" aria-label="Open expense actions menu">
+                                    <span className="sr-only">Open menu</span>
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="text-xs">
+                                  <DropdownMenuItem onClick={() => setSelectedExpense(toViewModel(expense))} className="text-xs">
+                                    <Eye className="mr-2 h-3.5 w-3.5" />
+                                    View details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={expense.status !== "pending"}
                                     onClick={() => handleApprove(expense.employeeName, expense.id)}
-                                    aria-label={`Approve ${expense.category} expense for ${expense.employeeName}`}
-                                    title="Approve expense"
+                                    className="text-xs text-emerald-600 dark:text-emerald-400"
                                   >
-                                    <Check className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    className="h-8 w-8 border-rose-500/30 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700"
+                                    <CheckCircle className="mr-2 h-3.5 w-3.5" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={expense.status !== "pending"}
                                     onClick={() => handleReject(expense.employeeName, expense.id)}
-                                    aria-label={`Reject ${expense.category} expense for ${expense.employeeName}`}
-                                    title="Reject expense"
+                                    className="text-xs text-rose-600 dark:text-rose-400"
                                   >
-                                    <X className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
+                                    <XCircle className="mr-2 h-3.5 w-3.5" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TableCell>
                           </TableRow>
                         ))
@@ -844,11 +846,19 @@ export default function ExpensesPage() {
                 </Table>
               </div>
             </div>
-          </Card>
-        )}
+          </div>
+          )}
       </div>
     </>
   )}
+
+      <ExpenseDetailsDialog
+        expense={selectedExpense}
+        open={selectedExpense !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedExpense(null);
+        }}
+      />
 </div>
   );
 }
