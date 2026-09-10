@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { 
+import {
     Pagination,
     PaginationContent,
     PaginationItem,
@@ -15,6 +14,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {
     Select,
     SelectContent,
@@ -28,123 +35,35 @@ import {
     TabsList,
     TabsTrigger,
 } from "@/components/ui/tabs";
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { CalendarIcon, Edit, Trash2, Loader2, MessageCircle, Plus, X, Image, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { AlertCircle, CalendarIcon, Edit, Search, Check, MessageSquare, ClipboardList, User, Mail, Phone, Store, Tag, MapPin, Building, Flag, Loader2, Cake } from 'lucide-react';
 import { format, addDays } from 'date-fns';
-import { Calendar } from '@/components/ui/calendar';
+import { SpacedCalendar } from '@/components/ui/spaced-calendar';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ProfessionalSelector } from "@/components/ProfessionalSelector";
-import RequirementCreationForm from "@/components/RequirementCreationForm";
-import { API, getStock, type StoreDto, type VisitBrandPurchase, type Note as ApiNote, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto, type ProfessionalDto } from "@/lib/api";
-import {
-    RequirementPhotoUploadError,
-    createRequirementWithPhotos,
-    loadTaskImageUrls,
-    revokeTaskImageUrls,
-} from "@/lib/requirements";
-import {
-    REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS,
-    getRequirementComplaintCategoryLabel,
-} from "@/lib/requirement-complaint-category";
+import { API, API_BASE_URL, type VisitBrandPurchase } from "@/lib/api";
+import { useAuth } from '@/components/auth-provider';
+import BrandTab from "@/components/BrandTab";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/components/auth-provider";
-import './CustomerDetail.css';
+import { Textarea } from "@/components/ui/textarea";
+import { getApiErrorMessage, getErrorMessage } from '@/lib/api-error';
+import { useGuardedRouter, useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
 
 const ITEMS_PER_PAGE = 3;
-const CATEGORY_SUGGESTIONS = ['Structure', 'Tiles', 'Pipes', 'Paints', 'Adhesives'];
+const JOINING_YEAR_OPTIONS = Array.from(
+    { length: 76 },
+    (_, index) => new Date().getFullYear() - index,
+);
 
-const formatCategoryDisplay = (value: string): string => {
-    const trimmed = value.trim();
-    if (!trimmed) return '';
-    return trimmed
-        .split(' ')
-        .filter(Boolean)
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join(' ');
-};
-
-const parseCategoryList = (value: unknown): string[] => {
-    const categories = new Set<string>();
-    const addCategory = (input: string) => {
-        const formatted = formatCategoryDisplay(input);
-        if (formatted) categories.add(formatted);
-    };
-
-    if (!value) {
-        return Array.from(categories);
+const formatDateToUserFriendly = (dateStr?: string | null) => {
+    if (!dateStr) return '—';
+    try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+        return dateStr;
     }
-
-    if (Array.isArray(value)) {
-        value.forEach((item) => {
-            if (typeof item === 'string') {
-                addCategory(item);
-            }
-        });
-    } else if (typeof value === 'string') {
-        value
-            .split(',')
-            .map((part) => part.trim())
-            .forEach((part) => {
-                if (part) addCategory(part);
-            });
-    }
-
-    return Array.from(categories);
-};
-
-const toApiCategoryValue = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, '_');
-
-const formatMaterialDetail = (value: unknown): string => {
-    if (value == null) return '—';
-    const text = String(value).trim();
-    return text || '—';
-};
-
-const formatSteelQuantityDetail = (value: unknown): string => {
-    const text = formatMaterialDetail(value);
-    return text === '—' ? text : `${text} tons`;
-};
-
-const formatAreaDetail = (value: unknown): string => {
-    const text = formatMaterialDetail(value);
-    return text === '—' ? text : `${text} sq ft`;
-};
-
-const toNumericValue = (value: unknown): number | null => {
-    if (value == null || String(value).trim() === '') return null;
-    const numeric = Number(String(value).trim());
-    return Number.isFinite(numeric) ? numeric : null;
-};
-
-const isSiteCompleted = (value: unknown): boolean => {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') {
-        const normalized = value.trim().toLowerCase();
-        return normalized === 'true' || normalized === 'completed' || normalized === 'complete';
-    }
-    return false;
-};
-
-const isEngineerProfessional = (professional: ProfessionalDto): boolean => {
-    return (professional.role ?? '').toLowerCase().includes('engineer');
-};
-
-const toOptionalNumber = (value: unknown): number | null => {
-    if (value === undefined || value === null || value === '') return null;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : null;
-};
-
-const extractCategoriesFromResponse = (data: unknown): string[] => {
-    if (!data || typeof data !== 'object') return [];
-    const record = data as Record<string, unknown>;
-    const categories = new Set<string>();
-    parseCategoryList(record.productCategory).forEach((category) => categories.add(category));
-    parseCategoryList(record.productCategories).forEach((category) => categories.add(category));
-    parseCategoryList(record.additionalInfo).forEach((category) => categories.add(category));
-    return Array.from(categories);
 };
 
 interface CustomerData {
@@ -153,7 +72,6 @@ interface CustomerData {
     clientFirstName: string;
     clientLastName: string;
     primaryContact: number;
-    stock: number | null;
     monthlySale: number | null;
     intent: number | null;
     employeeName: string;
@@ -171,26 +89,14 @@ interface CustomerData {
     village?: string;
     taluka?: string;
     pincode?: string;
-    // Additional fields for new client types
-    shopAgeYears?: number;
-    ownershipType?: string;
-    dealerType?: string;
-    dealerSubType?: string;
-    dateOfBirth?: string;
-    yearsOfExperience?: string;
-    contractorName?: string;
-    contractorId?: number | null;
-    engineerName?: string;
-    engineerId?: number | null;
-    engineerContact?: string | number | null;
-    engineerCity?: string | null;
-    projectType?: string;
-    projectSizeSquareFeet?: number;
+    dateOfBirth?: string | null;
+    dob?: string | null;
+    yearOfJoining?: number | null;
 }
 
 interface Visit {
-  id: number;
-  purpose: string;
+    id: number;
+    purpose: string;
     visit_date: string;
     employeeId: number;
     employeeName: string;
@@ -200,94 +106,52 @@ interface Visit {
     brandPurchases?: VisitBrandPurchase[];
 }
 
-interface BrandMaterialHistory {
-    id?: number;
-    visitId: number;
-    visitDate?: string;
-    brandName: string;
-    category?: string | null;
-    purchasedFrom?: string | null;
-    steelQuantity?: number | string | null;
-    cementQuantitySold?: number | string | null;
-}
-
-interface SiteRecord {
-    id?: number;
-    siteName?: string | null;
-    completionStatus?: boolean | string | null;
-    address?: string | null;
-    addressLine1?: string | null;
-    city?: string | null;
-    state?: string | null;
-    pincode?: string | number | null;
-    startDate?: string | null;
-    endDate?: string | null;
-    requirement?: string | number | null;
-    completed?: string | number | null;
-}
-
 interface Note {
-  id: number;
-  content: string;
+    id: number;
+    content: string;
     createdDate: string;
     employeeName?: string;
 }
 
 interface Task {
-  id: number;
+    id: number;
     taskTitle: string;
     taskDescription: string;
     dueDate: string;
     status: string;
     priority: string;
+    assignedToId?: number;
     assignedToName: string;
     taskType: string;
+    storeName?: string;
 }
 
-export default function CustomerDetailPage({ customer }: { customer: unknown }) {
-    const router = useRouter();
+export default function CustomerDetailPage({ customer }: { customer?: Record<string, unknown> }) {
+    const router = useGuardedRouter();
     const params = useParams();
-    const searchParams = useSearchParams();
     const storeId = params.id;
-    
+    const { token, userData } = useAuth();
+
     const [customerData, setCustomerData] = useState<Record<string, unknown> | null>(null);
     const [isLoadingCustomer, setIsLoadingCustomer] = useState(true);
     const [notesData, setNotesData] = useState<Note[]>([]);
     const [visitsData, setVisitsData] = useState<Visit[]>([]);
+    const [visitTotalPages, setVisitTotalPages] = useState(1);
+    const [isLoadingVisits, setIsLoadingVisits] = useState(true);
+    const [visitsError, setVisitsError] = useState<string | null>(null);
+    const visitsRequest = useRef(0);
     const [requirementsData, setRequirementsData] = useState<Task[]>([]);
     const [complaintsData, setComplaintsData] = useState<Task[]>([]);
-    const [employees, setEmployees] = useState<unknown[]>([]);
-    const [stores, setStores] = useState<unknown[]>([]);
-    const [editingTask, setEditingTask] = useState<Record<string, unknown> | null>(null);
+    const [employees, setEmployees] = useState<Array<Record<string, unknown>>>([]);
     const [activeInfoTab, setActiveInfoTab] = useState('leads-info');
-    const [productCategories, setProductCategories] = useState<string[]>([]);
-    const [categoryInput, setCategoryInput] = useState('');
-    const [categoryError, setCategoryError] = useState<string | null>(null);
-    const [isUpdatingCategories, setIsUpdatingCategories] = useState(false);
     const [isEditCustomerModalVisible, setIsEditCustomerModalVisible] = useState(false);
+    const [isUpdatingCustomer, setIsUpdatingCustomer] = useState(false);
+    const [customerEditError, setCustomerEditError] = useState<string | null>(null);
     const [noteContent, setNoteContent] = useState('');
-    const [isSavingNote, setIsSavingNote] = useState(false);
-    const [isDeleteNoteModalVisible, setIsDeleteNoteModalVisible] = useState(false);
-    const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
-    const [deletingNoteContent, setDeletingNoteContent] = useState<string>('');
-    const [isDeletingNote, setIsDeletingNote] = useState(false);
-  const [activeActivityTab, setActiveActivityTab] = useState('visits');
-    const [openingVisitId, setOpeningVisitId] = useState<number | null>(null);
-    const openVisitTimeoutRef = useRef<number | null>(null);
-
-  const getActivityTabClasses = (tab: string) =>
-    `px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-      activeActivityTab === tab
-        ? 'border-black bg-black text-white hover:bg-black hover:text-white'
-        : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
-    }`;
+    const [activeActivityTab, setActiveActivityTab] = useState('visits');
     const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
-    const [sitesData, setSitesData] = useState<unknown[]>([]);
-    const [isLoadingSites, setIsLoadingSites] = useState(false);
-    const [professionals, setProfessionals] = useState<ProfessionalDto[]>([]);
-    const [isLoadingProfessionals, setIsLoadingProfessionals] = useState(false);
-    const [professionalsError, setProfessionalsError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState("basic-info");
+    const [hasUnlockedAddressTab, setHasUnlockedAddressTab] = useState(false);
     const [formData, setFormData] = useState<Partial<CustomerData>>({
         storeId: 0,
         storeName: '',
@@ -297,6 +161,7 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         primaryContact: 0,
         gstNumber: '',
         clientType: '',
+        otherClientType: '',
         addressLine1: '',
         addressLine2: '',
         village: '',
@@ -304,97 +169,87 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         city: '',
         state: '',
         pincode: '',
-        stock: null,
-        monthlySale: null,
-        // Dealer/Shop specific fields
-        shopAgeYears: undefined,
-        ownershipType: '',
-        dealerType: '',
-        dealerSubType: '',
-        // Professional specific fields
-        dateOfBirth: '',
-        yearsOfExperience: '',
-        // Site Visit specific fields
-        contractorName: '',
-        contractorId: null,
-        engineerName: '',
-        engineerId: null,
-        engineerContact: null,
-        engineerCity: null,
-        projectType: '',
-        projectSizeSquareFeet: undefined,
+        dateOfBirth: null,
+        dob: null,
+        yearOfJoining: null,
     });
-
-    const engineerOptions = useMemo(
-        () => professionals.filter(isEngineerProfessional),
-        [professionals]
-    );
+    const [baselineFormData, setBaselineFormData] = useState<Partial<CustomerData>>({});
+    const [isOtherClientType, setIsOtherClientType] = useState(false);
 
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
-    const [isVisitModalVisible, setIsVisitModalVisible] = useState(false);
-    const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false);
     const [isComplaintModalOpen, setIsComplaintModalOpen] = useState(false);
+    const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false);
+    const [isCreatingTask, setIsCreatingTask] = useState(false);
+    const [taskCreateError, setTaskCreateError] = useState<string | null>(null);
     
-    const handleOpenVisit = useCallback((id: number) => {
-        setOpeningVisitId(id);
-        if (openVisitTimeoutRef.current != null) {
-            window.clearTimeout(openVisitTimeoutRef.current);
-        }
-        // Fallback: if navigation fails for some reason, clear the overlay.
-        openVisitTimeoutRef.current = window.setTimeout(() => {
-            setOpeningVisitId(null);
-        }, 12000);
-        router.push(`/dashboard/visits/${id}`);
-    }, [router]);
+    const getStoreIdString = (): string => {
+        if (typeof storeId === 'string') return storeId;
+        if (Array.isArray(storeId)) return storeId[0];
+        return '';
+    };
 
-    useEffect(() => {
-        return () => {
-            if (openVisitTimeoutRef.current != null) {
-                window.clearTimeout(openVisitTimeoutRef.current);
-            }
-        };
-    }, []);
     const [requirementTask, setRequirementTask] = useState({
         taskTitle: '',
         taskDesciption: '',
         dueDate: '',
         assignedToId: 0,
         assignedToName: '',
-        assignedById: 0, // Will be set to current user's ID when needed
+        assignedById: 0,
         status: 'Assigned',
         priority: 'low',
         taskType: 'requirement',
-        storeId: parseInt(storeId as string),
-        category: '',
+        storeId: parseInt(getStoreIdString() || '0', 10),
+        category: 'Requirement',
         storeName: ''
     });
+    const [requirementActiveTab, setRequirementActiveTab] = useState('general');
     const [complaintTask, setComplaintTask] = useState({
         taskTitle: '',
         taskDesciption: '',
         dueDate: '',
         assignedToId: 0,
         assignedToName: '',
-        assignedById: 0, // Will be set to current user's ID when needed
+        assignedById: 0,
         status: 'Assigned',
         priority: 'low',
         taskType: 'complaint',
-        storeId: parseInt(storeId as string),
-        category: '',
+        storeId: parseInt(getStoreIdString() || '0', 10),
+        category: 'Complaint',
         storeName: ''
     });
+    const [requirementTaskBaseline, setRequirementTaskBaseline] = useState(requirementTask);
+    const [complaintTaskBaseline, setComplaintTaskBaseline] = useState(complaintTask);
     const [complaintActiveTab, setComplaintActiveTab] = useState('general');
-    const [isLoadingStores, setIsLoadingStores] = useState(false);
     const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+    const [complaintEmployeeSearch, setComplaintEmployeeSearch] = useState('');
+    const [requirementEmployeeSearch, setRequirementEmployeeSearch] = useState('');
     const [startDate, setStartDate] = useState(new Date());
     const [endDate, setEndDate] = useState(addDays(new Date(), 5));
+    const dateRangeInvalid = isDateRangeInvalid(startDate, endDate);
     const [showSitesTab, setShowSitesTab] = useState(false);
     const [showMore, setShowMore] = useState({
-        visits: false,
+        visits: true,
         notes: false,
         complaints: false,
         requirements: false,
     });
+    const [isNoteSaving, setIsNoteSaving] = useState(false);
+    const [notePendingDelete, setNotePendingDelete] = useState<Note | null>(null);
+
+    const originalNoteContent = editingNoteId === null
+        ? ''
+        : notesData.find((note) => note.id === editingNoteId)?.content ?? '';
+    const customerFormIsDirty = isEditCustomerModalVisible &&
+        JSON.stringify(formData) !== JSON.stringify(baselineFormData);
+    const noteDraftIsDirty = isModalVisible && noteContent !== originalNoteContent;
+    const complaintDraftIsDirty = isComplaintModalOpen &&
+        JSON.stringify(complaintTask) !== JSON.stringify(complaintTaskBaseline);
+    const requirementDraftIsDirty = isRequirementModalOpen &&
+        JSON.stringify(requirementTask) !== JSON.stringify(requirementTaskBaseline);
+    const { requestDiscard } = useUnsavedChanges(
+        customerFormIsDirty || noteDraftIsDirty || complaintDraftIsDirty || requirementDraftIsDirty
+    );
 
     const [currentPage, setCurrentPage] = useState({
         visits: 1,
@@ -403,155 +258,14 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         requirements: 1,
     });
 
-    // Image preview states
-    const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
-    const [taskImages, setTaskImages] = useState<string[]>([]);
-    const [currentImageIndex, setCurrentImageIndex] = useState(0);
-    const [isLoadingImages, setIsLoadingImages] = useState(false);
-
-    // Location state for customer edit
-    const [editStates, setEditStates] = useState<StateDto[]>([]);
-    const [editDistricts, setEditDistricts] = useState<DistrictDto[]>([]);
-    const [editSubDistricts, setEditSubDistricts] = useState<SubDistrictDto[]>([]);
-    const [editCities, setEditCities] = useState<CityDto[]>([]);
-    
-    const [selectedEditStateId, setSelectedEditStateId] = useState<number | null>(null);
-    const [selectedEditDistrictId, setSelectedEditDistrictId] = useState<number | null>(null);
-    const [selectedEditSubDistrictId, setSelectedEditSubDistrictId] = useState<number | null>(null);
-    
-    // Search states for location dropdowns
-    const [editStateSearch, setEditStateSearch] = useState('');
-    const [editDistrictSearch, setEditDistrictSearch] = useState('');
-    const [editSubDistrictSearch, setEditSubDistrictSearch] = useState('');
-    const [editCitySearch, setEditCitySearch] = useState('');
-
-    // Filtered location data based on search
-    const filteredEditStates = editStates.filter(state =>
-        state.stateName.toLowerCase().includes(editStateSearch.toLowerCase())
-    );
-    
-    const filteredEditDistricts = editDistricts.filter(district =>
-        district.districtName.toLowerCase().includes(editDistrictSearch.toLowerCase())
-    );
-    
-    const filteredEditSubDistricts = editSubDistricts.filter(subDistrict =>
-        subDistrict.subDistrictName.toLowerCase().includes(editSubDistrictSearch.toLowerCase())
-    );
-    
-    const filteredEditCities = editCities.filter(city =>
-        city.cityName.toLowerCase().includes(editCitySearch.toLowerCase())
-    );
-
     const [filteredVisitsData, setFilteredVisitsData] = useState<Visit[]>([]);
-    const [intentData, setIntentData] = useState<unknown[]>([]);
-    const [stockHistoryData, setStockHistoryData] = useState<unknown[]>([]);
 
-    const { token: authToken, userData, currentUser } = useAuth();
-    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
-    const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
-    
-    // State for role checking
-    const [isDataManager, setIsDataManager] = useState(false);
-    const [userRoleFromAPI, setUserRoleFromAPI] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!isEditCustomerModalVisible || formData.clientType !== 'Site Visit' || !token) return;
-
-        let isCancelled = false;
-        const fetchProfessionals = async () => {
-            try {
-                setIsLoadingProfessionals(true);
-                setProfessionalsError(null);
-                const professionalsData = await API.getAllProfessionals();
-                if (!isCancelled) {
-                    setProfessionals(professionalsData);
-                }
-            } catch (error) {
-                console.error('Error fetching professionals:', error);
-                if (!isCancelled) {
-                    setProfessionals([]);
-                    setProfessionalsError('Unable to load engineers');
-                }
-            } finally {
-                if (!isCancelled) {
-                    setIsLoadingProfessionals(false);
-                }
-            }
-        };
-
-        fetchProfessionals();
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [isEditCustomerModalVisible, formData.clientType, token]);
-    
-    // Fetch current user data to determine role
-    useEffect(() => {
-        const fetchCurrentUser = async () => {
-            if (!token) return;
-            
-            try {
-                const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/user/manage/current-user', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-                
-                if (response.ok) {
-                    const userData = await response.json();
-                    
-                    // Extract role from authorities (consider all authorities)
-                    const authorities = userData.authorities || [];
-                    const role = authorities.length > 0 ? authorities[0].authority : null;
-                    setUserRoleFromAPI(role);
-                    
-                    // Set role flags
-                    setIsDataManager(role === 'ROLE_DATA_MANAGER');
-                } else {
-                    console.error('Failed to fetch current user data');
-                }
-            } catch (error) {
-                console.error('Error fetching current user:', error);
-            }
-        };
-
-        fetchCurrentUser();
-    }, [token]);
-
-    const fetchIntentData = useCallback(async (id: string) => {
-        try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/intent-audit/getByStore?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setIntentData(data);
-        } catch (error) {
-            console.error('Error fetching intent data:', error);
-        }
-    }, [token]);
-
-    const fetchStockHistoryData = useCallback(async (id: string) => {
-        try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/monthly-sale/getByStore?storeId=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setStockHistoryData(data);
-        } catch (error) {
-            console.error('Error fetching stock history data:', error);
-        }
-    }, [token]);
+    const employeeId = userData?.employeeId ?? null;
 
     const fetchCustomerData = useCallback(async (id: string) => {
         try {
             setIsLoadingCustomer(true);
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/getById?id=${id}`, {
+            const response = await fetch(`${API_BASE_URL}/store/getById?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -559,11 +273,6 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             const data = await response.json();
             setCustomerData(data);
 
-            const categories = extractCategoriesFromResponse(data);
-            setProductCategories(categories);
-            setCategoryError(null);
-
-            // Set the visibility of the Sites tab based on clientType
             const validClientTypes = ['builder', 'site visit', 'architect', 'engineer'];
             setShowSitesTab(validClientTypes.includes(data.clientType?.toLowerCase() || ''));
         } catch (error) {
@@ -575,326 +284,211 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const fetchNotesData = useCallback(async (id: string) => {
         try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/getByStore?id=${id}`, {
+            const response = await fetch(`${API_BASE_URL}/notes/getByStore?id=${id}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
             });
             const data = await response.json();
-            setNotesData(data);
+            setNotesData(data || []);
         } catch (error) {
             console.error('Error fetching notes data:', error);
         }
     }, [token]);
 
-    const fetchVisitsData = useCallback(async (id: string) => {
+    const fetchVisitsData = useCallback(async (id: string, page = 1) => {
+        const request = ++visitsRequest.current;
+        setIsLoadingVisits(true);
+        setVisitsError(null);
         try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/getByStore?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setVisitsData(data);
-            setFilteredVisitsData(data);
+            const data = await API.getVisitsByStorePaged(Number(id), Math.max(page - 1, 0), ITEMS_PER_PAGE, 'visitDate,desc');
+            if (request !== visitsRequest.current) return;
+            const visits = (data.content || []) as Visit[];
+            setVisitsData(visits);
+            setFilteredVisitsData(visits);
+            setVisitTotalPages(Math.max(data.totalPages || 1, 1));
         } catch (error) {
-            console.error('Error fetching visits data:', error);
-        }
-    }, [token]);
-
-    const fetchRequirementsData = useCallback(async (id: string, start: Date, end: Date) => {
-        try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setRequirementsData(data.filter((task: { taskType?: string }) => task.taskType === 'requirement'));
-        } catch (error) {
-            console.error('Error fetching requirements data:', error);
-        }
-    }, [token]);
-
-    const fetchComplaintsData = useCallback(async (id: string, start: Date, end: Date) => {
-        try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${id}&start=${start.toISOString().split('T')[0]}&end=${end.toISOString().split('T')[0]}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setComplaintsData(data.filter((task: { taskType?: string }) => task.taskType === 'complaint'));
-        } catch (error) {
-            console.error('Error fetching complaints data:', error);
-        }
-    }, [token]);
-
-    const handleAddCategory = async (rawCategory?: string) => {
-        if (!token) {
-            setCategoryError('Authentication token missing. Please sign in again.');
-            return;
-        }
-        if (!storeId) {
-            setCategoryError('Store identifier not available.');
-            return;
-        }
-
-        const formatted = formatCategoryDisplay(rawCategory ?? categoryInput);
-        if (!formatted) {
-            setCategoryError('Enter a category before adding.');
-            return;
-        }
-
-        if (productCategories.some((category) => category.toLowerCase() === formatted.toLowerCase())) {
-            setCategoryError('Category already added.');
-            return;
-        }
-
-        const numericStoreId = Array.isArray(storeId) ? Number(storeId[0]) : Number(storeId);
-        if (Number.isNaN(numericStoreId)) {
-            setCategoryError('Invalid store identifier.');
-            return;
-        }
-
-        const apiValue = toApiCategoryValue(formatted);
-
-        try {
-            setIsUpdatingCategories(true);
-            setCategoryError(null);
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/addCategories', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    storeId: numericStoreId,
-                    categories: [apiValue],
-                }),
-            });
-
-            if (!response.ok) {
-                const message = await response.text();
-                throw new Error(message || 'Failed to add category');
-            }
-
-            setProductCategories((prev) => {
-                const updatedCategories = [...prev, formatted];
-                setCustomerData((prevData) => {
-                    if (!prevData) return prevData;
-                    return {
-                        ...prevData,
-                        productCategory: updatedCategories,
-                        productCategories: updatedCategories.map(toApiCategoryValue),
-                    };
-                });
-                return updatedCategories;
-            });
-            setCategoryInput('');
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unable to add category';
-            setCategoryError(message);
+            if (request !== visitsRequest.current) return;
+            setVisitsData([]);
+            setFilteredVisitsData([]);
+            setVisitsError(getErrorMessage(error, 'Unable to load customer visits.'));
         } finally {
-            setIsUpdatingCategories(false);
+            if (request === visitsRequest.current) setIsLoadingVisits(false);
         }
-    };
+    }, []);
 
-    const handleRemoveCategory = async (category: string) => {
-        if (!token) {
-            setCategoryError('Authentication token missing. Please sign in again.');
-            return;
-        }
-        if (!storeId) {
-            setCategoryError('Store identifier not available.');
-            return;
-        }
-
-        const numericStoreId = Array.isArray(storeId) ? Number(storeId[0]) : Number(storeId);
-        if (Number.isNaN(numericStoreId)) {
-            setCategoryError('Invalid store identifier.');
-            return;
-        }
-
-        const apiValue = toApiCategoryValue(category);
-
+    const fetchTasksData = useCallback(async (id: string, start: Date, end: Date) => {
+        if (isDateRangeInvalid(start, end)) return;
         try {
-            setIsUpdatingCategories(true);
-            setCategoryError(null);
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/removeCategories', {
-                method: 'POST',
+            const response = await fetch(`${API_BASE_URL}/task/getByStoreAndDate?storeId=${id}&start=${format(start, 'yyyy-MM-dd')}&end=${format(end, 'yyyy-MM-dd')}`, {
                 headers: {
-                    'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({
-                    storeId: numericStoreId,
-                    categories: [apiValue],
-                }),
             });
-
             if (!response.ok) {
-                const message = await response.text();
-                throw new Error(message || 'Failed to remove category');
+                throw new Error(`Failed to fetch customer tasks (${response.status})`);
             }
-
-            setProductCategories((prev) => {
-                const updatedCategories = prev.filter((item) => item.toLowerCase() !== category.toLowerCase());
-                setCustomerData((prevData) => {
-                    if (!prevData) return prevData;
-                    return {
-                        ...prevData,
-                        productCategory: updatedCategories,
-                        productCategories: updatedCategories.map(toApiCategoryValue),
-                    };
-                });
-                return updatedCategories;
-            });
+            const data = await response.json() as Task[];
+            const tasks = Array.isArray(data) ? data : [];
+            setRequirementsData(tasks.filter((task) => task.taskType === 'requirement'));
+            setComplaintsData(tasks.filter((task) => task.taskType === 'complaint'));
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unable to remove category';
-            setCategoryError(message);
-        } finally {
-            setIsUpdatingCategories(false);
+            console.error('Error fetching customer tasks:', error);
+            setRequirementsData([]);
+            setComplaintsData([]);
         }
-    };
+    }, [token]);
 
     const fetchEmployees = useCallback(async () => {
-        setIsLoadingEmployees(true);
         try {
-            // Always use the full list endpoint via proxy
-            const resAll = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
-                headers: { Authorization: `Bearer ${token}` },
+            setIsLoadingEmployees(true);
+            const response = await fetch(`${API_BASE_URL}/employee/getFieldOfficer`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
             });
-            let list: unknown[] = [];
-            if (resAll.ok) {
-                list = await resAll.json();
-            }
-
-            const wantedCity = (customerData?.city || '').toString().trim().toLowerCase();
-
-            // Filter only Field Officers for the same city
-            const fieldOfficersByCity = (Array.isArray(list) ? list : [])
-                .filter((emp) => {
-                    const empRec = emp as Record<string, unknown>;
-                    const role = (empRec.role || '').toString().toLowerCase();
-                    if (!(role === 'field officer' || role.includes('field officer') || role.includes('field'))) return false;
-                    const empCity = (empRec.city || '').toString().trim().toLowerCase();
-                    return wantedCity ? empCity === wantedCity : true;
-                })
-                .sort((a, b) => {
-                    const aRec = a as { firstName: string; lastName: string };
-                    const bRec = b as { firstName: string; lastName: string };
-                    return `${aRec.firstName} ${aRec.lastName}`.localeCompare(`${bRec.firstName} ${bRec.lastName}`);
-                });
-
-            setEmployees(fieldOfficersByCity);
+            const data = await response.json();
+            setEmployees(data || []);
         } catch (error) {
-            console.error('Error fetching employees:', error);
-            setEmployees([]);
+            console.error('Error fetching field officers:', error);
         } finally {
             setIsLoadingEmployees(false);
         }
-    }, [token, customerData?.city]);
-
-    // If modals are open and nothing selected yet, default to first employee
-    useEffect(() => {
-        if (isComplaintModalOpen && employees.length > 0 && !complaintTask.assignedToId) {
-            const e = employees[0] as { id: number; firstName: string; lastName: string };
-            setComplaintTask((prev) => ({ ...prev, assignedToId: e.id, assignedToName: `${e.firstName} ${e.lastName}` }));
-        }
-    }, [isComplaintModalOpen, employees, complaintTask.assignedToId]);
-
-    useEffect(() => {
-        if (isRequirementModalOpen && employees.length > 0 && !requirementTask.assignedToId) {
-            const e = employees[0] as { id: number; firstName: string; lastName: string };
-            setRequirementTask((prev) => ({ ...prev, assignedToId: e.id, assignedToName: `${e.firstName} ${e.lastName}` }));
-        }
-    }, [isRequirementModalOpen, employees, requirementTask.assignedToId]);
-
-    const fetchStores = useCallback(async () => {
-        try {
-            setIsLoadingStores(true);
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/names', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setStores(data);
-        } catch (error) {
-            console.error('Error fetching stores:', error);
-        } finally {
-            setIsLoadingStores(false);
-        }
     }, [token]);
 
-    const fetchSitesData = useCallback(async (id: string) => {
-        try {
-            setIsLoadingSites(true);
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/site/getByStore?id=${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setSitesData(data);
-        } catch (error) {
-            console.error('Error fetching sites data:', error);
-        } finally {
-            setIsLoadingSites(false);
-        }
-    }, [token]);
+    const getNumericStoreId = useCallback(() => {
+        const idString = getStoreIdString();
+        const parsed = parseInt(idString, 10);
+        return Number.isNaN(parsed) ? 0 : parsed;
+    }, [storeId]);
 
-    const fetchTaskImages = useCallback(async (taskId: number) => {
-        if (!token) return;
+    const handleCloseNoteModal = useCallback(() => {
+        setIsModalVisible(false);
+        setIsEditMode(false);
+        setNoteContent('');
+        setEditingNoteId(null);
+        setIsNoteSaving(false);
+    }, []);
 
-        setIsLoadingImages(true);
-        try {
-            // First, fetch the task details
-            const taskResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getById?id=${taskId}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            if (!taskResponse.ok) {
-                throw new Error('Failed to fetch task details');
-            }
-            const taskData = await taskResponse.json();
+    const resetComplaintTaskState = useCallback(() => {
+        const today = new Date();
+        const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
+        const employee = employees.find(emp => {
+            const firstName = typeof emp.firstName === 'string' ? emp.firstName : '';
+            const lastName = typeof emp.lastName === 'string' ? emp.lastName : '';
+            return `${firstName} ${lastName}` === employeeNameStr || 
+                (typeof firstName === 'string' && employeeNameStr.includes(firstName)) ||
+                (typeof lastName === 'string' && employeeNameStr.includes(lastName));
+        });
+        
+        const existingTask = complaintsData[0];
 
-            const imageUrls = await loadTaskImageUrls({
-                token,
-                taskId,
-                attachmentResponse: taskData.attachmentResponse,
-            });
-    
-            setTaskImages((previous) => {
-                revokeTaskImageUrls(previous);
-                return imageUrls;
-            });
-            setCurrentImageIndex(0);
-            setIsImagePreviewOpen(true);
-        } catch (error) {
-            console.error('Error fetching task images:', error);
-        } finally {
-            setIsLoadingImages(false);
-        }
-    }, [token]);
+        const nextComplaintTask = {
+            taskTitle: '',
+            taskDesciption: '',
+            dueDate: todayString,
+            assignedToId: existingTask?.assignedToId ?? (employee ? employee.id as number : 0),
+            assignedToName: existingTask?.assignedToName || employeeNameStr || '',
+            assignedById: 0,
+            status: 'Assigned',
+            priority: 'low',
+            taskType: 'complaint',
+            storeId: getNumericStoreId(),
+            category: 'Complaint',
+            storeName: (customerData?.storeName as string) || existingTask?.storeName || ''
+        };
+        setComplaintTask(nextComplaintTask);
+        setComplaintTaskBaseline(nextComplaintTask);
+        setComplaintEmployeeSearch('');
+        setComplaintActiveTab('general');
+    }, [complaintsData, customerData?.storeName, customerData?.employeeName, getNumericStoreId, employees]);
 
-    const getStoreId = (): string => {
-        if (typeof storeId === 'string') {
-            return storeId;
+    const resetRequirementTaskState = useCallback(() => {
+        const today = new Date();
+        const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        const employeeNameStr = typeof customerData?.employeeName === 'string' ? customerData.employeeName : '';
+        const employee = employees.find(emp => {
+            const firstName = typeof emp.firstName === 'string' ? emp.firstName : '';
+            const lastName = typeof emp.lastName === 'string' ? emp.lastName : '';
+            return `${firstName} ${lastName}` === employeeNameStr || 
+                (typeof firstName === 'string' && employeeNameStr.includes(firstName)) ||
+                (typeof lastName === 'string' && employeeNameStr.includes(lastName));
+        });
+        
+        const existingTask = requirementsData[0];
+
+        const nextRequirementTask = {
+            taskTitle: '',
+            taskDesciption: '',
+            dueDate: todayString,
+            assignedToId: existingTask?.assignedToId ?? (employee ? employee.id as number : 0),
+            assignedToName: existingTask?.assignedToName || employeeNameStr || '',
+            assignedById: 0,
+            status: 'Assigned',
+            priority: 'low',
+            taskType: 'requirement',
+            storeId: getNumericStoreId(),
+            category: 'Requirement',
+            storeName: (customerData?.storeName as string) || existingTask?.storeName || ''
+        };
+        setRequirementTask(nextRequirementTask);
+        setRequirementTaskBaseline(nextRequirementTask);
+        setRequirementEmployeeSearch('');
+        setRequirementActiveTab('general');
+    }, [requirementsData, customerData?.storeName, customerData?.employeeName, getNumericStoreId, employees]);
+
+    const closeComplaintModal = useCallback(() => {
+        setIsComplaintModalOpen(false);
+        setTaskCreateError(null);
+        resetComplaintTaskState();
+    }, [resetComplaintTaskState]);
+
+    const closeRequirementModal = useCallback(() => {
+        setIsRequirementModalOpen(false);
+        setTaskCreateError(null);
+        resetRequirementTaskState();
+    }, [resetRequirementTaskState]);
+
+    const closeEditCustomerModal = useCallback(() => {
+        setIsEditCustomerModalVisible(false);
+        setCustomerEditError(null);
+        setActiveTab('basic-info');
+        setHasUnlockedAddressTab(false);
+        setFormData(baselineFormData);
+        setIsOtherClientType(baselineFormData.clientType === 'others');
+    }, [baselineFormData]);
+
+    const requestCloseNoteModal = useCallback(() => {
+        requestDiscard(handleCloseNoteModal, noteDraftIsDirty);
+    }, [handleCloseNoteModal, noteDraftIsDirty, requestDiscard]);
+
+    const requestCloseComplaintModal = useCallback(() => {
+        requestDiscard(closeComplaintModal, complaintDraftIsDirty);
+    }, [closeComplaintModal, complaintDraftIsDirty, requestDiscard]);
+
+    const requestCloseRequirementModal = useCallback(() => {
+        requestDiscard(closeRequirementModal, requirementDraftIsDirty);
+    }, [closeRequirementModal, requirementDraftIsDirty, requestDiscard]);
+
+    const requestCloseEditCustomerModal = useCallback(() => {
+        requestDiscard(closeEditCustomerModal, customerFormIsDirty);
+    }, [closeEditCustomerModal, customerFormIsDirty, requestDiscard]);
+
+    const handleCustomerTabChange = useCallback((value: string) => {
+        if (value === 'address-info' && !hasUnlockedAddressTab) {
+            return;
         }
-        if (Array.isArray(storeId)) {
-            return storeId[0];
-        }
-        return '';
-    };
+        setActiveTab(value);
+    }, [hasUnlockedAddressTab]);
 
     const handleAddNote = async () => {
-        if (!noteContent.trim() || isSavingNote) return;
-        setIsSavingNote(true);
+        if (isNoteSaving) return;
         try {
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/create', {
+            setIsNoteSaving(true);
+            const response = await fetch(`${API_BASE_URL}/notes/create`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -903,21 +497,18 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 body: JSON.stringify({
                     content: noteContent,
                     employeeId: employeeId,
-                    storeId: parseInt(storeId as string),
+                    storeId: parseInt(getStoreIdString(), 10),
                 }),
             });
 
             if (response.ok) {
-                // Refresh notes data by fetching from API
-                await fetchNotesData(storeId as string);
-                setNoteContent('');
-                setIsModalVisible(false);
-                console.log('Note added successfully!');
+                await fetchNotesData(getStoreIdString());
+                handleCloseNoteModal();
             }
         } catch (error) {
             console.error('Error creating note:', error);
         } finally {
-            setIsSavingNote(false);
+            setIsNoteSaving(false);
         }
     };
 
@@ -929,10 +520,10 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     };
 
     const handleSaveEditNote = async () => {
-        if (!noteContent.trim() || isSavingNote) return;
-        setIsSavingNote(true);
+        if (isNoteSaving) return;
         try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/edit?id=${editingNoteId}`, {
+            setIsNoteSaving(true);
+            const response = await fetch(`${API_BASE_URL}/notes/edit?id=${editingNoteId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -941,29 +532,25 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 body: JSON.stringify({
                     content: noteContent,
                     employeeId: employeeId,
-                    storeId: parseInt(storeId as string),
+                    storeId: parseInt(getStoreIdString(), 10),
                 }),
             });
 
             if (response.ok) {
-                // Refresh notes data by fetching from API
-                await fetchNotesData(storeId as string);
-                setEditingNoteId(null);
-                setNoteContent('');
-                setIsEditMode(false);
-                setIsModalVisible(false);
-                console.log('Note updated successfully!');
+                await fetchNotesData(getStoreIdString());
+                handleCloseNoteModal();
             }
         } catch (error) {
             console.error('Error updating note:', error);
         } finally {
-            setIsSavingNote(false);
+            setIsNoteSaving(false);
         }
     };
 
-    const handleDeleteNote = async (noteId: number): Promise<boolean> => {
+    const handleDeleteNoteConfirm = async () => {
+        if (!notePendingDelete) return;
         try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/delete?id=${noteId}`, {
+            const response = await fetch(`${API_BASE_URL}/notes/delete?id=${notePendingDelete.id}`, {
                 method: 'DELETE',
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -971,35 +558,12 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             });
 
             if (response.ok) {
-                // Refresh notes data by fetching from API
-                await fetchNotesData(storeId as string);
-                console.log('Note deleted successfully!');
-                return true;
+                await fetchNotesData(getStoreIdString());
             }
         } catch (error) {
             console.error('Error deleting note:', error);
-        }
-        return false;
-    };
-
-    const promptDeleteNote = (note: Note) => {
-        setDeletingNoteId(note.id);
-        setDeletingNoteContent(note.content);
-        setIsDeleteNoteModalVisible(true);
-    };
-
-    const confirmDeleteNote = async () => {
-        if (!deletingNoteId) return;
-        setIsDeletingNote(true);
-        try {
-            const ok = await handleDeleteNote(deletingNoteId);
-            if (ok) {
-                setIsDeleteNoteModalVisible(false);
-                setDeletingNoteId(null);
-                setDeletingNoteContent('');
-            }
         } finally {
-            setIsDeletingNote(false);
+            setNotePendingDelete(null);
         }
     };
 
@@ -1017,26 +581,24 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
 
     const renderPaginationItems = (tab: keyof typeof currentPage) => {
         const items = [];
-        let dataLength;
+        let totalPages;
 
         switch (tab) {
             case 'visits':
-                dataLength = visitsData.length;
+                totalPages = visitTotalPages;
                 break;
             case 'notes':
-                dataLength = notesData.length;
+                totalPages = Math.ceil(notesData.length / ITEMS_PER_PAGE);
                 break;
             case 'complaints':
-                dataLength = complaintsData.length;
+                totalPages = Math.ceil(complaintsData.length / ITEMS_PER_PAGE);
                 break;
             case 'requirements':
-                dataLength = requirementsData.length;
+                totalPages = Math.ceil(requirementsData.length / ITEMS_PER_PAGE);
                 break;
             default:
-                dataLength = 0;
+                totalPages = 0;
         }
-
-        const totalPages = Math.ceil(dataLength / ITEMS_PER_PAGE);
 
         for (let i = 1; i <= totalPages; i++) {
             if (i === 1 || i === totalPages || (i >= currentPage[tab] - 1 && i <= currentPage[tab] + 1)) {
@@ -1057,19 +619,9 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     };
 
     const createTask = async () => {
-        try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=${format(startDate, 'yyyy-MM-dd')}&end=${format(endDate, 'yyyy-MM-dd')}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-            const data = await response.json();
-            setRequirementsData(data.filter((task: { taskType?: string }) => task.taskType === 'requirement'));
-            setComplaintsData(data.filter((task: { taskType?: string }) => task.taskType === 'complaint'));
-            console.log('Tasks refreshed successfully!');
-        } catch (error) {
-            console.error('Error fetching updated tasks:', error);
-        }
+        const id = getStoreIdString();
+        if (!id) return;
+        await fetchTasksData(id, startDate, endDate);
     };
 
     const getInitials = (name: string) => {
@@ -1078,36 +630,31 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         return nameParts.map(part => part[0]).join('');
     };
 
-    const handleBackClick = () => {
-        const from = searchParams?.get('from');
-        const qp = new URLSearchParams();
-        const keys = ['start', 'end', 'employee', 'priority', 'status', 'search', 'page'];
-        keys.forEach(k => {
-            const v = searchParams?.get(k);
-            if (v) qp.set(k, v);
-        });
-        if (from === 'requirements') {
-            const url = qp.toString() ? `/dashboard/requirements?${qp.toString()}` : '/dashboard/requirements';
-            router.push(url);
-            return;
-        }
-        if (from === 'complaints') {
-            const url = qp.toString() ? `/dashboard/complaints?${qp.toString()}` : '/dashboard/complaints';
-            router.push(url);
-            return;
-        }
-        // Fallback to browser history or customers list
+    const isBirthdayToday = useCallback((dob: string | null | undefined): boolean => {
+        if (!dob) return false;
         try {
-            router.back();
+            const birthDate = new Date(dob);
+            const today = new Date();
+            return birthDate.getMonth() === today.getMonth() && 
+                   birthDate.getDate() === today.getDate();
         } catch {
-            router.push('/dashboard/customers');
+            return false;
         }
-    };
+    }, []);
 
-    const addNote = () => {
-        setIsEditMode(false);
-        setNoteContent('');
-        setIsModalVisible(true);
+    const formatDateOfBirth = useCallback((dob: string | null | undefined): string | null => {
+        if (!dob) return null;
+        try {
+            const date = new Date(dob);
+            if (isNaN(date.getTime())) return null;
+            return format(date, 'MMM dd, yyyy');
+        } catch {
+            return null;
+        }
+    }, []);
+
+    const handleBackClick = () => {
+        router.push('/dashboard/customers');
     };
 
     const getOutcomeStatus = (visit: Visit) => {
@@ -1118,14 +665,33 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
         }
     };
 
-    const paginate = (data: unknown[], page: number) => {
+    const paginate = <T,>(data: T[], page: number): T[] => {
         const start = (page - 1) * ITEMS_PER_PAGE;
         return data.slice(start, start + ITEMS_PER_PAGE);
     };
 
-    const handleChangeStatus = async (taskId: number, status: string, priority: string) => {
+    useEffect(() => {
+        setCurrentPage(prev => {
+            if (prev.visits > visitTotalPages) {
+                return { ...prev, visits: visitTotalPages };
+            }
+            return prev;
+        });
+    }, [visitTotalPages]);
+
+    useEffect(() => {
+        setCurrentPage(prev => {
+            const totalPages = Math.max(1, Math.ceil(notesData.length / ITEMS_PER_PAGE));
+            if (prev.notes > totalPages) {
+                return { ...prev, notes: totalPages };
+            }
+            return prev;
+        });
+    }, [notesData.length]);
+
+    const handleChangeStatus = async (taskId: number, status: string) => {
         try {
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/updateTask?taskId=${taskId}`, {
+            const response = await fetch(`${API_BASE_URL}/task/updateTask?taskId=${taskId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1133,12 +699,11 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 },
                 body: JSON.stringify({
                     status,
-                    priority: priority?.toLowerCase() || 'low',
+                    priority: "Medium",
                 }),
             });
 
             if (response.ok) {
-                console.log('Status updated successfully!');
                 createTask();
             }
         } catch (error) {
@@ -1147,62 +712,39 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
     };
 
     const handleCustomerEditSubmit = async (data: Partial<CustomerData>) => {
-        try {
-            // Clean numeric fields similar to AddCustomerModal
-            const cleanDigits = (val: string | number | undefined | null) => {
-                if (val === undefined || val === null || val === '') return undefined;
-                const s = val.toString().replace(/\D/g, '');
-                return s ? parseInt(s, 10) : undefined;
-            };
+        const clientFirstName = data.clientFirstName?.trim();
+        const clientLastName = data.clientLastName?.trim();
 
-            // Include all fields from formData
-            const stockValue = cleanDigits(data.stock ?? data.monthlySale);
+        if (!clientFirstName || !clientLastName) {
+            setCustomerEditError('First name and last name are required.');
+            setActiveTab('basic-info');
+            return;
+        }
+
+        setIsUpdatingCustomer(true);
+        setCustomerEditError(null);
+        try {
+            const dobValue = data.dob || data.dateOfBirth || '';
+            const normalizedDob = dobValue ? dobValue.replace(/\//g, '-') : undefined;
 
             const requestData = {
-                storeName: data.storeName,
-                clientFirstName: data.clientFirstName,
-                clientLastName: data.clientLastName,
-                email: data.email || null,
-                primaryContact: cleanDigits(data.primaryContact),
+                clientFirstName,
+                clientLastName,
+                email: data.email?.trim() || null,
                 clientType: data.clientType,
-                gstNumber: data.gstNumber || undefined,
-                addressLine1: data.addressLine1 || undefined,
-                addressLine2: data.addressLine2 || undefined,
-                district: data.village || undefined, // Map village to district
-                subDistrict: data.taluka || undefined, // Map taluka to subDistrict
-                city: data.city || undefined,
-                state: data.state || undefined,
-                country: data.country || 'India',
-                pincode: cleanDigits(data.pincode),
-                stock: stockValue,
-                monthlySale: stockValue,
-                // Dealer/Shop specific fields
-                shopAgeYears: data.shopAgeYears ? parseInt(data.shopAgeYears.toString(), 10) : undefined,
-                ownershipType: data.ownershipType || undefined,
-                dealerType: data.dealerType || undefined,
-                dealerSubType: data.dealerType === 'ICON' ? data.dealerSubType || undefined : undefined,
-                // Engineer/Architect/Contractor specific fields
-                dateOfBirth: data.dateOfBirth || undefined,
-                yearsOfExperience: data.yearsOfExperience || undefined,
-                // Site Visit specific fields
-                contractorName: data.contractorName || undefined,
-                contractorId: data.contractorId ?? undefined,
-                engineerName: data.engineerName || undefined,
-                engineerId: data.engineerId ?? undefined,
-                projectType: data.projectType || undefined,
-                projectSizeSquareFeet: data.projectSizeSquareFeet ? parseFloat(data.projectSizeSquareFeet.toString()) : undefined,
-                // GPS coordinates and employee
-                latitude: (customerData && (customerData.latitude ?? customerData.storeLatitude)) ?? null,
-                longitude: (customerData && (customerData.longitude ?? customerData.storeLongitude)) ?? null,
-                employeeId: customerData?.employeeId ?? undefined,
-                // Additional fields (empty for now)
-                brandsInUse: [], // Empty array for now
-                likes: {}, // Empty object for now
+                gstNumber: data.gstNumber?.trim() || null,
+                addressLine1: data.addressLine1?.trim() || null,
+                addressLine2: data.addressLine2?.trim() || null,
+                district: data.village?.trim() || null,
+                subDistrict: data.taluka?.trim() || null,
+                city: data.city?.trim() || null,
+                state: data.state?.trim() || null,
+                pincode: data.pincode ? Number(data.pincode) : null,
+                dob: normalizedDob,
+                yearOfJoining: data.yearOfJoining == null ? null : Number(data.yearOfJoining),
             };
 
-            console.log('Sending data:', requestData);
-
-            const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/edit?id=${storeId}`, {
+            const response = await fetch(`${API_BASE_URL}/store/edit?id=${getStoreIdString()}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1212,345 +754,156 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
             });
 
             if (response.ok) {
-                // Refresh customer data after successful update
-                await fetchCustomerData(storeId as string);
-                setIsEditCustomerModalVisible(false);
-                // Reset location selections
-                setSelectedEditStateId(null);
-                setSelectedEditDistrictId(null);
-                setSelectedEditSubDistrictId(null);
-                setEditStateSearch('');
-                setEditDistrictSearch('');
-                setEditSubDistrictSearch('');
-                setEditCitySearch('');
-                console.log('Customer updated successfully!');
+                await fetchCustomerData(getStoreIdString());
+                closeEditCustomerModal();
             } else {
-                const errorText = await response.text();
-                console.error('Failed to update customer:', response.status, errorText);
+                throw new Error(
+                    await getApiErrorMessage(response, 'Unable to update customer.')
+                );
             }
         } catch (error) {
             console.error('Error updating customer:', error);
+            setCustomerEditError(getErrorMessage(error, 'Unable to update customer.'));
+        } finally {
+            setIsUpdatingCustomer(false);
         }
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
+        setCustomerEditError(null);
         setFormData((prev) => ({ ...prev, [name]: value }));
     };
 
-    const handleEngineerSelect = (engineer: ProfessionalDto | null) => {
-        setFormData((prev) => ({
-            ...prev,
-            engineerId: engineer?.id ?? null,
-            engineerName: engineer?.name ?? '',
-            engineerContact: engineer?.contact ?? null,
-            engineerCity: engineer?.city ?? null,
-        }));
-    };
-
     const handleClientTypeChange = (value: string) => {
+        const lowercaseValue = value.toLowerCase();
+        setCustomerEditError(null);
+        setIsOtherClientType(lowercaseValue === 'others');
         setFormData((prev) => ({
             ...prev,
-            clientType: value,
+            clientType: lowercaseValue,
+            otherClientType: lowercaseValue === 'others' ? prev.otherClientType : '',
         }));
-    };
-
-    // Helper function to get dynamic labels based on customer type
-    const getLabelForStoreName = (clientType: string): string => {
-        switch (clientType) {
-            case 'Dealer': return 'Shop Name';
-            case 'Professional': return 'Firm Name';
-            case 'Site Visit': return 'Project Name';
-            default: return 'Store Name';
-        }
-    };
-
-    const getLabelForOwner = (clientType: string): string => {
-        return clientType === 'Site Visit' ? 'Site Owner Name' : 'Owner Name';
     };
 
     const handleSubmit = () => {
-        handleCustomerEditSubmit(formData);
+        const updatedFormData = { ...formData };
+        if (isOtherClientType) {
+            updatedFormData.clientType = formData.otherClientType || 'Others';
+        }
+        handleCustomerEditSubmit(updatedFormData);
     };
-
-    const handleComplaintNext = () => {
-        setComplaintActiveTab('details');
-    };
-
-    const handleComplaintBack = () => {
-        setComplaintActiveTab('general');
-    };
-
-    const [isCreatingComplaint, setIsCreatingComplaint] = useState(false);
-    const [complaintError, setComplaintError] = useState<string | null>(null);
 
     const handleCreateComplaint = async () => {
-        setComplaintError(null);
-        // Validate required fields
-        const missing: string[] = [];
-        if (!complaintTask.taskDesciption || !complaintTask.taskDesciption.trim()) missing.push('Description');
-        if (!complaintTask.dueDate) missing.push('Due Date');
-        if (!complaintTask.assignedToId) missing.push('Assigned To');
-        if (!complaintTask.storeId) missing.push('Store');
-        if (missing.length) {
-            setComplaintError(`Please provide: ${missing.join(', ')}`);
+        const assignedById = userData?.employeeId;
+        if (!assignedById) {
+            setTaskCreateError('Unable to identify the logged-in employee. Please sign in again.');
             return;
         }
-        setIsCreatingComplaint(true);
+
+        setIsCreatingTask(true);
+        setTaskCreateError(null);
         try {
-            const localEmpIdRaw = employeeId;
-            const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw as string, 10) : NaN;
-            
-            // Validate that we have a valid assignedById
-            if (Number.isNaN(localEmpId)) {
-                setComplaintError('Unable to determine current user. Please refresh the page and try again.');
-                return;
-            }
-            
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
+            const response = await fetch(`${API_BASE_URL}/task/create`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
-                    taskDesciption: complaintTask.taskDesciption?.trim() || '',
-                    dueDate: complaintTask.dueDate.includes('T') ? complaintTask.dueDate.split('T')[0] : complaintTask.dueDate,
-                    assignedToId: Number(complaintTask.assignedToId),
-                    assignedById: localEmpId, // Use current user's ID
-                    storeId: Number(complaintTask.storeId),
-                    taskType: 'complaint',
-                    status: complaintTask.status || 'Assigned',
-                    priority: complaintTask.priority || 'low',
+                    ...complaintTask,
+                    dueDate: complaintTask.dueDate.split('T')[0],
+                    storeId: complaintTask.storeId,
+                    assignedById,
+                    taskType: 'complaint'
                 }),
             });
 
             if (response.ok) {
-                console.log('Complaint created successfully!');
                 await createTask();
-                setIsComplaintModalOpen(false);
-                // Reset form
-                setComplaintTask({
-                    taskTitle: '',
-                    taskDesciption: '',
-                    dueDate: '',
-                    assignedToId: 0,
-                    assignedToName: '',
-                    assignedById: localEmpId,
-                    status: 'Assigned',
-                    priority: 'low',
-                    taskType: 'complaint',
-                    storeId: parseInt(storeId as string),
-                    category: '',
-                    storeName: ''
-                });
-                setComplaintActiveTab('general');
+                closeComplaintModal();
             } else {
                 const errorText = await response.text();
-                console.error('Failed to create complaint:', response.status, errorText);
-                setComplaintError(errorText || 'Failed to create complaint');
+                throw new Error(errorText || `Failed to create complaint (${response.status})`);
             }
         } catch (error) {
             console.error('Error creating complaint:', error);
-            setComplaintError('Unexpected error while creating complaint');
+            setTaskCreateError(error instanceof Error ? error.message : 'Failed to create complaint');
+        } finally {
+            setIsCreatingTask(false);
         }
-        setIsCreatingComplaint(false);
     };
 
-    const [isCreatingRequirement, setIsCreatingRequirement] = useState(false);
-    const [requirementError, setRequirementError] = useState<string | null>(null);
-    const [pendingRequirementUpload, setPendingRequirementUpload] = useState<{ taskId: number; nextPhotoIndex: number } | null>(null);
+    const handleCreateRequirement = async () => {
+        const assignedById = userData?.employeeId;
+        if (!assignedById) {
+            setTaskCreateError('Unable to identify the logged-in employee. Please sign in again.');
+            return;
+        }
 
-    const handleCreateRequirement = async (photos: File[] = []) => {
-        setRequirementError(null);
-        // Validate required fields
-        const missing: string[] = [];
-        if (!requirementTask.taskTitle || !requirementTask.taskTitle.trim()) missing.push('Title');
-        if (!requirementTask.taskDesciption || !requirementTask.taskDesciption.trim()) missing.push('Description');
-        if (!requirementTask.dueDate) missing.push('Due Date');
-        if (!requirementTask.assignedToId) missing.push('Assigned To');
-        if (!requirementTask.storeId) missing.push('Store');
-        if (missing.length) {
-            setRequirementError(`Please provide: ${missing.join(', ')}`);
-            return;
-        }
-        if (!token) {
-            setRequirementError('You are not logged in. Please refresh the page and try again.');
-            return;
-        }
-        setIsCreatingRequirement(true);
+        setIsCreatingTask(true);
+        setTaskCreateError(null);
         try {
-            const localEmpIdRaw = employeeId;
-            const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw as string, 10) : NaN;
-            
-            // Validate that we have a valid assignedById
-            if (Number.isNaN(localEmpId)) {
-                setRequirementError('Unable to determine current user. Please refresh the page and try again.');
-                return;
-            }
-            
-            await createRequirementWithPhotos({
-                token,
-                payload: {
-                    taskTitle: requirementTask.taskTitle?.trim() || '',
-                    taskDesciption: requirementTask.taskDesciption?.trim() || '',
-                    dueDate: requirementTask.dueDate.includes('T') ? requirementTask.dueDate.split('T')[0] : requirementTask.dueDate,
-                    assignedToId: Number(requirementTask.assignedToId),
-                    assignedById: localEmpId, // Use current user's ID
-                    storeId: Number(requirementTask.storeId),
-                    taskType: 'requirement',
-                    status: requirementTask.status || 'Assigned',
-                    priority: requirementTask.priority || 'low',
+            const response = await fetch(`${API_BASE_URL}/task/create`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
                 },
-                photos,
-                taskId: pendingRequirementUpload?.taskId,
-                startPhotoIndex: pendingRequirementUpload?.nextPhotoIndex ?? 0,
+                body: JSON.stringify({
+                    ...requirementTask,
+                    dueDate: requirementTask.dueDate.split('T')[0],
+                    storeId: requirementTask.storeId,
+                    assignedById,
+                    taskType: 'requirement'
+                }),
             });
 
-            console.log('Requirement created successfully!');
-            await createTask();
-            setIsRequirementModalOpen(false);
-            // Reset form
-            setRequirementTask({
-                taskTitle: '',
-                taskDesciption: '',
-                dueDate: '',
-                assignedToId: 0,
-                assignedToName: '',
-                assignedById: localEmpId,
-                status: 'Assigned',
-                priority: 'low',
-                taskType: 'requirement',
-                storeId: parseInt(storeId as string),
-                category: '',
-                storeName: ''
-            });
-            setPendingRequirementUpload(null);
+            if (response.ok) {
+                await createTask();
+                closeRequirementModal();
+            } else {
+                const errorText = await response.text();
+                throw new Error(errorText || `Failed to create requirement (${response.status})`);
+            }
         } catch (error) {
             console.error('Error creating requirement:', error);
-            if (error instanceof RequirementPhotoUploadError) {
-                setPendingRequirementUpload({
-                    taskId: error.taskId,
-                    nextPhotoIndex: error.nextPhotoIndex,
-                });
-            }
-            setRequirementError(error instanceof Error ? error.message : 'Unexpected error while creating requirement');
+            setTaskCreateError(error instanceof Error ? error.message : 'Failed to create requirement');
         } finally {
-            setIsCreatingRequirement(false);
+            setIsCreatingTask(false);
         }
     };
-
-    const calculateIntentTrend = () => {
-        const dates = intentData.map(item => (item as Record<string, unknown>).changeDate);
-        const intentLevels = intentData.map(item => (item as Record<string, unknown>).newIntentLevel);
-        return { dates, intentLevels };
-    };
-
-    const calculateStockTrend = () => {
-        const dates = stockHistoryData.map(item => (item as Record<string, unknown>).visitDate);
-        const stockAmounts = stockHistoryData.map((item) => {
-            const record = item as Record<string, unknown>;
-            return getStock({
-                stock: record.newStock as number | string | null | undefined,
-                monthlySale: record.newMonthlySale as number | string | null | undefined,
-            });
-        });
-        return { dates, stockAmounts };
-    };
-
-    const { dates: intentDates, intentLevels } = calculateIntentTrend();
-    const { dates: stockDates, stockAmounts } = calculateStockTrend();
-
-    const intentChartData = {
-        labels: intentDates,
-        datasets: [
-            {
-                label: 'Intent Level',
-                data: intentLevels,
-                borderColor: 'rgba(75, 192, 192, 1)',
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                fill: true,
-            },
-        ],
-    };
-
-    const stockChartData = {
-        labels: stockDates,
-        datasets: [
-            {
-                label: 'Stock',
-                data: stockAmounts,
-                borderColor: 'rgba(153, 102, 255, 1)',
-                backgroundColor: 'rgba(153, 102, 255, 0.2)',
-                fill: true,
-            },
-        ],
-    };
-
-    const brandMaterialsData = useMemo<BrandMaterialHistory[]>(() => {
-        const hasValue = (value: unknown): boolean => value != null && String(value).trim() !== '';
-
-        return visitsData.flatMap((visit) => {
-            const purchases = Array.isArray(visit.brandPurchases) ? visit.brandPurchases : [];
-
-            return purchases
-                .map((purchase, index) => {
-                    const brandName = (
-                        purchase.brandName ||
-                        purchase.primaryBrand ||
-                        purchase.localBrand ||
-                        ''
-                    ).trim();
-
-                    return {
-                        id: purchase.id ?? index,
-                        visitId: visit.id,
-                        visitDate: visit.visit_date,
-                        brandName,
-                        category: purchase.category ?? null,
-                        purchasedFrom: purchase.purchasedFrom ?? null,
-                        steelQuantity: purchase.steelQuantity ?? purchase.steelQuantitySold ?? null,
-                        cementQuantitySold: purchase.cementQuantitySold ?? null,
-                    };
-                })
-                .filter((purchase) =>
-                    hasValue(purchase.brandName) ||
-                    hasValue(purchase.category) ||
-                    hasValue(purchase.purchasedFrom) ||
-                    hasValue(purchase.steelQuantity) ||
-                    hasValue(purchase.cementQuantitySold)
-                );
-        });
-    }, [visitsData]);
 
     useEffect(() => {
-        if (token && storeId) {
-            fetchCustomerData(storeId as string);
-            fetchNotesData(storeId as string);
-            fetchVisitsData(storeId as string);
-            fetchRequirementsData(storeId as string, startDate, endDate);
-            fetchComplaintsData(storeId as string, startDate, endDate);
-            fetchSitesData(storeId as string);
-            fetchEmployees();
-            fetchStores();
-            fetchIntentData(storeId as string);
-            fetchStockHistoryData(storeId as string);
+        const id = getStoreIdString();
+        if (token && id) {
+            fetchCustomerData(id);
+            fetchNotesData(id);
         }
-    }, [token, storeId, startDate, endDate, fetchCustomerData, fetchNotesData, fetchVisitsData, fetchRequirementsData, fetchComplaintsData, fetchSitesData, fetchEmployees, fetchStores, fetchIntentData, fetchStockHistoryData]);
+    }, [token, storeId, fetchCustomerData, fetchNotesData]);
+
+    useEffect(() => {
+        const id = getStoreIdString();
+        if (token && id && !dateRangeInvalid) {
+            fetchTasksData(id, startDate, endDate);
+        }
+    }, [token, storeId, startDate, endDate, dateRangeInvalid, fetchTasksData]);
+
+    useEffect(() => {
+        const id = getStoreIdString();
+        if (token && id) {
+            fetchVisitsData(id, currentPage.visits);
+        }
+        return () => { visitsRequest.current += 1; };
+    }, [token, storeId, currentPage.visits, fetchVisitsData]);
 
     useEffect(() => {
         if (customerData) {
-            // Map old client types to new ones
-            const clientType = (typeof customerData.clientType === 'string' ? customerData.clientType : '');
-            let mappedClientType = clientType;
-            
-            // Map old values to new ones
-            if (clientType.toLowerCase() === 'shop') mappedClientType = 'Dealer';
-            else if (['architect', 'engineer', 'builder'].includes(clientType.toLowerCase())) mappedClientType = 'Professional';
-            else if (clientType.toLowerCase() === 'site visit') mappedClientType = 'Site Visit';
-            else if (!['Dealer', 'Professional', 'Site Visit'].includes(clientType)) mappedClientType = 'Dealer'; // Default fallback
+            const clientType = (customerData.clientType as string)?.toLowerCase() || '';
+            const standardClientTypes = ["shop", "site visit", "architect", "engineer"];
+            const isStandardType = standardClientTypes.includes(clientType);
 
-            setFormData({
+            const nextFormData: Partial<CustomerData> = {
                 storeId: customerData.storeId as number,
                 storeName: customerData.storeName as string,
                 clientFirstName: customerData.clientFirstName as string,
@@ -1558,789 +911,509 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                 email: (customerData.email as string) || '',
                 primaryContact: customerData.primaryContact as number,
                 gstNumber: (customerData.gstNumber as string) || '',
-                clientType: mappedClientType,
-                addressLine1: String(customerData.addressLine1 || ''),
-                addressLine2: String(customerData.addressLine2 || ''),
-                village: String(customerData.district || ''),
-                taluka: String(customerData.subDistrict || ''),
+                clientType: isStandardType ? clientType : 'others',
+                otherClientType: isStandardType ? '' : (customerData.clientType as string) || '',
+                addressLine1: (customerData.addressLine1 as string) || '',
+                addressLine2: (customerData.addressLine2 as string) || '',
+                village: (customerData.district as string) || '',
+                taluka: (customerData.subDistrict as string) || '',
                 city: customerData.city as string,
                 state: customerData.state as string,
-                pincode: String(customerData.pincode || ''),
-                stock: getStock(customerData) as number | null,
-                monthlySale: getStock(customerData) as number | null,
-                // Additional fields from customer data
-                shopAgeYears: customerData.shopAgeYears as number | undefined,
-                ownershipType: String(customerData.ownershipType || ''),
-                dealerType: String(customerData.dealerType || ''),
-                dealerSubType: String(customerData.dealerSubType || ''),
-                dateOfBirth: String(customerData.dateOfBirth || ''),
-                yearsOfExperience: String(customerData.yearsOfExperience || ''),
-                contractorName: String(customerData.contractorName || ''),
-                contractorId: toOptionalNumber(customerData.contractorId),
-                engineerName: String(customerData.engineerName || ''),
-                engineerId: toOptionalNumber(customerData.engineerId),
-                engineerContact: (customerData.engineerContact as string | number | null | undefined) ?? null,
-                engineerCity: String(customerData.engineerCity || ''),
-                projectType: String(customerData.projectType || ''),
-                projectSizeSquareFeet: customerData.projectSizeSquareFeet as number | undefined,
-            });
+                pincode: (customerData.pincode as string) || '',
+                dateOfBirth: (customerData.dateOfBirth as string) || (customerData.dob as string) || null,
+                dob: (customerData.dateOfBirth as string) || (customerData.dob as string) || null,
+                yearOfJoining: customerData.yearOfJoining != null && Number.isInteger(Number(customerData.yearOfJoining))
+                    ? Number(customerData.yearOfJoining)
+                    : null,
+            };
+            setFormData(nextFormData);
+            setBaselineFormData(nextFormData);
+            setIsOtherClientType(!isStandardType);
         }
     }, [customerData]);
 
-    // Load states when edit modal opens and pre-fill if existing data
     useEffect(() => {
-        const fetchEditStates = async () => {
-            if (isEditCustomerModalVisible) {
-                try {
-                    const statesData = await API.getAllStates();
-                    setEditStates(statesData);
-                    
-                    // Pre-fill state if exists in formData
-                    if (formData.state) {
-                        const matchingState = statesData.find(
-                            s => s.stateName.toLowerCase() === formData.state?.toLowerCase()
-                        );
-                        if (matchingState) {
-                            setSelectedEditStateId(matchingState.id);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error fetching states:', error);
-                    setEditStates([]);
-                }
-            }
-        };
-
-        fetchEditStates();
-    }, [isEditCustomerModalVisible, formData.state]);
-
-    // Load districts when state changes and pre-fill if existing data
-    useEffect(() => {
-        const fetchEditDistricts = async () => {
-            if (!selectedEditStateId) {
-                setEditDistricts([]);
-                setEditSubDistricts([]);
-                setEditCities([]);
-                setSelectedEditDistrictId(null);
-                setSelectedEditSubDistrictId(null);
-                return;
-            }
-
-            try {
-                const districtsData = await API.getDistrictsByStateId(selectedEditStateId);
-                setEditDistricts(districtsData);
-                setEditSubDistricts([]);
-                setEditCities([]);
-                
-                // Pre-fill district if exists in formData.village
-                if (formData.village && !selectedEditDistrictId) {
-                    const matchingDistrict = districtsData.find(
-                        d => d.districtName.toLowerCase() === formData.village?.toLowerCase()
-                    );
-                    if (matchingDistrict) {
-                        setSelectedEditDistrictId(matchingDistrict.id);
-                    } else {
-                        setSelectedEditDistrictId(null);
-                    }
-                } else if (!formData.village) {
-                    setSelectedEditDistrictId(null);
-                }
-                
-                setSelectedEditSubDistrictId(null);
-            } catch (error) {
-                console.error('Error fetching districts:', error);
-                setEditDistricts([]);
-            }
-        };
-
-        fetchEditDistricts();
-    }, [selectedEditStateId, formData.village]);
-
-    // Load sub-districts when district changes and pre-fill if existing data
-    useEffect(() => {
-        const fetchEditSubDistricts = async () => {
-            if (!selectedEditDistrictId) {
-                setEditSubDistricts([]);
-                setEditCities([]);
-                setSelectedEditSubDistrictId(null);
-                return;
-            }
-
-            try {
-                const subDistrictsData = await API.getSubDistrictsByDistrictId(selectedEditDistrictId);
-                setEditSubDistricts(subDistrictsData);
-                setEditCities([]);
-                
-                // Pre-fill sub-district if exists in formData.taluka
-                if (formData.taluka && !selectedEditSubDistrictId) {
-                    const matchingSubDistrict = subDistrictsData.find(
-                        sd => sd.subDistrictName.toLowerCase() === formData.taluka?.toLowerCase()
-                    );
-                    if (matchingSubDistrict) {
-                        setSelectedEditSubDistrictId(matchingSubDistrict.id);
-                    } else {
-                        setSelectedEditSubDistrictId(null);
-                    }
-                } else if (!formData.taluka) {
-                    setSelectedEditSubDistrictId(null);
-                }
-            } catch (error) {
-                console.error('Error fetching sub-districts:', error);
-                setEditSubDistricts([]);
-            }
-        };
-
-        fetchEditSubDistricts();
-    }, [selectedEditDistrictId, formData.taluka]);
-
-    // Load cities when sub-district changes (city is already in formData.city, no need to set selectedId)
-    useEffect(() => {
-        const fetchEditCities = async () => {
-            if (!selectedEditSubDistrictId) {
-                setEditCities([]);
-                return;
-            }
-
-            try {
-                const citiesData = await API.getCitiesBySubDistrictId(selectedEditSubDistrictId);
-                setEditCities(citiesData);
-                // City value is already stored in formData.city, dropdown will show it automatically
-            } catch (error) {
-                console.error('Error fetching cities:', error);
-                setEditCities([]);
-            }
-        };
-
-        fetchEditCities();
-    }, [selectedEditSubDistrictId]);
+        if (
+            (isComplaintModalOpen || isRequirementModalOpen) &&
+            employees.length === 0 &&
+            !isLoadingEmployees
+        ) {
+            void fetchEmployees();
+        }
+    }, [isComplaintModalOpen, isRequirementModalOpen, employees.length, isLoadingEmployees, fetchEmployees]);
 
     useEffect(() => {
-        const fetchComplaintTaskDetails = async () => {
-            if (isComplaintModalOpen && storeId) {
-                try {
-                    // Fetch employees first
-                    await fetchEmployees();
-                    
-                    // Then fetch task details
-                    const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        const task = data[0];
-                        setComplaintTask(prev => ({
-                            ...prev,
-                            assignedToId: task.assignedToId,
-                            assignedToName: task.assignedToName,
-                            storeName: customerData?.storeName || task.storeName
-                        }));
-                    }
-                } catch (error) {
-                    console.error('Error fetching task details:', error);
-                }
-            }
-        };
-
-        fetchComplaintTaskDetails();
-    }, [isComplaintModalOpen, storeId, token, customerData, fetchEmployees]);
+        if (isComplaintModalOpen) {
+            resetComplaintTaskState();
+        }
+    }, [isComplaintModalOpen, employees, resetComplaintTaskState]);
 
     useEffect(() => {
-        const fetchRequirementTaskDetails = async () => {
-            if (isRequirementModalOpen && storeId) {
-                try {
-                    // Fetch employees first
-                    await fetchEmployees();
-                    
-                    // Then fetch task details
-                    const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/getByStoreAndDate?storeId=${storeId}&start=2024-06-01&end=2024-06-30`, {
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                        },
-                    });
-                    const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
-                        const task = data[0];
-                        setRequirementTask(prev => ({
-                            ...prev,
-                            assignedToId: task.assignedToId,
-                            assignedToName: task.assignedToName,
-                            storeName: customerData?.storeName || task.storeName
-                        }));
-                    }
-                } catch (error) {
-                    console.error('Error fetching requirement task details:', error);
-                }
-            }
-        };
+        if (isRequirementModalOpen) {
+            resetRequirementTaskState();
+        }
+    }, [isRequirementModalOpen, employees, resetRequirementTaskState]);
 
-        fetchRequirementTaskDetails();
-    }, [isRequirementModalOpen, storeId, token, customerData, fetchEmployees]);
+    const allBrandPurchases = useMemo(() => {
+        return visitsData.flatMap(v => v.brandPurchases || []);
+    }, [visitsData]);
 
-  // Show skeleton loader while customer data is loading
-  if (isLoadingCustomer) {
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1">
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl font-semibold text-foreground">Customer Details</CardTitle>
-                    <p className="text-sm text-muted-foreground">Customer information and actions</p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={handleBackClick}>
-                    <i className="fas fa-arrow-left mr-2"></i> Back
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-start gap-4">
-                  <Skeleton className="h-14 w-14 rounded-xl" />
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <Skeleton className="h-6 w-32" />
-                    <Skeleton className="h-4 w-24" />
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="lg:col-span-2">
-            <Card className="border-0 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-xl font-semibold text-foreground">Customer Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-18" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-        <>
-        {openingVisitId != null && (
-            <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
-                <div className="w-full max-w-md rounded-lg border bg-card p-4 shadow-lg">
-                    <div className="flex items-center gap-3">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        <div>
-                            <p className="text-sm font-medium text-foreground">Opening visit…</p>
-                            <p className="text-xs text-muted-foreground">Loading visit details</p>
-                        </div>
+    if (isLoadingCustomer) {
+        return (
+            <div className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-1">
+                        <Card className="border-0 shadow-sm">
+                            <CardHeader className="pb-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-xl font-semibold text-foreground">Customer Details</CardTitle>
+                                        <p className="text-sm text-muted-foreground">Customer information and actions</p>
+                                    </div>
+                                    <Button variant="ghost" size="sm" onClick={handleBackClick}>
+                                        Back
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="flex items-start gap-4">
+                                    <Skeleton className="h-14 w-14 rounded-xl" />
+                                    <div className="flex-1 min-w-0 space-y-2">
+                                        <Skeleton className="h-6 w-32" />
+                                        <Skeleton className="h-4 w-24" />
+                                    </div>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-16" />
+                                        <Skeleton className="h-8 w-full" />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
-                    <div className="mt-4 space-y-2">
-                        <Skeleton className="h-4 w-3/4" />
-                        <Skeleton className="h-4 w-2/3" />
-                        <Skeleton className="h-20 w-full" />
+                    <div className="lg:col-span-2">
+                        <Card className="border-0 shadow-sm">
+                            <CardHeader>
+                                <CardTitle className="text-xl font-semibold text-foreground">Customer Information</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <Skeleton className="h-40 w-full" />
+                            </CardContent>
+                        </Card>
                     </div>
                 </div>
             </div>
-        )}
+        );
+    }
+
+    const customerDob = customerData ? ((customerData.dateOfBirth as string) || (customerData.dob as string)) : null;
+
+    return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
                     <Card className="border-0 shadow-sm">
-                        <CardHeader className="pb-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                                    <CardTitle className="text-xl font-semibold text-foreground">Customer Details</CardTitle>
-                                    <p className="text-sm text-muted-foreground">Customer information and actions</p>
-                </div>
-                                <Button variant="ghost" size="sm" onClick={handleBackClick}>
-                                    <i className="fas fa-arrow-left mr-2"></i> Back
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Exclusive Dealer Tag */}
-              {customerData?.clientType === 'Dealer' && customerData?.dealerSubType === 'EXCLUSIVE' && (
-                <div className="flex justify-start">
-                  <Badge variant="secondary" className="bg-black text-white font-semibold px-3 py-1">
-                    <i className="fas fa-crown mr-1"></i>
-                    Exclusive Dealer
-                  </Badge>
-                </div>
-              )}
-              
-              <div className="flex items-start gap-4">
-                                <div className="h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center">
+                        <CardContent className="space-y-6 pt-6">
+                            <div className="flex items-start gap-4">
+                                <div className="relative h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center shrink-0">
                                     <span className="text-lg font-semibold text-muted-foreground">
                                         {customerData ? getInitials(`${customerData.clientFirstName} ${customerData.clientLastName}`) : ''}
                                     </span>
-                    </div>
-                                <div className="flex-1 min-w-0 space-y-1">
-                                    <h3 className="text-lg font-semibold text-foreground truncate">
-                                        {customerData ? `${String(customerData.clientFirstName || '')} ${String(customerData.clientLastName || '')}` : ''}
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground truncate">
-                                        {customerData ? String(customerData.storeName || '') : ''}
-                                    </p>
-                  </div>
-                </div>
-
-                            <TooltipProvider>
-                                <div className="flex gap-2">
-                                    {!isDataManager && (
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <Button 
-                                                    className="flex-1" 
-                                                    variant="outline" 
-                                                    onClick={() => setIsEditCustomerModalVisible(true)}
-                                                >
-                                                    <Edit className="h-4 w-4" />
-                                </Button>
-                                            </TooltipTrigger>
-                                            <TooltipContent>
-                                                <p>Edit Customer</p>
-                                            </TooltipContent>
-                                        </Tooltip>
+                                    {customerData && isBirthdayToday(customerDob) && (
+                                        <div className="absolute -top-1 -right-1 h-5 w-5 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
+                                            <Cake className="h-3 w-3 text-white" />
+                                        </div>
                                     )}
-                                    
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button 
-                                                className="flex-1" 
-                                                variant="outline" 
-                                                onClick={() => setIsComplaintModalOpen(true)}
-                                            >
-                                                <MessageCircle className="h-4 w-4" />
-                                </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>Log Complaint</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                    
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button 
-                                                className="flex-1" 
-                                                variant="outline" 
-                                                onClick={() => {
-                                                    setRequirementError(null);
-                                                    setPendingRequirementUpload(null);
-                                                    setIsRequirementModalOpen(true);
-                                                }}
-                                            >
-                                                <Plus className="h-4 w-4" />
-                                </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                            <p>Add Requirement</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-              </div>
-                            </TooltipProvider>
+                                </div>
+                                <div className="flex-1 min-w-0 space-y-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                            <h3 className="text-lg font-semibold text-foreground truncate">
+                                                {customerData ? `${customerData.clientFirstName} ${customerData.clientLastName}` : ''}
+                                            </h3>
+                                            {customerData && isBirthdayToday(customerDob) && (
+                                                <Badge className="bg-gradient-to-r from-pink-500 to-rose-500 text-white border-0 shadow-md animate-pulse text-xs">
+                                                    <Cake className="h-3 w-3 mr-1" />
+                                                    Birthday Today! <span>🎉</span>
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        <Button variant="ghost" size="sm" onClick={handleBackClick} className="ml-auto shrink-0 text-xs h-8">
+                                            Back
+                                        </Button>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground truncate">
+                                        {customerData ? (customerData.storeName as string) : ''}
+                                    </p>
+                                </div>
+                            </div>
 
-              <div className="space-y-4">
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Edit Customer"
+                                    onClick={() => {
+                                        setActiveTab('basic-info');
+                                        setHasUnlockedAddressTab(false);
+                                        setIsEditCustomerModalVisible(true);
+                                    }}
+                                    className="h-10 w-10"
+                                >
+                                    <Edit className="h-4 w-4" />
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Log Complaint"
+                                    onClick={() => {
+                                        resetComplaintTaskState();
+                                        setIsComplaintModalOpen(true);
+                                    }}
+                                    className="h-10 w-10"
+                                >
+                                    <MessageSquare className="h-4 w-4" />
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    title="Add Requirement"
+                                    onClick={() => {
+                                        resetRequirementTaskState();
+                                        setIsRequirementModalOpen(true);
+                                    }}
+                                    className="h-10 w-10"
+                                >
+                                    <ClipboardList className="h-4 w-4" />
+                                </Button>
+                            </div>
+
+                            <div className="space-y-4">
                                 <div className="flex border-b">
                                     <button
-                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                                            activeInfoTab === 'leads-info' 
-                                                ? 'border-primary text-primary' 
+                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeInfoTab === 'leads-info'
+                                                ? 'border-primary text-primary'
                                                 : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                            }`}
                                         onClick={() => setActiveInfoTab('leads-info')}
                                     >
                                         Leads Info
                                     </button>
                                     <button
-                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                                            activeInfoTab === 'address-info' 
-                                                ? 'border-primary text-primary' 
+                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeInfoTab === 'address-info'
+                                                ? 'border-primary text-primary'
                                                 : 'border-transparent text-muted-foreground hover:text-foreground'
-                                        }`}
+                                            }`}
                                         onClick={() => setActiveInfoTab('address-info')}
                                     >
                                         Address Info
                                     </button>
                                 </div>
-                                
+
                                 {activeInfoTab === 'leads-info' && customerData && (
                                     <div className="space-y-3">
                                         <div className="flex items-start gap-3">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                <i className="fas fa-user text-sm text-muted-foreground"></i>
-                      </div>
-                      <div className="min-w-0">
-                                                <p className="text-sm font-medium text-foreground">Customer Name</p>
-                                                <p className="text-sm text-muted-foreground">{String(customerData.clientFirstName || '')} {String(customerData.clientLastName || '')}</p>
-                      </div>
-                    </div>
-                                        {customerData.email ? (
+                                            <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-medium text-muted-foreground">Customer Name</p>
+                                                <p className="text-sm text-foreground">{(customerData.clientFirstName as string)} {(customerData.clientLastName as string)}</p>
+                                            </div>
+                                        </div>
+                                        {(customerData.email as string) && (
                                             <div className="flex items-start gap-3">
-                                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                    <i className="fas fa-envelope text-sm text-muted-foreground"></i>
-                                                </div>
+                                                <Mail className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-foreground">Email</p>
-                                                    <p className="text-sm text-muted-foreground">{String(customerData.email)}</p>
+                                                    <p className="text-xs font-medium text-muted-foreground">Email</p>
+                                                    <p className="text-sm text-foreground">{customerData.email as string}</p>
                                                 </div>
                                             </div>
-                                        ) : null}
+                                        )}
                                         <div className="flex items-start gap-3">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                <i className="fas fa-phone text-sm text-muted-foreground"></i>
-                                            </div>
+                                            <Phone className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                             <div className="min-w-0">
-                                                <p className="text-sm font-medium text-foreground">Phone</p>
-                                                <p className="text-sm text-muted-foreground">{String(customerData.primaryContact || '')}</p>
+                                                <p className="text-xs font-medium text-muted-foreground">Phone</p>
+                                                <p className="text-sm text-foreground">{customerData.primaryContact as number}</p>
                                             </div>
                                         </div>
                                         <div className="flex items-start gap-3">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                <i className="fas fa-store text-sm text-muted-foreground"></i>
-                                            </div>
+                                            <Store className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                             <div className="min-w-0">
-                                                <p className="text-sm font-medium text-foreground">Store Name</p>
-                                                <p className="text-sm text-muted-foreground">{String(customerData.storeName || '')}</p>
+                                                <p className="text-xs font-medium text-muted-foreground">Store Name</p>
+                                                <p className="text-sm text-foreground">{customerData.storeName as string}</p>
                                             </div>
                                         </div>
-                                        {customerData.clientType ? (
                                         <div className="flex items-start gap-3">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                <i className="fas fa-user-tag text-sm text-muted-foreground"></i>
-                                            </div>
+                                            <CalendarIcon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                             <div className="min-w-0">
-                                                <p className="text-sm font-medium text-foreground">Client Type</p>
-                                                <p className="text-sm text-muted-foreground">{String(customerData.clientType)}</p>
+                                                <p className="text-xs font-medium text-muted-foreground">Year of Joining</p>
+                                                <p className="text-sm text-foreground">
+                                                    {customerData.yearOfJoining != null
+                                                        ? String(customerData.yearOfJoining)
+                                                        : 'Not recorded'}
+                                                </p>
                                             </div>
                                         </div>
-                                    ) : null}
-                                        <div className="flex items-start gap-3">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                <i className="fas fa-tags text-sm text-muted-foreground"></i>
+                                        {(customerData.clientType as string) && (
+                                            <div className="flex items-start gap-3">
+                                                <Tag className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-medium text-muted-foreground">Client Type</p>
+                                                    <p className="text-sm text-foreground capitalize">{customerData.clientType as string}</p>
+                                                </div>
                                             </div>
-                                            <div className="min-w-0 w-full">
-                                                <p className="text-sm font-medium text-foreground">Product Categories</p>
-                                                {productCategories.length > 0 ? (
-                                                    <div className="mt-1 flex flex-wrap gap-1.5">
-                                                        {productCategories.map((category) => (
-                                                            <Badge
-                                                                key={category}
-                                                                variant="secondary"
-                                                                className="text-xs font-medium"
-                                                            >
-                                                                {category}
-                                                            </Badge>
-                                                        ))}
+                                        )}
+                                        {(() => {
+                                            const dob = (customerData.dateOfBirth as string) || (customerData.dob as string);
+                                            const formattedDob = formatDateOfBirth(dob);
+                                            const isBirthday = isBirthdayToday(dob);
+                                            
+                                            if (!formattedDob) return null;
+                                            
+                                            return (
+                                                <div className="flex items-start gap-3">
+                                                    <CalendarIcon className={`h-4 w-4 mt-0.5 shrink-0 ${isBirthday ? 'text-pink-500' : 'text-muted-foreground'}`} />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-xs font-medium text-muted-foreground">Date of Birth</p>
+                                                            {isBirthday && (
+                                                                <Badge variant="outline" className="bg-pink-50 text-pink-600 border-pink-200 text-xs">
+                                                                    <Cake className="h-3 w-3 mr-1" />
+                                                                    Birthday!
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <p className={`text-sm ${isBirthday ? 'font-semibold text-pink-600' : 'text-foreground'}`}>
+                                                            {formattedDob}
+                                                        </p>
                                                     </div>
-                                                ) : (
-                                                    <p className="mt-1 text-sm text-muted-foreground">
-                                                        No categories assigned yet.
-                                                    </p>
-                                                )}
-                                                {/* Add Category UI removed per requirements */}
-                                            </div>
-                                        </div>
-              </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
                                 )}
-                                
+
                                 {activeInfoTab === 'address-info' && customerData && (
                                     <div className="space-y-3">
                                         {(() => {
-                                            const addressParts: string[] = [];
-                                            if (customerData.addressLine1) addressParts.push(String(customerData.addressLine1));
-                                            if (customerData.addressLine2) addressParts.push(String(customerData.addressLine2));
-                                            if (customerData.village) addressParts.push(String(customerData.village));
-                                            if (customerData.taluka) addressParts.push(String(customerData.taluka));
-                                            if (customerData.city) addressParts.push(String(customerData.city));
-                                            if (customerData.district) addressParts.push(String(customerData.district));
-                                            if (customerData.state) addressParts.push(String(customerData.state));
-                                            if (customerData.pincode) addressParts.push(String(customerData.pincode));
-                                            
+                                            const addressParts = [];
+                                            if (customerData.addressLine1) addressParts.push(customerData.addressLine1);
+                                            if (customerData.addressLine2) addressParts.push(customerData.addressLine2);
+                                            if (customerData.village) addressParts.push(customerData.village);
+                                            if (customerData.taluka) addressParts.push(customerData.taluka);
+                                            if (customerData.city) addressParts.push(customerData.city);
+                                            if (customerData.district) addressParts.push(customerData.district);
+                                            if (customerData.state) addressParts.push(customerData.state);
+                                            if (customerData.pincode) addressParts.push(customerData.pincode);
+
                                             return addressParts.length > 0 ? (
                                                 <div className="flex items-start gap-3">
-                                                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                        <i className="fas fa-map-marker-alt text-sm text-muted-foreground"></i>
-                                                    </div>
+                                                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                                     <div className="min-w-0">
-                                                        <p className="text-sm font-medium text-foreground">Address</p>
-                                                        <p className="text-sm text-muted-foreground">{addressParts.join(', ')}</p>
+                                                        <p className="text-xs font-medium text-muted-foreground">Address</p>
+                                                        <p className="text-sm text-foreground">{addressParts.join(', ')}</p>
                                                     </div>
                                                 </div>
                                             ) : null;
                                         })()}
-                                        {customerData.city ? (
+                                        {(customerData.city as string) && (
                                             <div className="flex items-start gap-3">
-                                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                    <i className="fas fa-city text-sm text-muted-foreground"></i>
-                                                </div>
+                                                <Building className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-foreground">City</p>
-                                                    <p className="text-sm text-muted-foreground">{String(customerData.city)}</p>
+                                                    <p className="text-xs font-medium text-muted-foreground">City</p>
+                                                    <p className="text-sm text-foreground">{customerData.city as string}</p>
                                                 </div>
                                             </div>
-                                        ) : null}
-                                        {customerData.state ? (
+                                        )}
+                                        {(customerData.state as string) && (
                                             <div className="flex items-start gap-3">
-                                                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                                                    <i className="fas fa-flag text-sm text-muted-foreground"></i>
-                                                </div>
+                                                <Flag className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-foreground">State</p>
-                                                    <p className="text-sm text-muted-foreground">{String(customerData.state)}</p>
+                                                    <p className="text-xs font-medium text-muted-foreground">State</p>
+                                                    <p className="text-sm text-foreground">{customerData.state as string}</p>
                                                 </div>
                                             </div>
-                                        ) : null}
-              </div>
+                                        )}
+                                    </div>
                                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="lg:col-span-2">
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <div className="lg:col-span-2">
                     <Card className="border-0 shadow-sm">
                         <CardHeader className="pb-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center justify-between">
                                 <div>
                                     <CardTitle className="text-xl font-semibold text-foreground">Customer Activity</CardTitle>
-                                    <p className="text-sm text-muted-foreground">View visits, notes, complaints, and requirements</p>
+                                    <p className="text-xs text-muted-foreground">View visits, notes, complaints, and requirements</p>
                                 </div>
-            </div>
-            </CardHeader>
-            <CardContent>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
                             <div className="space-y-6">
-                                <div className="flex flex-wrap border-b overflow-x-auto">
-                                    <button 
-                                        className={getActivityTabClasses('visits')}
+                                <div className="flex border-b overflow-x-auto">
+                                    <button
+                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'visits'
+                                                ? 'border-primary text-primary'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                            }`}
                                         onClick={() => setActiveActivityTab('visits')}
                                     >
-                                        <i className="fas fa-calendar-check text-xs sm:text-sm"></i> <span className="hidden xs:inline">Visits</span><span className="xs:hidden">Visits</span>
+                                        Visits
                                     </button>
-                                    <button 
-                                        className={getActivityTabClasses('notes')}
-                                        onClick={() => setActiveActivityTab('notes')}
-                                    >
-                                        <i className="fas fa-sticky-note text-xs sm:text-sm"></i> <span className="hidden xs:inline">Notes</span><span className="xs:hidden">Notes</span>
-                                    </button>
-                                    <button 
-                                        className={getActivityTabClasses('complaints')}
-                                        onClick={() => setActiveActivityTab('complaints')}
-                                    >
-                                        <i className="fas fa-exclamation-circle text-xs sm:text-sm"></i> <span className="hidden xs:inline">Complaints</span><span className="xs:hidden">Complaints</span>
-                                    </button>
-                                    <button 
-                                        className={getActivityTabClasses('requirements')}
-                                        onClick={() => setActiveActivityTab('requirements')}
-                                    >
-                                        <i className="fas fa-tasks text-xs sm:text-sm"></i> <span className="hidden xs:inline">Requirements</span><span className="xs:hidden">Requirements</span>
-                                    </button>
-                                    <button 
-                                        className={getActivityTabClasses('brands')}
+                                    <button
+                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'brands'
+                                                ? 'border-primary text-primary'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                                }`}
                                         onClick={() => setActiveActivityTab('brands')}
                                     >
-                                        <i className="fas fa-tags text-xs sm:text-sm"></i> <span className="hidden xs:inline">Brands</span><span className="xs:hidden">Brands</span>
+                                        Brands
                                     </button>
-                                    {showSitesTab && (
-                                        <button 
-                                            className={getActivityTabClasses('sites')}
-                                            onClick={() => setActiveActivityTab('sites')}
-                                        >
-                                            <i className="fas fa-map-marker-alt text-xs sm:text-sm"></i> <span className="hidden xs:inline">Sites</span><span className="xs:hidden">Sites</span>
-                                        </button>
-                                    )}
+                                    <button
+                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'notes'
+                                                ? 'border-primary text-primary'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        onClick={() => setActiveActivityTab('notes')}
+                                    >
+                                        Notes
+                                    </button>
+                                    <button
+                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'complaints'
+                                                ? 'border-primary text-primary'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        onClick={() => setActiveActivityTab('complaints')}
+                                    >
+                                        Complaints
+                                    </button>
+                                    <button
+                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'requirements'
+                                                ? 'border-primary text-primary'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        onClick={() => setActiveActivityTab('requirements')}
+                                    >
+                                        Requirements
+                                    </button>
                                 </div>
 
                                 {activeActivityTab === 'visits' && (
-                  <div className="space-y-4">
-                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                                            <select 
-                                                onChange={(e) => handleStatusChange(e.target.value)} 
-                                                className="px-3 py-2 border border-input bg-background rounded-md text-sm"
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-4">
+                                            <select
+                                                onChange={(e) => handleStatusChange(e.target.value)}
+                                                className="px-3 py-1.5 border border-input bg-background rounded-md text-xs"
                                             >
                                                 <option value="All Statuses">All Statuses</option>
                                                 <option value="Assigned">Assigned</option>
-                                                <option value="On Going">On Going</option>
                                                 <option value="Complete">Complete</option>
                                             </select>
                                         </div>
                                         <div className="space-y-3">
-                                            {paginate(filteredVisitsData, currentPage.visits).map((visit, index) => {
-                                                const v = visit as Visit;
-                                                const { emoji, status, color } = getOutcomeStatus(v);
-                                                return (
-                                                    <div key={index} className="rounded-lg border bg-card p-4">
-                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <i className="fas fa-calendar-alt text-muted-foreground"></i>
-                                                                <span className="text-sm font-medium">Visit scheduled by {v.employeeName}</span>
+                                            {isLoadingVisits ? (
+                                                <div role="status" className="py-8 text-center text-xs text-muted-foreground">Loading visits…</div>
+                                            ) : visitsError ? (
+                                                <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4 text-xs">
+                                                    <span>{visitsError}</span>
+                                                    <Button variant="outline" size="sm" onClick={() => fetchVisitsData(getStoreIdString(), currentPage.visits)}>Retry</Button>
+                                                </div>
+                                            ) : filteredVisitsData.length === 0 ? (
+                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No visits found.</div>
+                                            ) : (
+                                                filteredVisitsData.map((visit, index) => {
+                                                    const { emoji, status, color } = getOutcomeStatus(visit);
+                                                    return (
+                                                        <div key={index} className="rounded-lg border bg-card p-4 space-y-3">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-xs font-medium text-foreground">Visit scheduled by {visit.employeeName}</span>
+                                                                <span className="text-xs text-muted-foreground">{formatDateToUserFriendly(visit.visit_date)}</span>
                                                             </div>
-                                                            <span className="text-xs text-muted-foreground">{new Date(v.visit_date).toLocaleDateString()}</span>
-                                                        </div>
-                                                        <p className="text-sm text-foreground mb-3">{v.purpose}</p>
-                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                            <div className="flex items-center gap-4">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Status:</span>
+                                                            <p className="text-xs text-muted-foreground">{visit.purpose}</p>
+                                                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
+                                                                <div className="flex items-center gap-3">
                                                                     <Badge variant="secondary" className={color}>{emoji} {status}</Badge>
+                                                                    <span className="text-xs text-muted-foreground">Purpose: <span className="text-foreground">{visit.purpose}</span></span>
                                                                 </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Purpose:</span>
-                                                                    <span className="text-xs text-primary">{v.purpose}</span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
-                                                                    {getInitials(v.employeeName)}
-                                                                </div>
-                                                                <span className="text-xs text-muted-foreground">{v.employeeName}</span>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => router.push(`/dashboard/visits/${visit.id}`)}
+                                                                    className="text-xs h-7 px-2"
+                                                                >
+                                                                    View Visit
+                                                                </Button>
                                                             </div>
                                                         </div>
-                                                        <div className="mt-3 flex justify-end">
-                                                            <Button 
-                                                                variant="outline" 
-                                                                size="sm"
-                                                                onClick={() => handleOpenVisit(v.id)}
-                                                                className="text-xs"
-                                                                disabled={openingVisitId !== null}
-                                                            >
-                                                                {openingVisitId === v.id ? (
-                                                                    <>
-                                                                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                                                        Opening…
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <i className="fas fa-eye mr-1"></i>
-                                                                        View Visit
-                                                                    </>
-                                                                )}
-                                                            </Button>
-                                                        </div>
-        </div>
-    );
-                })}
-              </div>
-                                        {showMore.visits && visitsData.length > ITEMS_PER_PAGE && (
-                                            <Pagination>
-                                                <PaginationPrevious
-                                                    size="default"
-                                                    onClick={currentPage.visits === 1 ? undefined : () => setCurrentPage(prev => ({ ...prev, visits: Math.max(prev.visits - 1, 1) }))}
-                                                />
-                                                <PaginationContent>
-                                                    {renderPaginationItems('visits')}
-                                                </PaginationContent>
-                                                <PaginationNext
-                                                    size="default"
-                                                    onClick={currentPage.visits === Math.ceil(visitsData.length / ITEMS_PER_PAGE) ? undefined : () => setCurrentPage(prev => ({ ...prev, visits: Math.min(prev.visits + 1, Math.ceil(visitsData.length / ITEMS_PER_PAGE)) }))}
-                                                />
-                                            </Pagination>
-                                        )}
-                                        {visitsData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, visits: !prev.visits }))}>
-                                                {showMore.visits ? 'Show Less' : 'Show More'}
-              </Button>
-                                        )}
-        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeActivityTab === 'visits' && !visitsError && visitTotalPages > 1 && (
+                                    <nav aria-label="Customer visit pages" className="flex items-center justify-between gap-2 border-t pt-3">
+                                        <Button variant="outline" size="sm" disabled={isLoadingVisits || currentPage.visits <= 1} onClick={() => handlePageChange('visits', currentPage.visits - 1)}>Previous</Button>
+                                        <span className="text-xs text-muted-foreground">Page {currentPage.visits} of {visitTotalPages}</span>
+                                        <Button variant="outline" size="sm" disabled={isLoadingVisits || currentPage.visits >= visitTotalPages} onClick={() => handlePageChange('visits', currentPage.visits + 1)}>Next</Button>
+                                    </nav>
+                                )}
+
+                                {activeActivityTab === 'brands' && (
+                                    <BrandTab brandPurchases={allBrandPurchases} />
                                 )}
 
                                 {activeActivityTab === 'notes' && (
-                  <div className="space-y-4">
-                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                                            <Button onClick={addNote}>
-                                                <i className="fas fa-plus mr-2"></i> Add Note
-              </Button>
-            </div>
-                                        <div className="space-y-3">
-                                            {paginate(notesData, currentPage.notes).map((note) => {
-                                                const n = note as Note;
-                                                return (
-                                                <div key={n.id} className="rounded-lg border bg-card p-4">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                                                        <span className="text-xs text-muted-foreground">{new Date(n.createdDate).toLocaleDateString()}</span>
-                                                        <div className="flex items-center gap-2">
-                                                            <Button variant="ghost" size="sm" onClick={() => handleEditNote(n)}>
-                                                                <Edit className="h-3 w-3 mr-1" />
-                                                                Edit
-                                                            </Button>
-                                                            <Button variant="ghost" size="sm" onClick={() => promptDeleteNote(n)}>
-                                                                <Trash2 className="h-3 w-3 mr-1" />
-                                                                Delete
-                                                            </Button>
-                          </div>
-                        </div>
-                                                    <div className="text-sm text-foreground">{n.content}</div>
-                      </div>
-                                                );
-                                            })}
-                  </div>
-                                        {showMore.notes && notesData.length > ITEMS_PER_PAGE && (
-                                            <Pagination>
-                                                <PaginationPrevious
-                                                    size="default"
-                                                    onClick={currentPage.notes === 1 ? undefined : () => setCurrentPage(prev => ({ ...prev, notes: Math.max(prev.notes - 1, 1) }))}
-                                                />
-                                                <PaginationContent>
-                                                    {renderPaginationItems('notes')}
-                                                </PaginationContent>
-                                                <PaginationNext
-                                                    size="default"
-                                                    onClick={currentPage.notes === Math.ceil(notesData.length / ITEMS_PER_PAGE) ? undefined : () => setCurrentPage(prev => ({ ...prev, notes: Math.min(prev.notes + 1, Math.ceil(notesData.length / ITEMS_PER_PAGE)) }))}
-                                                />
-                                            </Pagination>
-                                        )}
-                                        {notesData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, notes: !prev.notes }))}>
-                                                {showMore.notes ? 'Show Less' : 'Show More'}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center">
+                                            <h4 className="text-sm font-semibold text-foreground">Notes</h4>
+                                            <Button size="sm" onClick={() => { setIsEditMode(false); setNoteContent(''); setEditingNoteId(null); setIsModalVisible(true); }} className="h-8 text-xs">
+                                                Add Note
                                             </Button>
-                                        )}
+                                        </div>
+                                        <div className="space-y-3">
+                                            {notesData.length === 0 ? (
+                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No notes recorded yet.</div>
+                                            ) : (
+                                                paginate(notesData, currentPage.notes).map((note) => (
+                                                    <div key={note.id} className="rounded-lg border bg-card p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-semibold text-foreground">{note.employeeName || 'Staff'}</span>
+                                                            <span className="text-xs text-muted-foreground">{formatDateToUserFriendly(note.createdDate)}</span>
+                                                        </div>
+                                                        <p className="text-xs text-foreground whitespace-pre-wrap">{note.content}</p>
+                                                        <div className="flex justify-end gap-2 pt-2 border-t">
+                                                            <Button variant="ghost" size="sm" onClick={() => handleEditNote(note)} className="h-7 text-xs px-2">Edit</Button>
+                                                            <Button variant="ghost" size="sm" onClick={() => setNotePendingDelete(note)} className="h-7 text-xs px-2 text-destructive">Delete</Button>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
                                     </div>
                                 )}
 
                                 {activeActivityTab === 'complaints' && (
-                  <div className="space-y-4">
-                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+                                    <div className="space-y-4">
+                                        <div className="flex flex-wrap items-center gap-3">
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-full sm:w-[200px] justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {startDate ? format(new Date(startDate), 'PPP') : <span>Start Date</span>}
+                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
-                                                    <Calendar
+                                                    <SpacedCalendar
                                                         mode="single"
                                                         selected={startDate}
-                                                        onSelect={(date) => {
+                                                        onSelect={(date: Date | undefined) => {
                                                             setStartDate(date || new Date());
                                                             setEndDate(addDays(date || new Date(), 5));
                                                         }}
@@ -2350,13 +1423,13 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </Popover>
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-full sm:w-[200px] justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {endDate ? format(new Date(endDate), 'PPP') : <span>End Date</span>}
+                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
-                                                    <Calendar
+                                                    <SpacedCalendar
                                                         mode="single"
                                                         selected={endDate}
                                                         onSelect={(date) => setEndDate(date || new Date())}
@@ -2364,105 +1437,57 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                     />
                                                 </PopoverContent>
                                             </Popover>
-                        </div>
+                                        </div>
+                                        <DateRangeError fromDate={startDate} toDate={endDate} />
                                         <div className="space-y-3">
-                                            {paginate(complaintsData, currentPage.complaints).map((complaint) => {
-                                                const c = complaint as Task;
-                                                const desc = (c as unknown as Record<string, unknown>).taskDesciption ?? (c as unknown as Record<string, unknown>).taskDescription ?? '';
-                                                const images = (c as unknown as { attachments?: Array<{ id: number; url: string }> }).attachments ?? [];
-                                                return (
-                                                    <div key={c.id} className="rounded-lg border bg-card p-4 space-y-4">
-                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <i className="fas fa-exclamation-circle text-muted-foreground"></i>
-                                                                <span className="text-sm font-medium">Complaint</span>
-                                                                {Array.isArray((c as unknown as Record<string, unknown>).attachmentResponse) && ((c as unknown as Record<string, unknown>).attachmentResponse as unknown[]).length > 0 && (
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-8 w-8 p-0"
-                                                                        onClick={() => fetchTaskImages(c.id)}
-                                                                        title="View Images"
-                                                                    >
-                                                                        <Image className="h-4 w-4 text-blue-500" />
-                                                                    </Button>
-                                                                )}
-                                                            </div>
-                                                            <span className="text-xs text-muted-foreground">Due: {new Date(c.dueDate).toLocaleDateString()}</span>
+                                            {complaintsData.length === 0 ? (
+                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No complaints found.</div>
+                                            ) : (
+                                                paginate(complaintsData, currentPage.complaints).map((complaint) => (
+                                                    <div key={complaint.id} className="rounded-lg border bg-card p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-semibold text-foreground">{complaint.taskTitle}</span>
+                                                            <span className="text-xs text-muted-foreground">Due: {format(new Date(complaint.dueDate), 'MMM dd, yyyy')}</span>
                                                         </div>
-                                                        {desc && (
-                                                            <p className="text-sm text-foreground">{String(desc)}</p>
-                                                        )}
-
-
-                                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                            <div className="flex items-center gap-4 flex-wrap">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Status:</span>
-                                                                    <select
-                                                                        onChange={(e) => handleChangeStatus(c.id, e.target.value, c.priority)}
-                                                                        value={c.status}
-                                                                        className="px-2 py-1 border border-input bg-background rounded text-xs"
-                                                                    >
-                                                                        <option value="Assigned">Assigned</option>
-                                                                        <option value="On Going">On Going</option>
-                                                                        <option value="Complete">Complete</option>
-                                                                    </select>
-                                                                </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Category:</span>
-                                                                    <Badge variant="outline">{getRequirementComplaintCategoryLabel(c.priority)}</Badge>
-                                                                </div>
-                                                            </div>
+                                                        <p className="text-xs text-foreground">{complaint.taskDescription}</p>
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
                                                             <div className="flex items-center gap-2">
-                                                                <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
-                                                                    {getInitials(c.assignedToName)}
-                                                                </div>
-                                                                <span className="text-xs text-muted-foreground">{c.assignedToName}</span>
+                                                                <span className="text-xs text-muted-foreground">Status:</span>
+                                                                <select
+                                                                    onChange={(e) => handleChangeStatus(complaint.id, e.target.value)}
+                                                                    value={complaint.status}
+                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
+                                                                >
+                                                                    <option value="Assigned">Assigned</option>
+                                                                    <option value="On Going">On Going</option>
+                                                                    <option value="Complete">Complete</option>
+                                                                </select>
+                                                                <Badge variant="outline" className="text-xs">{complaint.priority}</Badge>
                                                             </div>
+                                                            <span className="text-xs text-muted-foreground">Assigned to: {complaint.assignedToName}</span>
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
+                                                ))
+                                            )}
                                         </div>
-                                        {showMore.complaints && complaintsData.length > ITEMS_PER_PAGE && (
-                                            <Pagination>
-                                                <PaginationPrevious
-                                                    size="default"
-                                                    onClick={currentPage.complaints === 1 ? undefined : () => setCurrentPage(prev => ({ ...prev, complaints: Math.max(prev.complaints - 1, 1) }))}
-                                                />
-                                                <PaginationContent>
-                                                    {renderPaginationItems('complaints')}
-                                                </PaginationContent>
-                                                <PaginationNext
-                                                    size="default"
-                                                    onClick={currentPage.complaints === Math.ceil(complaintsData.length / ITEMS_PER_PAGE) ? undefined : () => setCurrentPage(prev => ({ ...prev, complaints: Math.min(prev.complaints + 1, Math.ceil(complaintsData.length / ITEMS_PER_PAGE)) }))}
-                                                />
-                                            </Pagination>
-                                        )}
-                                        {complaintsData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, complaints: !prev.complaints }))}>
-                                                {showMore.complaints ? 'Show Less' : 'Show More'}
-                                            </Button>
-                                        )}
                                     </div>
                                 )}
 
                                 {activeActivityTab === 'requirements' && (
-                  <div className="space-y-4">
-                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+                                    <div className="space-y-4">
+                                        <div className="flex flex-wrap items-center gap-3">
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-full sm:w-[200px] justify-start text-left font-normal ${!startDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {startDate ? format(new Date(startDate), 'PPP') : <span>Start Date</span>}
+                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
-                                                    <Calendar
+                                                    <SpacedCalendar
                                                         mode="single"
                                                         selected={startDate}
-                                                        onSelect={(date) => {
+                                                        onSelect={(date: Date | undefined) => {
                                                             setStartDate(date || new Date());
                                                             setEndDate(addDays(date || new Date(), 5));
                                                         }}
@@ -2472,13 +1497,13 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                             </Popover>
                                             <Popover>
                                                 <PopoverTrigger asChild>
-                                                    <Button variant="outline" className={`w-full sm:w-[200px] justify-start text-left font-normal ${!endDate && 'text-muted-foreground'}`}>
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {endDate ? format(new Date(endDate), 'PPP') : <span>End Date</span>}
+                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
                                                     </Button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="w-auto p-0">
-                                                    <Calendar
+                                                    <SpacedCalendar
                                                         mode="single"
                                                         selected={endDate}
                                                         onSelect={(date) => setEndDate(date || new Date())}
@@ -2486,1084 +1511,333 @@ export default function CustomerDetailPage({ customer }: { customer: unknown }) 
                                                     />
                                                 </PopoverContent>
                                             </Popover>
-                        </div>
+                                        </div>
+                                        <DateRangeError fromDate={startDate} toDate={endDate} />
                                         <div className="space-y-3">
-                                            {paginate(requirementsData, currentPage.requirements).map((requirement) => {
-                                                const r = requirement as Task;
-                                                const desc = (r as unknown as Record<string, unknown>).taskDesciption ?? (r as unknown as Record<string, unknown>).taskDescription ?? '';
-                                                return (
-                                                    <div key={r.id} className="rounded-lg border bg-card p-4">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <i className="fas fa-tasks text-muted-foreground"></i>
-                                                                <span className="text-sm font-medium">{r.taskTitle || 'Requirement'}</span>
-                                                            </div>
-                                                            <span className="text-xs text-muted-foreground">Due: {new Date(r.dueDate).toLocaleDateString()}</span>
+                                            {requirementsData.length === 0 ? (
+                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No requirements found.</div>
+                                            ) : (
+                                                paginate(requirementsData, currentPage.requirements).map((requirement) => (
+                                                    <div key={requirement.id} className="rounded-lg border bg-card p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-semibold text-foreground">{requirement.taskTitle}</span>
+                                                            <span className="text-xs text-muted-foreground">Due: {format(new Date(requirement.dueDate), 'MMM dd, yyyy')}</span>
                                                         </div>
-                                                        {desc && (
-                                                            <p className="text-sm text-foreground mb-3">{String(desc)}</p>
-                                                        )}
-                                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                        <div className="flex items-center gap-4 flex-wrap">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Status:</span>
-                                                                    <select
-                                                                        onChange={(e) => handleChangeStatus(r.id, e.target.value, r.priority)}
-                                                                        value={r.status}
-                                                                        className="px-2 py-1 border border-input bg-background rounded text-xs"
-                                                                    >
-                                                                        <option value="Assigned">Assigned</option>
-                                                                        <option value="On Going">On Going</option>
-                                                                        <option value="Complete">Complete</option>
-                                                                    </select>
-                                                                </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs text-muted-foreground">Category:</span>
-                                                                    <Badge variant="outline">{getRequirementComplaintCategoryLabel(r.priority)}</Badge>
-                                                                </div>
-                                                            </div>
+                                                        <p className="text-xs text-foreground">{requirement.taskDescription}</p>
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
                                                             <div className="flex items-center gap-2">
-                                                                <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
-                                                                    {getInitials(r.assignedToName)}
-                                                                </div>
-                                                                <span className="text-xs text-muted-foreground">{r.assignedToName}</span>
+                                                                <span className="text-xs text-muted-foreground">Status:</span>
+                                                                <select
+                                                                    onChange={(e) => handleChangeStatus(requirement.id, e.target.value)}
+                                                                    value={requirement.status}
+                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
+                                                                >
+                                                                    <option value="Assigned">Assigned</option>
+                                                                    <option value="On Going">On Going</option>
+                                                                    <option value="Complete">Complete</option>
+                                                                </select>
+                                                                <Badge variant="outline" className="text-xs">{requirement.priority}</Badge>
                                                             </div>
+                                                            <span className="text-xs text-muted-foreground">Assigned to: {requirement.assignedToName}</span>
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
+                                                ))
+                                            )}
                                         </div>
-                                        {showMore.requirements && requirementsData.length > ITEMS_PER_PAGE && (
-                                            <Pagination>
-                                                <PaginationPrevious
-                                                    size="default"
-                                                    onClick={currentPage.requirements === 1 ? undefined : () => setCurrentPage(prev => ({ ...prev, requirements: Math.max(prev.requirements - 1, 1) }))}
-                                                />
-                                                <PaginationContent>
-                                                    {renderPaginationItems('requirements')}
-                                                </PaginationContent>
-                                                <PaginationNext
-                                                    size="default"
-                                                    onClick={currentPage.requirements === Math.ceil(requirementsData.length / ITEMS_PER_PAGE) ? undefined : () => setCurrentPage(prev => ({ ...prev, requirements: Math.min(prev.requirements + 1, Math.ceil(requirementsData.length / ITEMS_PER_PAGE)) }))}
-                                                />
-                                            </Pagination>
-                                        )}
-                                        {requirementsData.length > 3 && (
-                                            <Button variant="outline" onClick={() => setShowMore(prev => ({ ...prev, requirements: !prev.requirements }))}>
-                                                {showMore.requirements ? 'Show Less' : 'Show More'}
-                        </Button>
-                                        )}
-                      </div>
-                                )}
-
-                                {activeActivityTab === 'brands' && (
-                  <div className="space-y-4">
-                                        {/* Store-level exclusive/non-exclusive badge */}
-                                        {customerData && (
-                                            <div className="flex items-center justify-between mb-4">
-                                                <div className="flex items-center gap-3">
-                                                    <h3 className="text-lg font-semibold text-foreground">Brands & Materials</h3>
-                                                    <Badge variant={customerData.exclusive ? "default" : "secondary"} className="text-xs">
-                                                        {customerData.exclusive ? 'Exclusive Store' : 'Non-Exclusive Store'}
-                                                    </Badge>
-                                                </div>
-                                            </div>
-                                        )}
-                                        
-                                        {brandMaterialsData.length > 0 ? (
-                                            <div className="space-y-4">
-                                                {brandMaterialsData.map((brand, index: number) => (
-                                                    <Card key={`${brand.visitId}-${brand.id ?? index}`} className="border border-border/50">
-                                                        <CardContent className="p-4">
-                                                            <div className="space-y-3">
-                                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                                    <div className="space-y-1">
-                                                                        <div className="flex flex-wrap items-center gap-2">
-                                                                            <h3 className="text-lg font-semibold text-foreground">
-                                                                                {brand.brandName || 'Unnamed brand'}
-                                                                            </h3>
-                                                                            {brand.category && (
-                                                                                <Badge variant="secondary" className="uppercase tracking-wide">
-                                                                                    {brand.category}
-                                                                                </Badge>
-                                                                            )}
-                                                                        </div>
-                                                                        <p className="text-xs text-muted-foreground">
-                                                                            Visit #{brand.visitId}{brand.visitDate ? ` • ${new Date(brand.visitDate).toLocaleDateString()}` : ''}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                                                    <div className="rounded-md border bg-muted/20 p-3">
-                                                                        <p className="text-xs font-medium text-muted-foreground">Purchased From</p>
-                                                                        <p className="mt-1 text-sm text-foreground">{formatMaterialDetail(brand.purchasedFrom)}</p>
-                                                                    </div>
-                                                                    <div className="rounded-md border bg-muted/20 p-3">
-                                                                        <p className="text-xs font-medium text-muted-foreground">Steel Quantity</p>
-                                                                        <p className="mt-1 text-sm text-foreground">{formatSteelQuantityDetail(brand.steelQuantity)}</p>
-                                                                    </div>
-                                                                    <div className="rounded-md border bg-muted/20 p-3">
-                                                                        <p className="text-xs font-medium text-muted-foreground">Cement Quantity</p>
-                                                                        <p className="mt-1 text-sm text-foreground">{formatMaterialDetail(brand.cementQuantitySold)}</p>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </CardContent>
-                                                    </Card>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className="text-center py-8">
-                                                <i className="fas fa-tags text-4xl text-muted-foreground mb-4"></i>
-                                                <h3 className="text-lg font-medium text-foreground mb-2">No Brands Found</h3>
-                                                <p className="text-sm text-muted-foreground">No brand or material purchase details are available for this customer yet.</p>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
-
-                                {activeActivityTab === 'sites' && (
-                  <div className="space-y-4">
-                                        {isLoadingSites ? (
-                                            <div className="flex items-center justify-center py-8">
-                                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                                                <span className="ml-2 text-sm text-muted-foreground">Loading sites...</span>
-                                            </div>
-                                        ) : sitesData.length > 0 ? (
-                                            <div className="space-y-4">
-                                                {(sitesData as SiteRecord[]).map((site, index: number) => {
-                                                    const completed = isSiteCompleted(site.completionStatus);
-                                                    const totalArea = toNumericValue(site.requirement);
-                                                    const completedArea = toNumericValue(site.completed);
-                                                    const progress =
-                                                        totalArea && completedArea != null
-                                                            ? Math.max(0, Math.min((completedArea / totalArea) * 100, 100))
-                                                            : null;
-                                                    const addressParts = [
-                                                        site.addressLine1,
-                                                        site.address,
-                                                        site.city,
-                                                        site.state,
-                                                        site.pincode,
-                                                    ]
-                                                        .filter((part) => part != null && String(part).trim() !== '')
-                                                        .map(String);
-                                                    const address = addressParts.length > 0 ? addressParts.join(', ') : '—';
-
-                                                    return (
-                                                        <Card key={site.id || index} className="border border-border/50">
-                                                            <CardContent className="p-4">
-                                                                <div className="space-y-4">
-                                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                                                        <div>
-                                                                            <h3 className="text-lg font-semibold text-foreground">{site.siteName || 'Unnamed site'}</h3>
-                                                                            <p className="text-xs text-muted-foreground">Site consumption details</p>
-                                                                        </div>
-                                                                        <Badge variant={completed ? "default" : "secondary"} className="w-fit text-xs">
-                                                                            {completed ? 'Completed' : 'Incomplete'}
-                                                                        </Badge>
-                                                                    </div>
-
-                                                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                                                        <div className="rounded-md border bg-muted/20 p-3">
-                                                                            <p className="text-xs font-medium text-muted-foreground">Total Area</p>
-                                                                            <p className="mt-1 text-sm font-medium text-foreground">{formatAreaDetail(site.requirement)}</p>
-                                                                        </div>
-                                                                        <div className="rounded-md border bg-muted/20 p-3">
-                                                                            <p className="text-xs font-medium text-muted-foreground">Completed Area</p>
-                                                                            <p className="mt-1 text-sm font-medium text-foreground">{formatAreaDetail(site.completed)}</p>
-                                                                        </div>
-                                                                        <div className="rounded-md border bg-muted/20 p-3">
-                                                                            <p className="text-xs font-medium text-muted-foreground">Start Date</p>
-                                                                            <p className="mt-1 text-sm font-medium text-foreground">
-                                                                                {site.startDate ? new Date(site.startDate).toLocaleDateString() : '—'}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div className="rounded-md border bg-muted/20 p-3">
-                                                                            <p className="text-xs font-medium text-muted-foreground">End Date</p>
-                                                                            <p className="mt-1 text-sm font-medium text-foreground">
-                                                                                {site.endDate ? new Date(site.endDate).toLocaleDateString() : '—'}
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div className="rounded-md border bg-muted/20 p-3">
-                                                                        <p className="text-xs font-medium text-muted-foreground">Address</p>
-                                                                        <p className="mt-1 text-sm font-medium text-foreground">{address}</p>
-                                                                    </div>
-
-                                                                    {progress != null && (
-                                                                        <div className="space-y-2">
-                                                                            <div className="flex items-center justify-between text-sm">
-                                                                                <span className="text-muted-foreground">Progress</span>
-                                                                                <span className="font-medium text-foreground">{Math.round(progress)}%</span>
-                                                                            </div>
-                                                                            <div className="h-2 w-full rounded-full bg-muted">
-                                                                                <div
-                                                                                    className="h-2 rounded-full bg-primary transition-all duration-300"
-                                                                                    style={{ width: `${progress}%` }}
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </CardContent>
-                                                        </Card>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            <div className="text-center py-8">
-                                                <i className="fas fa-map-marker-alt text-4xl text-muted-foreground mb-4"></i>
-                                                <h3 className="text-lg font-medium text-foreground mb-2">No Sites Found</h3>
-                                                <p className="text-sm text-muted-foreground">No site/project information available for this customer yet.</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                  </div>
-                </CardContent>
-              </Card>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
 
             {/* Modals */}
-            {isModalVisible && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="w-full max-w-md border shadow-lg bg-background">
-                        <CardHeader className="pb-4">
-                            <CardTitle className="text-xl font-semibold text-foreground">
-                                {isEditMode ? 'Edit Note' : 'Add Note'}
-                  </CardTitle>
-                </CardHeader>
-                        <CardContent className="space-y-4">
-                            <textarea
-                                placeholder="Enter note content"
-                                value={noteContent}
-                                onChange={(e) => setNoteContent(e.target.value)}
-                                rows={4}
-                                disabled={isSavingNote}
-                                className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-60"
-                            />
-                            <div className="flex justify-end gap-2">
-                                <Button variant="outline" onClick={() => setIsModalVisible(false)} disabled={isSavingNote}>
-                                    Cancel
-                                </Button>
-                                <Button onClick={isEditMode ? handleSaveEditNote : handleAddNote} disabled={isSavingNote || !noteContent.trim()}>
-                                    {isSavingNote ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            {isEditMode ? 'Updating…' : 'Adding…'}
-                                        </>
-                                    ) : (
-                                        isEditMode ? 'Update' : 'Add'
-                                    )}
-                                </Button>
-                            </div>
-                </CardContent>
-              </Card>
-        </div>
-            )}
-
-            {isDeleteNoteModalVisible && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="w-full max-w-md border shadow-lg bg-background">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="text-xl font-semibold text-foreground">Delete Note</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <p className="text-sm text-muted-foreground">Are you sure you want to delete this note? This action cannot be undone.</p>
-                            {deletingNoteContent && (
-                                <div className="rounded-md border bg-muted/30 p-3 text-sm text-foreground max-h-32 overflow-auto">
-                                    {deletingNoteContent}
-                                </div>
-                            )}
-                            <div className="flex justify-end gap-2 pt-2">
-                                <Button variant="outline" onClick={() => setIsDeleteNoteModalVisible(false)} disabled={isDeletingNote}>
-                                    Cancel
-                                </Button>
-                                <Button variant="destructive" onClick={confirmDeleteNote} disabled={isDeletingNote}>
-                                    {isDeletingNote ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Deleting…
-                                        </>
-                                    ) : (
-                                        'Delete'
-                                    )}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
-
-            {/* Edit Customer Modal */}
-            {isEditCustomerModalVisible && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="w-full max-w-2xl border shadow-lg bg-background">
-                        <CardHeader className="pb-4">
-                            <div className="flex items-center justify-between">
-                            <CardTitle className="text-xl font-semibold text-foreground">Edit Customer</CardTitle>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                        setIsEditCustomerModalVisible(false);
-                                        // Reset location selections
-                                        setSelectedEditStateId(null);
-                                        setSelectedEditDistrictId(null);
-                                        setSelectedEditSubDistrictId(null);
-                                        setEditStateSearch('');
-                                        setEditDistrictSearch('');
-                                        setEditSubDistrictSearch('');
-                                        setEditCitySearch('');
-                                    }}
-                                    className="h-8 w-8 p-0"
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </div>
-                </CardHeader>
-                <CardContent>
-                            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                <TabsList className="grid w-full grid-cols-3">
-                                    <TabsTrigger value="basic-info">Basic Info</TabsTrigger>
-                                    <TabsTrigger value="address-info">Address Info</TabsTrigger>
-                                    <TabsTrigger value="additional-info">Additional</TabsTrigger>
-                                </TabsList>
-                                <TabsContent value="basic-info">
-                                    <div className="space-y-4 py-4">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="storeName">{getLabelForStoreName(formData.clientType || 'Dealer')}</Label>
-                                                <Input
-                                                    id="storeName"
-                                                    name="storeName"
-                                                    value={formData.storeName}
-                                                    disabled
-                                                    className="bg-muted text-muted-foreground font-medium cursor-not-allowed"
-                                                />
-                        </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="gstNumber">GST Number</Label>
-                                                <Input
-                                                    id="gstNumber"
-                                                    name="gstNumber"
-                                                    value={formData.gstNumber}
-                                                    onChange={handleInputChange}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="clientFirstName">{getLabelForOwner(formData.clientType || 'Dealer')} First Name</Label>
-                                                <Input
-                                                    id="clientFirstName"
-                                                    name="clientFirstName"
-                                                    value={formData.clientFirstName}
-                                                    onChange={handleInputChange}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="clientLastName">{getLabelForOwner(formData.clientType || 'Dealer')} Last Name</Label>
-                                                <Input
-                                                    id="clientLastName"
-                                                    name="clientLastName"
-                                                    value={formData.clientLastName}
-                                                    onChange={handleInputChange}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="email">Email</Label>
-                                                <Input
-                                                    id="email"
-                                                    name="email"
-                                                    type="email"
-                                                    value={formData.email || ''}
-                                                    onChange={handleInputChange}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="primaryContact">Phone</Label>
-                                                <Input
-                                                    id="primaryContact"
-                                                    name="primaryContact"
-                                                    value={formData.primaryContact}
-                                                    disabled
-                                                    className="bg-muted text-muted-foreground font-medium cursor-not-allowed"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="clientType">Client Type</Label>
-                                            <Select
-                                                onValueChange={handleClientTypeChange}
-                                                value={formData.clientType || ''}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select Client Type" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Dealer">Dealer/Shop</SelectItem>
-                                                    <SelectItem value="Professional">Engineer/Architect/Contractor</SelectItem>
-                                                    <SelectItem value="Site Visit">Site Visit/Project</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <Button
-                                            className="w-full"
-                                            onClick={() => setActiveTab("address-info")}
-                                        >
-                                            Next
-                                        </Button>
-                          </div>
-                                </TabsContent>
-                                <TabsContent value="address-info">
-                                    <div className="space-y-4 py-4">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="addressLine1">Address Line 1</Label>
-                                            <Input
-                                                id="addressLine1"
-                                                name="addressLine1"
-                                                value={formData.addressLine1}
-                                                onChange={handleInputChange}
-                                            />
-                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="addressLine2">Address Line 2</Label>
-                                            <Input
-                                                id="addressLine2"
-                                                name="addressLine2"
-                                                value={formData.addressLine2}
-                                                onChange={handleInputChange}
-                                            />
-                                            </div>
-                                        </div>
-                                        {/* State Dropdown */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="state">State</Label>
-                                            <Select
-                                                value={selectedEditStateId?.toString() || ''}
-                                                onValueChange={(value) => {
-                                                    const stateId = parseInt(value);
-                                                    setSelectedEditStateId(stateId);
-                                                    const selectedState = editStates.find(s => s.id === stateId);
-                                                    if (selectedState) {
-                                                        setFormData({ ...formData, state: selectedState.stateName });
-                                                    }
-                                                    setEditStateSearch('');
-                                                }}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={formData.state || "Select state"} />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[300px]">
-                                                    <div className="sticky top-0 bg-background p-2 border-b">
-                                                        <Input
-                                                            placeholder="Search state..."
-                                                            value={editStateSearch}
-                                                            onChange={(e) => setEditStateSearch(e.target.value)}
-                                                            className="h-8"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                        {filteredEditStates.length > 0 ? (
-                                                            filteredEditStates.map((state) => (
-                                                                <SelectItem key={state.id} value={state.id.toString()}>
-                                                                    {state.stateName}
-                                                                </SelectItem>
-                                                            ))
-                                                        ) : (
-                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                No state found
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-
-                                        {/* District Dropdown (Village) */}
-                                        <div className="space-y-2">
-                                            <Label htmlFor="village">District</Label>
-                                            <Select
-                                                value={selectedEditDistrictId?.toString() || ''}
-                                                onValueChange={(value) => {
-                                                    const districtId = parseInt(value);
-                                                    setSelectedEditDistrictId(districtId);
-                                                    const selectedDistrict = editDistricts.find(d => d.id === districtId);
-                                                    if (selectedDistrict) {
-                                                        setFormData({ ...formData, village: selectedDistrict.districtName });
-                                                    }
-                                                    setEditDistrictSearch('');
-                                                }}
-                                                disabled={!selectedEditStateId}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder={!selectedEditStateId ? "Select state first" : (formData.village || "Select district")} />
-                                                </SelectTrigger>
-                                                <SelectContent className="max-h-[300px]">
-                                                    <div className="sticky top-0 bg-background p-2 border-b">
-                                                        <Input
-                                                            placeholder="Search district..."
-                                                            value={editDistrictSearch}
-                                                            onChange={(e) => setEditDistrictSearch(e.target.value)}
-                                                            className="h-8"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.stopPropagation()}
-                                                        />
-                                                    </div>
-                                                    <div className="max-h-[200px] overflow-y-auto">
-                                                        {filteredEditDistricts.length > 0 ? (
-                                                            filteredEditDistricts.map((district) => (
-                                                                <SelectItem key={district.id} value={district.id.toString()}>
-                                                                    {district.districtName}
-                                                                </SelectItem>
-                                                            ))
-                                                        ) : (
-                                                            <div className="py-6 text-center text-sm text-muted-foreground">
-                                                                No district found
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </SelectContent>
-                                            </Select>
-                                            </div>
-                                        </div>
-
-                                        {/* Sub-District Input (Taluka) */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="taluka">Sub-District</Label>
-                                            <Input
-                                                id="taluka"
-                                                value={formData.taluka || ''}
-                                                placeholder="Enter sub-district"
-                                                onChange={(e) => setFormData({ ...formData, taluka: e.target.value })}
-                                            />
-                                        </div>
-
-                                        {/* City Input */}
-                                        <div className="space-y-2">
-                                            <Label htmlFor="city">City</Label>
-                                            <Input
-                                                id="city"
-                                                value={formData.city || ''}
-                                                placeholder="Enter city"
-                                                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                                            />
-                                        </div>
-                                        </div>
-
-                                        {/* Pincode */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="pincode">Pincode</Label>
-                                            <Input
-                                                id="pincode"
-                                                name="pincode"
-                                                value={formData.pincode}
-                                                onChange={handleInputChange}
-                                            />
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => setActiveTab("basic-info")}
-                                            >
-                                                Back
+            <Dialog
+                open={isModalVisible}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        requestCloseNoteModal();
+                    }
+                }}
+            >
+                <DialogContent className="max-w-md border-0 shadow-lg">
+                    <DialogHeader className="gap-1">
+                        <DialogTitle>{isEditMode ? "Edit Note" : "Add Note"}</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Add quick context so everyone stays aligned on this customer.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Textarea
+                        placeholder="Write a note that teammates can follow up on..."
+                        value={noteContent}
+                        onChange={(e) => setNoteContent(e.target.value)}
+                        className="min-h-[140px] text-xs"
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={requestCloseNoteModal}>
+                            Cancel
                         </Button>
-                                            <Button onClick={() => setActiveTab("additional-info")}>Next</Button>
-                      </div>
-                  </div>
-            </TabsContent>
-                                <TabsContent value="additional-info">
-                                    <div className="space-y-4 py-4">
-                                        {/* Common Fields */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="stock">Stock</Label>
-                                                <Input
-                                                    id="stock"
-                                                    name="stock"
-                                                    type="number"
-                                                    value={formData.stock ?? ''}
-                                                    onChange={handleInputChange}
-                                                />
-                                            </div>
-                                        </div>
+                        <Button
+                            size="sm"
+                            onClick={isEditMode ? handleSaveEditNote : handleAddNote}
+                            disabled={isNoteSaving || !noteContent.trim()}
+                        >
+                            {isNoteSaving ? (
+                                <>
+                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                    {isEditMode ? "Updating..." : "Adding..."}
+                                </>
+                            ) : (
+                                isEditMode ? "Update Note" : "Add Note"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-                                        {/* Dealer/Shop Specific Fields */}
-                                        {formData.clientType === 'Dealer' && (
-                                            <>
-                                                <div className="border-t pt-4 mt-4">
-                                                    <h4 className="text-sm font-medium mb-3">Dealer/Shop Details</h4>
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="shopAgeYears">Shop Age (Years)</Label>
-                                                        <Input
-                                                            id="shopAgeYears"
-                                                            name="shopAgeYears"
-                                                            type="number"
-                                                            value={formData.shopAgeYears || ''}
-                                                            onChange={handleInputChange}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="ownershipType">Ownership Type</Label>
-                                                        <Select
-                                                            value={formData.ownershipType || ''}
-                                                            onValueChange={(value) => setFormData(prev => ({ ...prev, ownershipType: value }))}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select ownership type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="OWNED">Owned</SelectItem>
-                                                                <SelectItem value="RENTED">Rented</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="dealerType">Dealer Type</Label>
-                                                        <Select
-                                                            value={formData.dealerType || ''}
-                                                            onValueChange={(value) => {
-                                                                setFormData(prev => ({
-                                                                    ...prev,
-                                                                    dealerType: value,
-                                                                    dealerSubType: value === 'ICON' ? 'EXCLUSIVE' : '',
-                                                                }));
-                                                            }}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select dealer type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="ICON">ICON</SelectItem>
-                                                                <SelectItem value="NON_ICON">Non-ICON</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    {formData.dealerType === 'ICON' && (
-                                                        <div className="space-y-2">
-                                                            <Label htmlFor="dealerSubType">Dealer Sub-Type</Label>
-                                                            <Select
-                                                                value={formData.dealerSubType || ''}
-                                                                onValueChange={(value) => setFormData(prev => ({ ...prev, dealerSubType: value }))}
-                                                            >
-                                                                <SelectTrigger>
-                                                                    <SelectValue placeholder="Select dealer sub-type" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="EXCLUSIVE">Exclusive</SelectItem>
-                                                                    <SelectItem value="NON_EXCLUSIVE">Non-Exclusive</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </>
-                                        )}
+            <Dialog
+                open={notePendingDelete != null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setNotePendingDelete(null);
+                    }
+                }}
+            >
+                <DialogContent className="max-w-sm border-0 shadow-lg">
+                    <DialogHeader className="gap-1">
+                        <DialogTitle>Delete Note?</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            This note will be removed permanently for everyone viewing this customer.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={() => setNotePendingDelete(null)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={handleDeleteNoteConfirm}>
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-                                        {/* Professional Specific Fields */}
-                                        {formData.clientType === 'Professional' && (
-                                            <>
-                                                <div className="border-t pt-4 mt-4">
-                                                    <h4 className="text-sm font-medium mb-3">Professional Details</h4>
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                                                        <Input
-                                                            id="dateOfBirth"
-                                                            name="dateOfBirth"
-                                                            type="date"
-                                                            value={formData.dateOfBirth}
-                                                            onChange={handleInputChange}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="yearsOfExperience">Years of Experience</Label>
-                                                        <Input
-                                                            id="yearsOfExperience"
-                                                            name="yearsOfExperience"
-                                                            value={formData.yearsOfExperience}
-                                                            onChange={handleInputChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {/* Site Visit Specific Fields */}
-                                        {formData.clientType === 'Site Visit' && (
-                                            <>
-                                                <div className="border-t pt-4 mt-4">
-                                                    <h4 className="text-sm font-medium mb-3">Site Visit Details</h4>
-                                                </div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="contractorName">Contractor Name</Label>
-                                                        <Input
-                                                            id="contractorName"
-                                                            name="contractorName"
-                                                            value={formData.contractorName}
-                                                            onChange={handleInputChange}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="engineerName">Engineer Name</Label>
-                                                        <ProfessionalSelector
-                                                            professionals={engineerOptions}
-                                                            value={formData.engineerId ?? null}
-                                                            onChange={handleEngineerSelect}
-                                                            isLoading={isLoadingProfessionals}
-                                                            placeholder="Select Engineer"
-                                                            searchPlaceholder="Search engineer by name, contact, or city"
-                                                            emptyMessage="No engineers found"
-                                                            legacyName={formData.engineerName}
-                                                            legacyContact={formData.engineerContact}
-                                                            legacyCity={formData.engineerCity}
-                                                        />
-                                                        {professionalsError && (
-                                                            <p className="text-xs text-red-600">{professionalsError}</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="projectType">Project Type</Label>
-                                                        <Select
-                                                            value={formData.projectType || ''}
-                                                            onValueChange={(value) => setFormData(prev => ({ ...prev, projectType: value }))}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select project type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="HOME">Home</SelectItem>
-                                                                <SelectItem value="APARTMENT">Apartment</SelectItem>
-                                                                <SelectItem value="GOVT_PROJECT">Government Project</SelectItem>
-                                                                <SelectItem value="COMMERCIAL">Commercial</SelectItem>
-                                                                <SelectItem value="INDUSTRIAL">Industrial</SelectItem>
-                                                                <SelectItem value="OTHERS">Others</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="projectSizeSquareFeet">Project Size (sq ft)</Label>
-                                                        <Input
-                                                            id="projectSizeSquareFeet"
-                                                            name="projectSizeSquareFeet"
-                                                            type="number"
-                                                            value={formData.projectSizeSquareFeet || ''}
-                                                            onChange={handleInputChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        <div className="flex justify-between">
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => setActiveTab("address-info")}
-                                            >
-                                                Back
-                                </Button>
-                                            <Button onClick={handleSubmit}>Update Customer</Button>
-                  </div>
+            <Dialog
+                open={isEditCustomerModalVisible}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        requestCloseEditCustomerModal();
+                    }
+                }}
+            >
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader className="gap-1">
+                        <DialogTitle>Edit Customer</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Update customer contact or address details.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {customerEditError && (
+                        <div
+                            role="alert"
+                            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                        >
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{customerEditError}</span>
+                        </div>
+                    )}
+                    <Tabs value={activeTab} onValueChange={handleCustomerTabChange} className="w-full">
+                        <TabsList className="grid w-full grid-cols-2 mb-4">
+                            <TabsTrigger value="basic-info" className="text-xs">Basic Info</TabsTrigger>
+                            <TabsTrigger
+                                value="address-info"
+                                className="text-xs"
+                                disabled={!hasUnlockedAddressTab && activeTab !== "address-info"}
+                            >
+                                Address Info
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="basic-info">
+                            <div className="space-y-4 py-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="clientFirstName" className="text-xs font-medium">First Name *</Label>
+                                        <Input
+                                            id="clientFirstName"
+                                            name="clientFirstName"
+                                            value={formData.clientFirstName}
+                                            onChange={handleInputChange}
+                                            className="h-9 text-xs"
+                                        />
                                     </div>
-                                </TabsContent>
-          </Tabs>
-                </CardContent>
-              </Card>
-      </div>
-            )}
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="clientLastName" className="text-xs font-medium">Last Name *</Label>
+                                        <Input
+                                            id="clientLastName"
+                                            name="clientLastName"
+                                            value={formData.clientLastName}
+                                            onChange={handleInputChange}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="email" className="text-xs font-medium">Email</Label>
+                                        <Input
+                                            id="email"
+                                            name="email"
+                                            type="email"
+                                            value={formData.email || ""}
+                                            onChange={handleInputChange}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="primaryContact" className="text-xs font-medium">Phone</Label>
+                                        <Input
+                                            id="primaryContact"
+                                            name="primaryContact"
+                                            value={formData.primaryContact}
+                                            disabled
+                                            className="h-9 text-xs bg-muted cursor-not-allowed"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-4 border-t">
+                                    <Button variant="ghost" size="sm" onClick={requestCloseEditCustomerModal}>
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        onClick={() => {
+                                            setHasUnlockedAddressTab(true);
+                                            setActiveTab("address-info");
+                                        }}
+                                    >
+                                        Continue
+                                    </Button>
+                                </div>
+                            </div>
+                        </TabsContent>
+                        <TabsContent value="address-info">
+                            <div className="space-y-4 py-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="city" className="text-xs font-medium">City</Label>
+                                        <Input
+                                            id="city"
+                                            name="city"
+                                            value={formData.city}
+                                            onChange={handleInputChange}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="state" className="text-xs font-medium">State</Label>
+                                        <Input
+                                            id="state"
+                                            name="state"
+                                            value={formData.state}
+                                            onChange={handleInputChange}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-4 border-t">
+                                    <Button variant="outline" size="sm" onClick={() => setActiveTab("basic-info")}>
+                                        Back
+                                    </Button>
+                                    <Button size="sm" onClick={handleSubmit} disabled={isUpdatingCustomer}>
+                                        {isUpdatingCustomer && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                                        Save Changes
+                                    </Button>
+                                </div>
+                            </div>
+                        </TabsContent>
+                    </Tabs>
+                </DialogContent>
+            </Dialog>
 
             {/* Log Complaint Modal */}
-            {isComplaintModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border shadow-lg bg-background">
-                        <CardHeader className="pb-4">
-                            <CardTitle className="text-xl font-semibold text-foreground">Create Complaint</CardTitle>
-                            <p className="text-sm text-muted-foreground">Fill in the complaint details</p>
-                </CardHeader>
-                <CardContent>
-                            <Tabs value={complaintActiveTab} onValueChange={setComplaintActiveTab} className="w-full">
-                                <TabsList className="grid w-full grid-cols-2 mb-4">
-                                    <TabsTrigger value="general">General</TabsTrigger>
-                                    <TabsTrigger value="details">Details</TabsTrigger>
-                                </TabsList>
-                                <TabsContent value="general">
-                                    <div className="space-y-4 py-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="complaintTitle">Complaint Title</Label>
-                                            <Input
-                                                id="complaintTitle"
-                                                placeholder="Enter complaint title"
-                                                value={complaintTask.taskTitle}
-                                                onChange={(e) => setComplaintTask({ ...complaintTask, taskTitle: e.target.value })}
-                                                className="w-full"
-                                            />
+            <Dialog open={isComplaintModalOpen} onOpenChange={(open) => { if (!open) requestCloseComplaintModal(); }}>
+                <DialogContent className="max-w-md border-0 shadow-lg">
+                    <DialogHeader>
+                        <DialogTitle>Log Complaint</DialogTitle>
+                        <DialogDescription className="text-xs">Create a new complaint for this customer.</DialogDescription>
+                    </DialogHeader>
+                    {taskCreateError && (
+                        <div className="p-2 text-xs text-destructive bg-destructive/10 rounded border border-destructive/20">{taskCreateError}</div>
+                    )}
+                    <div className="space-y-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Title</Label>
+                            <Input
+                                value={complaintTask.taskTitle}
+                                onChange={(e) => setComplaintTask(prev => ({ ...prev, taskTitle: e.target.value }))}
+                                placeholder="Complaint title"
+                                className="h-9 text-xs"
+                            />
                         </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="complaintDescription">Complaint Description</Label>
-                                            <Input
-                                                id="complaintDescription"
-                                                placeholder="Enter complaint description"
-                                                value={complaintTask.taskDesciption}
-                                                onChange={(e) => setComplaintTask({ ...complaintTask, taskDesciption: e.target.value })}
-                                                className="w-full"
-                                            />
+                        <div className="space-y-1">
+                            <Label className="text-xs">Description</Label>
+                            <Textarea
+                                value={complaintTask.taskDesciption}
+                                onChange={(e) => setComplaintTask(prev => ({ ...prev, taskDesciption: e.target.value }))}
+                                placeholder="Complaint description"
+                                className="min-h-[90px] text-xs"
+                            />
                         </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="complaintStoreName">Store</Label>
-                                            <Input
-                                                id="complaintStoreName"
-                                                value={String(customerData?.storeName || 'Loading...')}
-                                                disabled
-                                                className="w-full bg-muted text-muted-foreground font-medium cursor-not-allowed"
-                                            />
-                                        </div>
-                                        <div className="flex justify-between mt-4">
-                                            <Button variant="outline" onClick={() => setIsComplaintModalOpen(false)}>Cancel</Button>
-                                            <Button onClick={handleComplaintNext}>Next</Button>
-                                        </div>
-                                    </div>
-                                </TabsContent>
-                                <TabsContent value="details">
-                                    {complaintError && (
-                                        <div className="mb-3 rounded border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                                            {complaintError}
-                                        </div>
-                                    )}
-                                    <div className="space-y-4 py-4">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="complaintDueDate">Due Date</Label>
-                                            <Popover modal={false}>
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        variant="outline"
-                                                        className={`w-full justify-start text-left font-normal ${!complaintTask.dueDate && 'text-muted-foreground'}`}
-                                                    >
-                                                        <CalendarIcon className="mr-2 h-4 w-4" />
-                                                        {complaintTask.dueDate ? format(new Date(complaintTask.dueDate), 'PPP') : <span>Pick a date</span>}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={requestCloseComplaintModal}>Cancel</Button>
+                        <Button size="sm" onClick={handleCreateComplaint} disabled={isCreatingTask || !complaintTask.taskTitle.trim()}>
+                            {isCreatingTask && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                            Create Complaint
                         </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <Calendar
-                                                        mode="single"
-                                                        selected={complaintTask.dueDate ? new Date(complaintTask.dueDate) : undefined}
-                                                        onSelect={(date) => setComplaintTask({ ...complaintTask, dueDate: date ? format(date, 'yyyy-MM-dd') : '' })}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="complaintPriority">Category</Label>
-                                                <Select value={complaintTask.priority} onValueChange={(value) => setComplaintTask({ ...complaintTask, priority: value })}>
-                                                    <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Select a category" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
-                                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                      </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="complaintAssignedTo">Assigned To</Label>
-                                            {isLoadingEmployees ? (
-                                                <div className="w-full h-10 bg-gray-100 rounded-md flex items-center justify-center">
-                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-                                                    <span className="ml-2 text-sm text-gray-600">Loading employees...</span>
-                                                </div>
-                                            ) : (
-                                                <Select 
-                                                    value={complaintTask.assignedToId.toString()} 
-                                                    onValueChange={(value) => {
-                                                        const selectedEmployee = employees.find(emp => (emp as { id: number }).id.toString() === value) as { firstName: string; lastName: string } | undefined;
-                                                        setComplaintTask({ 
-                                                            ...complaintTask, 
-                                                            assignedToId: parseInt(value),
-                                                            assignedToName: selectedEmployee ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}` : ''
-                                                        });
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-full">
-                                                        <SelectValue placeholder="Select an employee" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {employees.map((employee) => {
-                                                            const emp = employee as { id: number; firstName: string; lastName: string; employeeId?: string };
-                                                            return (
-                                                            <SelectItem key={emp.id} value={emp.id.toString()}>
-                                                                {emp.firstName} {emp.lastName} ({emp.employeeId || ''})
-                                                            </SelectItem>
-                                                            );
-                                                        })}
-                                                    </SelectContent>
-                                                </Select>
-                                            )}
-                                        </div>
-                                        <div className="flex justify-between mt-4">
-                                            <Button variant="outline" onClick={handleComplaintBack}>Back</Button>
-                                            <Button onClick={handleCreateComplaint} disabled={isCreatingComplaint}>
-                                                {isCreatingComplaint ? (
-                                                    <>
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        Creating…
-                                                    </>
-                                                ) : (
-                                                    'Create Complaint'
-                                                )}
-                                            </Button>
-                                        </div>
-                                    </div>
-            </TabsContent>
-          </Tabs>
-                </CardContent>
-              </Card>
-        </div>
-            )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Add Requirement Modal */}
-            {isRequirementModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <Card className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border shadow-lg bg-background">
-                        <CardHeader className="pb-4">
-                            <CardTitle className="text-xl font-semibold text-foreground">Create Requirement</CardTitle>
-                            <p className="text-sm text-muted-foreground">Fill in the requirement details</p>
-                </CardHeader>
-                <CardContent>
-                            <RequirementCreationForm
-                                value={{
-                                    taskTitle: requirementTask.taskTitle,
-                                    taskDescription: requirementTask.taskDesciption,
-                                    dueDate: requirementTask.dueDate,
-                                    assignedToId: requirementTask.assignedToId,
-                                    assignedToName: requirementTask.assignedToName,
-                                    assignedById: requirementTask.assignedById,
-                                    status: requirementTask.status,
-                                    priority: requirementTask.priority,
-                                    taskType: 'requirement',
-                                    storeId: requirementTask.storeId,
-                                    storeName: requirementTask.storeName,
-                                    category: requirementTask.category,
-                                }}
-                                onChange={(nextTask) => {
-                                    setRequirementTask((prev) => ({
-                                        ...prev,
-                                        taskTitle: nextTask.taskTitle,
-                                        taskDesciption: nextTask.taskDescription,
-                                        dueDate: nextTask.dueDate,
-                                        assignedToId: nextTask.assignedToId,
-                                        assignedToName: nextTask.assignedToName,
-                                        assignedById: nextTask.assignedById,
-                                        status: nextTask.status,
-                                        priority: nextTask.priority,
-                                        storeId: nextTask.storeId,
-                                        storeName: nextTask.storeName,
-                                        category: nextTask.category || '',
-                                    }));
-                                }}
-                                employees={employees.map((employee) => {
-                                    const emp = employee as { id: number; firstName: string; lastName: string; employeeId?: string };
-                                    return emp;
-                                })}
-                                storeMode="fixed"
-                                fixedStoreName={String(customerData?.storeName || 'Loading...')}
-                                isEmployeesLoading={isLoadingEmployees}
-                                isSubmitting={isCreatingRequirement}
-                                error={requirementError}
-                                onCancel={() => setIsRequirementModalOpen(false)}
-                                onSubmit={handleCreateRequirement}
+            <Dialog open={isRequirementModalOpen} onOpenChange={(open) => { if (!open) requestCloseRequirementModal(); }}>
+                <DialogContent className="max-w-md border-0 shadow-lg">
+                    <DialogHeader>
+                        <DialogTitle>Add Requirement</DialogTitle>
+                        <DialogDescription className="text-xs">Add a new requirement for this customer.</DialogDescription>
+                    </DialogHeader>
+                    {taskCreateError && (
+                        <div className="p-2 text-xs text-destructive bg-destructive/10 rounded border border-destructive/20">{taskCreateError}</div>
+                    )}
+                    <div className="space-y-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Title</Label>
+                            <Input
+                                value={requirementTask.taskTitle}
+                                onChange={(e) => setRequirementTask(prev => ({ ...prev, taskTitle: e.target.value }))}
+                                placeholder="Requirement title"
+                                className="h-9 text-xs"
                             />
-                        </CardContent>
-                    </Card>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">Description</Label>
+                            <Textarea
+                                value={requirementTask.taskDesciption}
+                                onChange={(e) => setRequirementTask(prev => ({ ...prev, taskDesciption: e.target.value }))}
+                                placeholder="Requirement description"
+                                className="min-h-[90px] text-xs"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={requestCloseRequirementModal}>Cancel</Button>
+                        <Button size="sm" onClick={handleCreateRequirement} disabled={isCreatingTask || !requirementTask.taskTitle.trim()}>
+                            {isCreatingTask && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                            Add Requirement
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
-            )}
-
-            {/* Image Preview Dialog */}
-            {isImagePreviewOpen && (
-                <Dialog
-                    open={isImagePreviewOpen}
-                    onOpenChange={(open) => {
-                        setIsImagePreviewOpen(open);
-                        if (!open) {
-                            setTaskImages((previous) => {
-                                revokeTaskImageUrls(previous);
-                                return [];
-                            });
-                            setCurrentImageIndex(0);
-                        }
-                    }}
-                >
-                    <DialogContent className="max-w-3xl">
-                        <DialogHeader>
-                            <DialogTitle>Image Preview</DialogTitle>
-                        </DialogHeader>
-                        {isLoadingImages ? (
-                            <div className="flex justify-center items-center h-64">
-                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                <span className="ml-2">Loading images...</span>
-                            </div>
-                        ) : taskImages.length > 0 ? (
-                            <>
-                                <div className="relative">
-                                    <img
-                                        src={taskImages[currentImageIndex]}
-                                        alt={`Image ${currentImageIndex + 1}`}
-                                        className="w-full h-auto"
-                                    />
-                                    {taskImages.length > 1 && (
-                                        <>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="absolute left-2 top-1/2 transform -translate-y-1/2"
-                                                onClick={() => setCurrentImageIndex((prev) => (prev === 0 ? taskImages.length - 1 : prev - 1))}
-                                            >
-                                                <ChevronLeft className="h-4 w-4" />
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                                                onClick={() => setCurrentImageIndex((prev) => (prev === taskImages.length - 1 ? 0 : prev + 1))}
-                                            >
-                                                <ChevronRight className="h-4 w-4" />
-                                            </Button>
-                                        </>
-                                    )}
-                                </div>
-                                <p className="text-center mt-2">
-                                    Image {currentImageIndex + 1} of {taskImages.length}
-                                </p>
-                            </>
-                        ) : (
-                            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-                                No requirement photos found.
-                            </div>
-                        )}
-                    </DialogContent>
-                </Dialog>
-            )}
-    </div>
-        </>
-  );
+    );
 }

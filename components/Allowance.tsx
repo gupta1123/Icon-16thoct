@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
     Table,
     TableBody,
@@ -10,28 +11,32 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import {
+import { 
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
-    SelectValue,
+    SelectValue
 } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DollarSign, Truck, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DollarSign, Truck, Loader2, ChevronLeft, ChevronRight, Search, RotateCcw, ChevronsUpDown, Check } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { API, API_BASE_URL } from "@/lib/api";
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
+import { getEmployeeRoleCategory } from '@/lib/employee-role';
+import { toast } from 'sonner';
 
 interface Employee {
     id: number;
     firstName: string;
     lastName: string;
-    role?: string;
     travelAllowance?: number;
     dearnessAllowance?: number;
     fullMonthSalary?: number;
+    role?: string;
 }
 
 interface TravelRate {
@@ -41,115 +46,84 @@ interface TravelRate {
     bikeRatePerKm: number;
 }
 
+const ALLOWANCE_AMOUNT_FIELDS = [
+    'travelAllowance',
+    'dearnessAllowance',
+    'fullMonthSalary',
+    'carRatePerKm',
+    'bikeRatePerKm',
+] as const;
+
+const isValidAmount = (value: unknown) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string' && value.trim() === '') return false;
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount >= 0;
+};
+
+function Ellipsis({ value }: { value: string | number | null | undefined }) {
+    const displayValue = value === null || value === undefined || value === '' ? '—' : String(value);
+    return <span className="block min-w-0 truncate" title={displayValue}>{displayValue}</span>;
+}
+
 const Allowance: React.FC = () => {
-    const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
     const [editMode, setEditMode] = useState<{ [key: number]: boolean }>({});
     const [editedData, setEditedData] = useState<{ [key: number]: Record<string, unknown> }>({});
     const [currentPage, setCurrentPage] = useState<number>(1);
-    const [rowsPerPage, setRowsPerPage] = useState<number>(10);
     const [travelRates, setTravelRates] = useState<TravelRate[]>([]);
-    const [isMobile, setIsMobile] = useState<boolean>(false);
-    const [expandedCards, setExpandedCards] = useState<{ [key: number]: boolean }>({});
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+    const [employeeFilter, setEmployeeFilter] = useState('all');
+    const [employeeFilterSearch, setEmployeeFilterSearch] = useState('');
+    const [employeeFilterOpen, setEmployeeFilterOpen] = useState(false);
+    const [roleFilter, setRoleFilter] = useState('all');
 
-    // Get auth data from localStorage instead of props
+    const employeeAllowanceIsDirty = (employee: Employee) => {
+        if (!editMode[employee.id] || !editedData[employee.id]) return false;
+        const draft = editedData[employee.id];
+        const travelRate = travelRates.find((rate) => rate.employeeId === employee.id);
+        return Number(draft.travelAllowance ?? 0) !== Number(employee.travelAllowance ?? 0) ||
+            Number(draft.dearnessAllowance ?? 0) !== Number(employee.dearnessAllowance ?? 0) ||
+            Number(draft.fullMonthSalary ?? 0) !== Number(employee.fullMonthSalary ?? 0) ||
+            Number(draft.carRatePerKm ?? 0) !== Number(travelRate?.carRatePerKm ?? 0) ||
+            Number(draft.bikeRatePerKm ?? 0) !== Number(travelRate?.bikeRatePerKm ?? 0);
+    };
+    const allowanceChangesAreDirty = employees.some(employeeAllowanceIsDirty);
+    const { requestDiscard } = useUnsavedChanges(allowanceChangesAreDirty);
+
+    // Get auth data from localStorage
     const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
-    
-    // Filter employees based on role and search term
-    const filteredEmployees = useMemo(() => {
-        return allEmployees.filter(employee => {
-            // Normalize role for comparison
-            const normalized = employee.role ? employee.role.toLowerCase().trim() : '';
-            
-            // Exclude AVP, Coordinator, HR, and Data Manager
-            if (normalized === 'avp' || 
-                normalized === 'coordinator' || 
-                normalized === 'hr' ||
-                normalized === 'data manager' || 
-                normalized === 'data_manager') {
-                return false;
-            }
-            
-            // Include only specified roles: Field Officer, Regional Manager, Manager
-            const shouldInclude = normalized === 'field officer' ||
-                                  normalized === 'field_officer' ||
-                                  normalized === 'regional manager' ||
-                                  normalized === 'regional_manager' ||
-                                  normalized === 'manager';
-            
-            if (!shouldInclude) {
-                return false;
-            }
-            
-            // Apply search filter
-            if (searchTerm) {
-                const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
-                return fullName.includes(searchTerm.toLowerCase());
-            }
-            
-            return true;
-        });
-    }, [allEmployees, searchTerm]);
 
-    const formatNumberField = (value?: number | null) =>
-        value === null || value === undefined ? "" : String(value);
-
-    const parseNumericField = (value: unknown): number => {
-        if (value === "" || value === null || value === undefined) {
-            return 0;
-        }
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : 0;
-    };
-
-    const getEditedValue = (employeeId: number, field: string, fallback?: number | null) => {
-        const record = editedData[employeeId] as Record<string, unknown> | undefined;
-        const value = record?.[field];
-        if (value === undefined || value === null) {
-            if (fallback === null || fallback === undefined) {
-                return "";
-            }
-            return String(fallback);
-        }
-        return String(value);
-    };
-
-    useEffect(() => {
-        const checkIfMobile = () => setIsMobile(window.innerWidth < 768);
-        checkIfMobile();
-        window.addEventListener('resize', checkIfMobile);
-        return () => window.removeEventListener('resize', checkIfMobile);
-    }, []);
-
-    const fetchEmployees = useCallback(async () => {
+    const fetchEmployees = useCallback(async (forceRefresh = false, showLoading = true) => {
         if (!token) {
             setError('Authentication token not found. Please log in.');
             return;
         }
 
-        setIsLoading(true);
+        if (showLoading) setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/getAll', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch employees: ${response.statusText}`);
+            const data = await API.getAllEmployees();
+            if (Array.isArray(data)) {
+                const mappedData: Employee[] = (data as Record<string, any>[]).map(emp => ({
+                    id: emp.id,
+                    firstName: emp.firstName || '',
+                    lastName: emp.lastName || '',
+                    role: emp.role,
+                    travelAllowance: emp.travelAllowance,
+                    dearnessAllowance: emp.dearnessAllowance,
+                    fullMonthSalary: emp.fullMonthSalary,
+                }));
+                const sortedData = mappedData.sort((a, b) => a.firstName.localeCompare(b.firstName));
+                setEmployees(sortedData);
             }
-
-            const data = await response.json();
-            const sortedData = data.sort((a: Employee, b: Employee) => a.firstName.localeCompare(b.firstName));
-            setAllEmployees(sortedData);
         } catch (error) {
             setError(error instanceof Error ? error.message : 'An unknown error occurred');
         } finally {
-            setIsLoading(false);
+            if (showLoading) setIsLoading(false);
         }
     }, [token]);
 
@@ -157,7 +131,8 @@ const Allowance: React.FC = () => {
         if (!token) return;
 
         try {
-            const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/travel-rates/getAll', {
+            const response = await fetch(`${API_BASE_URL}/travel-rates/getAll`, {
+                cache: 'no-store',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                 },
@@ -179,11 +154,6 @@ const Allowance: React.FC = () => {
         }
     }, [fetchEmployees, fetchTravelRates]);
 
-    useEffect(() => {
-        const total = Math.max(1, Math.ceil((filteredEmployees.length || 0) / rowsPerPage) || 1);
-        setCurrentPage(prev => (prev > total ? total : prev));
-    }, [filteredEmployees.length, rowsPerPage]);
-
     const handleInputChange = (employeeId: number, field: string, value: string) => {
         setEditedData(prevData => ({
             ...prevData,
@@ -194,26 +164,39 @@ const Allowance: React.FC = () => {
         }));
     };
 
+    const isEmployeeEditValid = (employeeId: number) => {
+        const draft = editedData[employeeId];
+        return Boolean(draft && ALLOWANCE_AMOUNT_FIELDS.every((field) => isValidAmount(draft[field])));
+    };
+
     const updateSalary = async (employeeId: number) => {
-        const editedEmployee = editedData[employeeId] as Record<string, unknown> | undefined;
-        if (!editedEmployee) return;
+        const employee = editedData[employeeId];
+        const savedEmployee = employees.find((candidate) => candidate.id === employeeId);
+        if (!employee || !savedEmployee || !isEmployeeEditValid(employeeId) || !employeeAllowanceIsDirty(savedEmployee)) return;
+
+        const updatedSalary = {
+            travelAllowance: Number(employee.travelAllowance),
+            dearnessAllowance: Number(employee.dearnessAllowance),
+            fullMonthSalary: Number(employee.fullMonthSalary),
+        };
+        const updatedTravelRate = {
+            employeeId,
+            carRatePerKm: Number(employee.carRatePerKm),
+            bikeRatePerKm: Number(employee.bikeRatePerKm),
+        };
 
         setIsSaving(true);
         try {
-            const salaryPayload = {
-                travelAllowance: parseNumericField(editedEmployee.travelAllowance),
-                dearnessAllowance: parseNumericField(editedEmployee.dearnessAllowance),
-                fullMonthSalary: parseNumericField(editedEmployee.fullMonthSalary),
-                employeeId,
-            };
-
-            const salaryResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/setSalary`, {
+            const salaryResponse = await fetch(`${API_BASE_URL}/employee/setSalary`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(salaryPayload),
+                body: JSON.stringify({
+                    ...updatedSalary,
+                    employeeId,
+                }),
             });
 
             if (!salaryResponse.ok) {
@@ -221,30 +204,24 @@ const Allowance: React.FC = () => {
             }
 
             const existingTravelRate = travelRates.find(rate => rate.employeeId === employeeId);
-            const travelRateData = {
-                employeeId,
-                carRatePerKm: parseNumericField(editedEmployee.carRatePerKm),
-                bikeRatePerKm: parseNumericField(editedEmployee.bikeRatePerKm)
-            };
-
             let travelRateResponse;
             if (existingTravelRate) {
-                travelRateResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/travel-rates/edit?id=${existingTravelRate.id}`, {
+                travelRateResponse = await fetch(`${API_BASE_URL}/travel-rates/edit?id=${existingTravelRate.id}`, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(travelRateData),
+                    body: JSON.stringify(updatedTravelRate),
                 });
             } else {
-                travelRateResponse = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/travel-rates/create`, {
+                travelRateResponse = await fetch(`${API_BASE_URL}/travel-rates/create`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(travelRateData),
+                    body: JSON.stringify(updatedTravelRate),
                 });
             }
 
@@ -252,22 +229,52 @@ const Allowance: React.FC = () => {
                 throw new Error('Failed to update travel rates');
             }
 
-            fetchEmployees();
-            fetchTravelRates();
+            setEmployees((currentEmployees) => currentEmployees.map((currentEmployee) => (
+                currentEmployee.id === employeeId
+                    ? { ...currentEmployee, ...updatedSalary }
+                    : currentEmployee
+            )));
+            setTravelRates((currentRates) => {
+                const currentRate = currentRates.find((rate) => rate.employeeId === employeeId);
+                if (currentRate) {
+                    return currentRates.map((rate) => (
+                        rate.employeeId === employeeId
+                            ? { ...rate, ...updatedTravelRate }
+                            : rate
+                    ));
+                }
+
+                return [...currentRates, { id: -employeeId, ...updatedTravelRate }];
+            });
+
+            if (typeof (API as any).invalidateEmployeeDirectory === 'function') {
+                (API as any).invalidateEmployeeDirectory();
+            }
             setEditMode(prevMode => ({
                 ...prevMode,
                 [employeeId]: false
             }));
+            setEditedData((currentData) => {
+                const nextData = { ...currentData };
+                delete nextData[employeeId];
+                return nextData;
+            });
+            setError(null);
+            toast.success('Allowance details updated', { duration: 3000 });
+
+            void Promise.all([fetchEmployees(true, false), fetchTravelRates()]);
         } catch (error) {
             console.error('Error saving changes:', error);
-            setError(error instanceof Error ? error.message : 'Error saving changes');
+            const message = error instanceof Error ? error.message : 'Error saving changes';
+            setError(message);
+            toast.error(message, { duration: 3000 });
         } finally {
             setIsSaving(false);
         }
     };
 
     const startEdit = (employeeId: number) => {
-        const employee = filteredEmployees.find(e => e.id === employeeId);
+        const employee = employees.find(e => e.id === employeeId);
         const travelRate = travelRates.find(rate => rate.employeeId === employeeId);
         setEditMode(prevMode => ({
             ...prevMode,
@@ -276,40 +283,76 @@ const Allowance: React.FC = () => {
         setEditedData(prevData => ({
             ...prevData,
             [employeeId]: {
-                travelAllowance: formatNumberField(employee?.travelAllowance),
-                dearnessAllowance: formatNumberField(employee?.dearnessAllowance),
-                fullMonthSalary: formatNumberField(employee?.fullMonthSalary),
-                carRatePerKm: formatNumberField(travelRate?.carRatePerKm),
-                bikeRatePerKm: formatNumberField(travelRate?.bikeRatePerKm)
+                travelAllowance: employee?.travelAllowance || 0,
+                dearnessAllowance: employee?.dearnessAllowance || 0,
+                fullMonthSalary: employee?.fullMonthSalary || 0,
+                carRatePerKm: travelRate?.carRatePerKm || 0,
+                bikeRatePerKm: travelRate?.bikeRatePerKm || 0
             }
         }));
     };
 
     const cancelEdit = (employeeId: number) => {
-        setEditMode(prevMode => ({
-            ...prevMode,
-            [employeeId]: false
-        }));
-        setEditedData(prevData => {
-            const newData = { ...prevData };
-            delete newData[employeeId];
-            return newData;
-        });
+        const employee = employees.find((candidate) => candidate.id === employeeId);
+        requestDiscard(() => {
+            setEditMode(prevMode => ({
+                ...prevMode,
+                [employeeId]: false
+            }));
+            setEditedData(prevData => {
+                const newData = { ...prevData };
+                delete newData[employeeId];
+                return newData;
+            });
+        }, employee ? employeeAllowanceIsDirty(employee) : false);
     };
 
-    const indexOfFirstRow = (currentPage - 1) * rowsPerPage;
-    const currentRows = filteredEmployees.slice(indexOfFirstRow, indexOfFirstRow + rowsPerPage);
-    const totalPages = Math.max(1, Math.ceil((filteredEmployees.length || 0) / rowsPerPage) || 1);
+    const eligibleEmployees = useMemo(() => employees.filter((employee) => {
+        const category = getEmployeeRoleCategory(employee.role);
+        return category === 'regional-manager' || category === 'field-officer';
+    }), [employees]);
+
+    const filteredEmployeeOptions = useMemo(() => {
+        const query = employeeFilterSearch.trim().toLowerCase();
+        if (!query) return eligibleEmployees;
+        return eligibleEmployees.filter((employee) =>
+            `${employee.firstName} ${employee.lastName}`.trim().toLowerCase().includes(query)
+        );
+    }, [eligibleEmployees, employeeFilterSearch]);
+
+    const selectedEmployeeLabel = useMemo(() => {
+        if (employeeFilter === 'all') return 'All employees';
+        const employee = eligibleEmployees.find((candidate) => String(candidate.id) === employeeFilter);
+        return employee ? `${employee.firstName} ${employee.lastName}`.trim() : 'All employees';
+    }, [eligibleEmployees, employeeFilter]);
+
+    const filteredEmployees = useMemo(() => {
+        return eligibleEmployees.filter((employee) => {
+            const matchesEmployee = employeeFilter === 'all' || String(employee.id) === employeeFilter;
+            const matchesRole = roleFilter === 'all' || getEmployeeRoleCategory(employee.role) === roleFilter;
+            return matchesEmployee && matchesRole;
+        });
+    }, [eligibleEmployees, employeeFilter, roleFilter]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [employeeFilter, roleFilter]);
+
+    const filtersAreActive = employeeFilter !== 'all' || roleFilter !== 'all';
+    const resetFilters = () => {
+        setEmployeeFilter('all');
+        setEmployeeFilterSearch('');
+        setEmployeeFilterOpen(false);
+        setRoleFilter('all');
+    };
+
+    const indexOfLastRow = currentPage * itemsPerPage;
+    const indexOfFirstRow = indexOfLastRow - itemsPerPage;
+    const currentRows = filteredEmployees.slice(indexOfFirstRow, indexOfLastRow);
+    const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
 
     const getInitials = (firstName: string, lastName: string) => {
         return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-    };
-
-    const toggleCardExpansion = (employeeId: number) => {
-        setExpandedCards(prev => ({
-            ...prev,
-            [employeeId]: !prev[employeeId]
-        }));
     };
 
     const formatCurrency = (amount: number) => {
@@ -319,22 +362,99 @@ const Allowance: React.FC = () => {
         }).format(amount);
     };
 
+    const formatRatePerKm = (amount: number) => `${formatCurrency(amount)}/km`;
+
     return (
-        <div className="space-y-6">
-            <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-4">
-                    <CardTitle className="text-xl font-semibold text-foreground">Allowance Details</CardTitle>
-                    <p className="text-sm text-muted-foreground">Manage employee allowances, salaries, and travel rates</p>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {isLoading && (
-                        <div className="flex justify-center items-center py-12">
-                            <div className="flex flex-col items-center gap-3">
-                                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">Loading employee data...</p>
-                            </div>
-                        </div>
-                    )}
+        <div className="space-y-4">
+            <Card className="gap-0 border-border/70 py-0 shadow-sm">
+                <CardContent className="space-y-4 p-4">
+                    <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center">
+                        <Popover open={employeeFilterOpen} onOpenChange={setEmployeeFilterOpen}>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-9 w-full justify-between px-3 text-sm font-normal shadow-none sm:w-[280px]"
+                                >
+                                    <span className="truncate">{selectedEmployeeLabel}</span>
+                                    <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[280px] p-0" align="start">
+                                <div className="border-b p-2">
+                                    <div className="relative">
+                                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input
+                                            value={employeeFilterSearch}
+                                            onChange={(event) => setEmployeeFilterSearch(event.target.value)}
+                                            placeholder="Search employees..."
+                                            className="h-9 pl-9 text-sm shadow-none"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto py-1">
+                                    <button
+                                        type="button"
+                                        className={`flex w-full items-center justify-between px-3 py-2 text-sm ${employeeFilter === 'all' ? 'bg-primary/10 font-medium text-primary' : 'hover:bg-muted/50'}`}
+                                        onClick={() => {
+                                            setEmployeeFilter('all');
+                                            setEmployeeFilterSearch('');
+                                            setEmployeeFilterOpen(false);
+                                        }}
+                                    >
+                                        <span>All employees</span>
+                                        {employeeFilter === 'all' && <Check className="h-4 w-4" />}
+                                    </button>
+                                    {filteredEmployeeOptions.map((employee) => {
+                                        const value = String(employee.id);
+                                        const selected = employeeFilter === value;
+                                        return (
+                                            <button
+                                                key={employee.id}
+                                                type="button"
+                                                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-sm ${selected ? 'bg-primary/10 font-medium text-primary' : 'hover:bg-muted/50'}`}
+                                                onClick={() => {
+                                                    setEmployeeFilter(value);
+                                                    setEmployeeFilterSearch('');
+                                                    setEmployeeFilterOpen(false);
+                                                }}
+                                            >
+                                                <span className="truncate">{employee.firstName} {employee.lastName}</span>
+                                                {selected && <Check className="h-4 w-4 shrink-0" />}
+                                            </button>
+                                        );
+                                    })}
+                                    {filteredEmployeeOptions.length === 0 && (
+                                        <p className="px-3 py-6 text-center text-sm text-muted-foreground">No employees found.</p>
+                                    )}
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                        <Select value={roleFilter} onValueChange={setRoleFilter}>
+                            <SelectTrigger className="h-9 w-full text-sm shadow-none sm:w-[180px]">
+                                <SelectValue placeholder="All roles" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All roles</SelectItem>
+                                <SelectItem value="regional-manager">Regional Managers</SelectItem>
+                                <SelectItem value="field-officer">Field Officers</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9 shadow-none"
+                            onClick={resetFilters}
+                            disabled={!filtersAreActive}
+                        >
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Reset
+                        </Button>
+                        <span className="text-xs text-muted-foreground sm:ml-auto">
+                            {filteredEmployees.length} employee{filteredEmployees.length === 1 ? '' : 's'}
+                        </span>
+                    </div>
 
                     {error && (
                         <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
@@ -355,283 +475,279 @@ const Allowance: React.FC = () => {
                         </div>
                     )}
 
-                    {!isLoading && !error && (
+                    {!error && (
                         <>
-                            {/* Search Bar */}
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1 max-w-md">
-                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                                    <Input
-                                        type="text"
-                                        placeholder="Search employees by name..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="pl-9"
-                                    />
-                                </div>
-                            </div>
-                            
-                            {filteredEmployees.length === 0 && !searchTerm && (
-                                <div className="text-center py-12 text-muted-foreground">
-                                    <p>No employees found matching the filter criteria.</p>
-                                </div>
-                            )}
-                            
-                            {filteredEmployees.length === 0 && searchTerm && (
-                                <div className="text-center py-12 text-muted-foreground">
-                                    <p>No employees found matching &quot;{searchTerm}&quot;</p>
-                                </div>
-                            )}
-                            
-                            {filteredEmployees.length > 0 && isMobile ? (
-                                <div className="space-y-4">
-                                    {currentRows.map((employee) => (
-                                        <Card key={employee.id} className="overflow-hidden">
-                                            <CardHeader className="pb-2">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center space-x-4">
-                                                        <Avatar className="h-12 w-12 bg-primary">
-                                                            <AvatarFallback className="text-primary-foreground">
-                                                                {getInitials(employee.firstName, employee.lastName)}
-                                                            </AvatarFallback>
-                                                        </Avatar>
-                                                        <CardTitle className="text-lg">{`${employee.firstName} ${employee.lastName}`}</CardTitle>
+                            {/* Mobile view - Cards */}
+                            <div className="space-y-3 md:hidden">
+                                {isLoading ? (
+                                    Array.from({ length: 3 }, (_, index) => (
+                                        <Skeleton key={index} className="h-48 w-full rounded-xl" />
+                                    ))
+                                ) : (
+                                    <>
+                                {currentRows.length === 0 && (
+                                    <div className="rounded-lg border py-10 text-center text-sm text-muted-foreground">
+                                        No employees match these filters.
+                                    </div>
+                                )}
+                                {currentRows.map((employee) => (
+                                    <Card key={employee.id} className="overflow-hidden">
+                                        <div className="p-4 border-b">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <Avatar className="h-9 w-9 bg-primary">
+                                                        <AvatarFallback className="text-primary-foreground">
+                                                            {getInitials(employee.firstName, employee.lastName)}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                    <div>
+                                                        <h4 className="text-sm font-semibold text-foreground">{`${employee.firstName} ${employee.lastName}`}</h4>
                                                     </div>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => toggleCardExpansion(employee.id)}
-                                                    >
-                                                        {expandedCards[employee.id] ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                                                    </Button>
                                                 </div>
-                                            </CardHeader>
-                                            {expandedCards[employee.id] && (
-                                                <CardContent>
-                                                    <div className="space-y-4">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center space-x-2">
-                                                                <DollarSign className="h-5 w-5 text-green-500" />
-                                                                <span className="font-medium">DA:</span>
-                                                            </div>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(employee.id, 'dearnessAllowance', employee.dearnessAllowance)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
-                                                                    className="w-24 text-right"
-                                                                />
+                                            </div>
+                                        </div>
+                                        <div className="p-4 space-y-3 text-sm">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="font-medium">DA:</span>
+                                                </div>
+                                                {editMode[employee.id] ? (
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={String(editedData[employee.id]?.dearnessAllowance ?? employee.dearnessAllowance ?? 0)}
+                                                        onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
+                                                        className="h-9 w-28 text-right text-sm"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold">{formatCurrency(employee.dearnessAllowance || 0)}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <DollarSign className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="font-medium">Salary:</span>
+                                                </div>
+                                                {editMode[employee.id] ? (
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={String(editedData[employee.id]?.fullMonthSalary ?? employee.fullMonthSalary ?? 0)}
+                                                        onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
+                                                        className="h-9 w-28 text-right text-sm"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold">{formatCurrency(employee.fullMonthSalary || 0)}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <Truck className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="font-medium">Car Rate:</span>
+                                                </div>
+                                                {editMode[employee.id] ? (
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={String(editedData[employee.id]?.carRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)}
+                                                        onChange={(e) => handleInputChange(employee.id, 'carRatePerKm', e.target.value)}
+                                                        className="h-9 w-28 text-right text-sm"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold">{formatRatePerKm(travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <Truck className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="font-medium">Bike Rate:</span>
+                                                </div>
+                                                {editMode[employee.id] ? (
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={String(editedData[employee.id]?.bikeRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)}
+                                                        onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
+                                                        className="h-9 w-28 text-right text-sm"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold">{formatRatePerKm(travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)}</span>
+                                                )}
+                                            </div>
+                                            <div className="mt-4">
+                                                {editMode[employee.id] ? (
+                                                    <div className="flex space-x-3">
+                                                        <Button 
+                                                            onClick={() => updateSalary(employee.id)} 
+                                                            className="h-9 flex-1 text-sm font-medium"
+                                                            disabled={isSaving || !isEmployeeEditValid(employee.id) || !employeeAllowanceIsDirty(employee)}
+                                                        >
+                                                            {isSaving ? (
+                                                                <>
+                                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                    Saving...
+                                                                </>
                                                             ) : (
-                                                                <span className="font-semibold">{formatCurrency(employee.dearnessAllowance || 0)}</span>
+                                                                'Save'
                                                             )}
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center space-x-2">
-                                                                <DollarSign className="h-5 w-5 text-blue-500" />
-                                                                <span className="font-medium">Salary:</span>
-                                                            </div>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(employee.id, 'fullMonthSalary', employee.fullMonthSalary)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
-                                                                    className="w-24 text-right"
-                                                                />
-                                                            ) : (
-                                                                <span className="font-semibold">{formatCurrency(employee.fullMonthSalary || 0)}</span>
-                                                            )}
-                                                        </div>
-                                                        {/* <div className="flex items-center justify-between">
-                                                            <div className="flex items-center space-x-2">
-                                                                <Truck className="h-5 w-5 text-yellow-500" />
-                                                                <span className="font-medium">Car Rate:</span>
-                                                            </div>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    value={Number(editedData[employee.id]?.carRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'carRatePerKm', e.target.value)}
-                                                                    className="w-24 text-right"
-                                                                />
-                                                            ) : (
-                                                                <span className="font-semibold">{travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0}/km</span>
-                                                            )}
-                                                        </div> */}
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center space-x-2">
-                                                                <Truck className="h-5 w-5 text-purple-500" />
-                                                                <span className="font-medium">Bike Rate:</span>
-                                                            </div>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(
-                                                                        employee.id,
-                                                                        'bikeRatePerKm',
-                                                                        travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? null
-                                                                    )}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
-                                                                    className="w-24 text-right"
-                                                                />
-                                                            ) : (
-                                                                <span className="font-semibold">{travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0}/km</span>
-                                                            )}
-                                                        </div>
+                                                        </Button>
+                                                        <Button onClick={() => cancelEdit(employee.id)} variant="outline" className="h-9 flex-1 text-sm font-medium">Cancel</Button>
                                                     </div>
-                                                    <div className="mt-4">
-                                                        {editMode[employee.id] ? (
-                                                            <div className="flex space-x-2">
-                                                                <Button 
-                                                                    onClick={() => updateSalary(employee.id)} 
-                                                                    className="flex-1" 
-                                                                    disabled={isSaving}
-                                                                >
-                                                                    {isSaving ? (
-                                                                        <>
-                                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                                            Saving...
-                                                                        </>
-                                                                    ) : (
-                                                                        'Save'
-                                                                    )}
-                                                                </Button>
-                                                                <Button onClick={() => cancelEdit(employee.id)} variant="outline" className="flex-1">Cancel</Button>
-                                                            </div>
-                                                        ) : (
-                                                            <Button onClick={() => startEdit(employee.id)} className="w-full">Edit</Button>
-                                                        )}
-                                                    </div>
-                                                </CardContent>
-                                            )}
-                                        </Card>
-                                    ))}
-                                </div>
-                            ) : filteredEmployees.length > 0 ? (
-                                <div className="rounded-lg border bg-card">
-                                    <div className="p-4 border-b">
-                                        <h3 className="text-lg font-semibold text-foreground">Employee Allowances</h3>
-                                        <p className="text-sm text-muted-foreground">Manage DA, Salary, and vehicle rates per employee</p>
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>Employee</TableHead>
-                                                    <TableHead>DA</TableHead>
-                                                    <TableHead>Salary</TableHead>
-                                                    {/* <TableHead>Car Rate (per km)</TableHead> */}
-                                                    <TableHead>Bike Rate (per km)</TableHead>
-                                                    <TableHead>Action</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {currentRows.map((employee) => (
-                                                    <TableRow key={employee.id}>
-                                                        <TableCell className="font-medium">{employee.firstName} {employee.lastName}</TableCell>
-                                                        <TableCell>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(employee.id, 'dearnessAllowance', employee.dearnessAllowance)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
-                                                                    className="w-full"
-                                                                />
-                                                            ) : (
-                                                                formatCurrency(employee.dearnessAllowance || 0)
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(employee.id, 'fullMonthSalary', employee.fullMonthSalary)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
-                                                                    className="w-full"
-                                                                />
-                                                            ) : (
-                                                                formatCurrency(employee.fullMonthSalary || 0)
-                                                            )}
-                                                        </TableCell>
-                                                        {/* <TableCell>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    value={Number(editedData[employee.id]?.carRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'carRatePerKm', e.target.value)}
-                                                                    className="w-full"
-                                                                />
-                                                            ) : (
-                                                                `${travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0}/km`
-                                                            )}
-                                                        </TableCell> */}
-                                                        <TableCell>
-                                                            {editMode[employee.id] ? (
-                                                                <Input
-                                                                    type="number"
-                                                                    inputMode="decimal"
-                                                                    value={getEditedValue(
-                                                                        employee.id,
-                                                                        'bikeRatePerKm',
-                                                                        travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? null
-                                                                    )}
-                                                                    onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
-                                                                    className="w-full"
-                                                                />
-                                                            ) : (
-                                                                `${travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0}/km`
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {editMode[employee.id] ? (
-                                                                <div className="flex space-x-2">
-                                                                    <Button 
-                                                                        onClick={() => updateSalary(employee.id)} 
-                                                                        className="flex-1" 
-                                                                        disabled={isSaving}
-                                                                    >
-                                                                        {isSaving ? (
-                                                                            <>
-                                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                                                Saving...
-                                                                            </>
-                                                                        ) : (
-                                                                            'Save'
-                                                                        )}
-                                                                    </Button>
-                                                                    <Button onClick={() => cancelEdit(employee.id)} variant="outline" className="flex-1">Cancel</Button>
-                                                                </div>
-                                                            ) : (
-                                                                <Button onClick={() => startEdit(employee.id)} className="w-full">Edit</Button>
-                                                            )}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                </div>
-                            ) : null}
+                                                ) : (
+                                                    <Button onClick={() => startEdit(employee.id)} className="h-9 w-full text-sm font-medium">Edit</Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))}
+                                    </>
+                                )}
+                            </div>
 
-                            {filteredEmployees.length > 0 && (
-                                <div className="flex flex-col gap-3 mt-4 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex items-center space-x-2">
-                                        <Label htmlFor="pageSize">Rows per page:</Label>
-                                        <Select
-                                            value={rowsPerPage.toString()}
-                                            onValueChange={(value) => {
-                                                const parsed = parseInt(value, 10);
-                                                if (!Number.isNaN(parsed)) {
-                                                    setRowsPerPage(parsed);
-                                                    setCurrentPage(1);
-                                                }
-                                            }}
-                                        >
-                                            <SelectTrigger className="w-20">
+                            {/* Desktop view - Table */}
+                            <div className="hidden min-w-0 overflow-x-auto md:block">
+                                <Table className="table-fixed text-xs font-poppins">
+                                    <colgroup>
+                                        <col className="w-[24%]" />
+                                        <col className="w-[12%]" />
+                                        <col className="w-[15%]" />
+                                        <col className="w-[18%]" />
+                                        <col className="w-[18%]" />
+                                        <col className="w-[13%]" />
+                                    </colgroup>
+                                    <TableHeader>
+                                        <TableRow>
+                                            {['Employee', 'DA', 'Salary', 'Car Rate (per km)', 'Bike Rate (per km)', 'Action'].map((heading) => (
+                                                <TableHead key={heading} className="overflow-hidden text-ellipsis whitespace-nowrap" title={heading}>
+                                                    {heading}
+                                                </TableHead>
+                                            ))}
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {isLoading ? (
+                                            Array.from({ length: 3 }, (_, rowIndex) => (
+                                                <TableRow key={`allowance-loading-${rowIndex}`}>
+                                                    {Array.from({ length: 6 }, (_, cellIndex) => (
+                                                        <TableCell key={cellIndex}>
+                                                            <Skeleton className="h-4 w-full max-w-24" />
+                                                        </TableCell>
+                                                    ))}
+                                                </TableRow>
+                                            ))
+                                        ) : currentRows.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                                    No employees match these filters.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : currentRows.map((employee) => (
+                                            <TableRow key={employee.id}>
+                                                <TableCell className="font-medium">
+                                                    <Ellipsis value={`${employee.firstName} ${employee.lastName}`} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    {editMode[employee.id] ? (
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={String(editedData[employee.id]?.dearnessAllowance ?? employee.dearnessAllowance ?? 0)}
+                                                            onChange={(e) => handleInputChange(employee.id, 'dearnessAllowance', e.target.value)}
+                                                            className="h-8 w-full min-w-0 text-xs"
+                                                        />
+                                                    ) : (
+                                                        <Ellipsis value={formatCurrency(employee.dearnessAllowance || 0)} />
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {editMode[employee.id] ? (
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={String(editedData[employee.id]?.fullMonthSalary ?? employee.fullMonthSalary ?? 0)}
+                                                            onChange={(e) => handleInputChange(employee.id, 'fullMonthSalary', e.target.value)}
+                                                            className="h-8 w-full min-w-0 text-xs"
+                                                        />
+                                                    ) : (
+                                                        <Ellipsis value={formatCurrency(employee.fullMonthSalary || 0)} />
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {editMode[employee.id] ? (
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={String(editedData[employee.id]?.carRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)}
+                                                            onChange={(e) => handleInputChange(employee.id, 'carRatePerKm', e.target.value)}
+                                                            className="h-8 w-full min-w-0 text-xs"
+                                                        />
+                                                    ) : (
+                                                        <Ellipsis value={formatRatePerKm(travelRates.find(rate => rate.employeeId === employee.id)?.carRatePerKm ?? 0)} />
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {editMode[employee.id] ? (
+                                                        <Input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={String(editedData[employee.id]?.bikeRatePerKm ?? travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)}
+                                                            onChange={(e) => handleInputChange(employee.id, 'bikeRatePerKm', e.target.value)}
+                                                            className="h-8 w-full min-w-0 text-xs"
+                                                        />
+                                                    ) : (
+                                                        <Ellipsis value={formatRatePerKm(travelRates.find(rate => rate.employeeId === employee.id)?.bikeRatePerKm ?? 0)} />
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {editMode[employee.id] ? (
+                                                        <div className="flex items-center gap-1">
+                                                            <Button 
+                                                                onClick={() => updateSalary(employee.id)} 
+                                                                size="sm"
+                                                                className="h-7 px-2 text-xs"
+                                                                disabled={isSaving || !isEmployeeEditValid(employee.id) || !employeeAllowanceIsDirty(employee)}
+                                                            >
+                                                                {isSaving ? (
+                                                                    <>
+                                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                                        Saving...
+                                                                    </>
+                                                                ) : (
+                                                                    'Save'
+                                                                )}
+                                                            </Button>
+                                                            <Button onClick={() => cancelEdit(employee.id)} variant="outline" size="sm" className="h-7 px-2 text-xs">Cancel</Button>
+                                                        </div>
+                                                    ) : (
+                                                        <Button variant="ghost" size="sm" onClick={() => startEdit(employee.id)} className="h-7 px-2 text-xs">Edit</Button>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+
+                            {!isLoading && totalPages > 0 && (
+                                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
+                                        <Select value={itemsPerPage.toString()} onValueChange={(value) => {
+                                            const next = parseInt(value, 10);
+                                            setItemsPerPage(next);
+                                            const nextTotal = Math.ceil(filteredEmployees.length / next) || 1;
+                                            if (currentPage > nextTotal) setCurrentPage(nextTotal);
+                                        }}>
+                                            <SelectTrigger className="h-8 w-16 text-xs">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -644,29 +760,31 @@ const Allowance: React.FC = () => {
                                     </div>
 
                                     {totalPages > 1 && (
-                                        <div className="flex items-center space-x-2">
+                                        <div className="flex items-center gap-2 text-xs">
                                             <Button
                                                 variant="outline"
                                                 size="sm"
+                                                className="h-8 px-2 text-xs"
                                                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                                                 disabled={currentPage === 1}
                                             >
-                                                <ChevronLeft className="h-4 w-4" />
+                                                <ChevronLeft className="h-3.5 w-3.5" />
                                                 Previous
                                             </Button>
 
-                                            <span className="text-sm text-muted-foreground">
+                                            <span className="text-xs text-muted-foreground">
                                                 Page {currentPage} of {totalPages}
                                             </span>
 
                                             <Button
                                                 variant="outline"
                                                 size="sm"
+                                                className="h-8 px-2 text-xs"
                                                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                                                 disabled={currentPage >= totalPages}
                                             >
                                                 Next
-                                                <ChevronRight className="h-4 w-4" />
+                                                <ChevronRight className="h-3.5 w-3.5" />
                                             </Button>
                                         </div>
                                     )}

@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   CheckCircle2,
   Clock,
   Home,
@@ -40,7 +47,13 @@ import {
   Search,
   User,
   XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { API_BASE_URL } from "@/lib/api";
+import { toast } from "sonner";
 
 type FeedbackIntent = "success" | "error";
 
@@ -96,6 +109,14 @@ const getDisplayName = (request: PendingLocationChangeRequest) => {
 
   const identifier = request.employeeId ?? request.id;
   return `Employee ${identifier}`;
+};
+
+const getInitials = (name: string) => {
+  const parts = name.trim().split(" ");
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 };
 
 const buildAddress = (request: PendingLocationChangeRequest) => {
@@ -182,7 +203,7 @@ const readResponseMessage = async (response: Response): Promise<string> => {
         return JSON.stringify(data);
       }
     } catch {
-      // Fallback to status code if parsing fails
+      // Fallback
     }
   } else {
     try {
@@ -191,7 +212,7 @@ const readResponseMessage = async (response: Response): Promise<string> => {
         return text;
       }
     } catch {
-      // Ignore parsing errors and fall through to default message
+      // Fallback
     }
   }
 
@@ -233,6 +254,11 @@ const callEndpointWithFallback = async (
   return message;
 };
 
+function Ellipsis({ value }: { value: string | number | null | undefined }) {
+  const displayValue = value === null || value === undefined || value === "" ? "—" : String(value);
+  return <span className="block min-w-0 truncate" title={displayValue}>{displayValue}</span>;
+}
+
 const HomeLocationRequests = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
 
@@ -245,6 +271,10 @@ const HomeLocationRequests = () => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+
   const fetchPendingRequests = useCallback(async () => {
     if (!token) {
       setFetchError("Authentication token not found. Please log in.");
@@ -256,7 +286,7 @@ const HomeLocationRequests = () => {
     setFetchError(null);
 
     try {
-      const response = await fetch("https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/pendingLocationChangeRequests", {
+      const response = await fetch(`${API_BASE_URL}/employee/pendingLocationChangeRequests`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
@@ -323,6 +353,10 @@ const HomeLocationRequests = () => {
     });
   }, [requests, searchTerm]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, itemsPerPage]);
+
   const summary = useMemo(() => {
     const withCoordinates = requests.filter(
       (request) =>
@@ -338,23 +372,22 @@ const HomeLocationRequests = () => {
     };
   }, [requests]);
 
+  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage) || 1;
+  const indexOfLastRow = currentPage * itemsPerPage;
+  const indexOfFirstRow = indexOfLastRow - itemsPerPage;
+  const currentRows = filteredRequests.slice(indexOfFirstRow, indexOfLastRow);
+
   const handleDecision = useCallback(
     async (request: PendingLocationChangeRequest, approve: boolean) => {
       if (!token) {
-        setActionFeedback({
-          type: "error",
-          message: "Authentication token not found. Please log in.",
-        });
+        toast.error("Authentication token not found. Please log in.");
         return;
       }
 
       const identifier = request.employeeId ?? request.id;
 
       if (identifier === null || identifier === undefined || identifier === "") {
-        setActionFeedback({
-          type: "error",
-          message: "Unable to identify the employee for this request.",
-        });
+        toast.error("Unable to identify the employee for this request.");
         return;
       }
 
@@ -364,31 +397,22 @@ const HomeLocationRequests = () => {
 
       try {
         const message = await callEndpointWithFallback(
-          `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/approveLocationChange?employeeId=${encodeURIComponent(
+          `${API_BASE_URL}/employee/approveLocationChange?employeeId=${encodeURIComponent(
             identifierString
           )}&approve=${approve}`,
           token,
           "PUT"
         );
 
-        setActionFeedback({
-          type: "success",
-          message:
-            message ||
-            (approve
-              ? "Location change request approved."
-              : "Location change request rejected."),
-        });
+        const succMsg = message || (approve ? "Location change request approved." : "Location change request rejected.");
+        setActionFeedback({ type: "success", message: succMsg });
+        toast.success(succMsg);
 
         await fetchPendingRequests();
       } catch (error) {
-        setActionFeedback({
-          type: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Failed to update the location change request.",
-        });
+        const errorMsg = error instanceof Error ? error.message : "Failed to update the location change request.";
+        setActionFeedback({ type: "error", message: errorMsg });
+        toast.error(errorMsg);
       } finally {
         setActionInFlight(null);
       }
@@ -407,10 +431,10 @@ const HomeLocationRequests = () => {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {actionFeedback && (
         <div
-          className={`rounded-md border px-4 py-3 text-sm ${
+          className={`rounded-lg border px-3 py-2 text-xs font-medium ${
             actionFeedback.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200"
               : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-200"
@@ -420,92 +444,65 @@ const HomeLocationRequests = () => {
         </div>
       )}
 
-      <Card className="border-0 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-foreground">
-            Pending Requests Overview
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Monitor the current queue of home location updates awaiting admin review.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="rounded-lg border bg-amber-50 px-3 py-2 text-center text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-              <p className="text-xs uppercase tracking-wide">Pending requests</p>
-              <p className="text-lg font-semibold">{summary.pending}</p>
-            </div>
-            <div className="rounded-lg border bg-primary/5 px-3 py-2 text-center text-primary">
-              <p className="text-xs uppercase tracking-wide">With coordinates</p>
-              <p className="text-lg font-semibold">{summary.withCoordinates}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-sm">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, email, city, or status"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+      <Card className="gap-0 border-border/70 py-0 shadow-sm">
+        <CardContent className="space-y-4 p-4">
+          {/* Compact Filter & Summary Header */}
+          <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <div className="relative min-w-[200px] flex-1 max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search name, email, city..."
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  className="h-9 pl-9 text-sm shadow-none"
+                />
+              </div>
               <Button
                 variant="outline"
-                className="gap-2"
+                size="sm"
+                className="h-9 gap-1.5 shadow-none text-xs"
                 onClick={() => {
                   void fetchPendingRequests();
                 }}
                 disabled={isLoading}
               >
-                <RefreshCcw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                {isLoading ? "Refreshing..." : "Refresh"}
+                <RefreshCcw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
               </Button>
             </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Badge variant="outline" className="h-7 border-amber-300 bg-amber-50/80 text-amber-700 font-medium dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                <Clock className="mr-1 h-3 w-3" />
+                Pending: {summary.pending}
+              </Badge>
+              <Badge variant="outline" className="h-7 border-primary/30 bg-primary/5 text-primary font-medium">
+                <MapPin className="mr-1 h-3 w-3" />
+                With Coordinates: {summary.withCoordinates}
+              </Badge>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span>Approve or reject requests to update employee home locations.</span>
-          </div>
-        </CardHeader>
-        <CardContent>
+
           {fetchError && (
-            <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               {fetchError}
             </div>
           )}
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              <p className="text-sm">Loading pending location requests...</p>
-            </div>
-          ) : filteredRequests.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
-              <Home className="h-10 w-10 opacity-30" />
-              <p className="font-medium">No location change requests found</p>
-              <p className="text-sm">Try refreshing or adjusting your search criteria.</p>
-            </div>
-          ) : (
-            <TooltipProvider delayDuration={200}>
-              <ScrollArea className="max-h-[520px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                    <TableHead className="min-w-[200px]">Employee</TableHead>
-                    <TableHead className="min-w-[220px]">Requested address</TableHead>
-                    <TableHead className="min-w-[160px]">Contacts</TableHead>
-                    <TableHead className="min-w-[160px]">Status</TableHead>
-                    <TableHead className="w-[220px] text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRequests.map((request) => {
+
+          {!fetchError && (
+            <>
+              {/* Mobile View - Cards */}
+              <div className="space-y-3 md:hidden">
+                {isLoading ? (
+                  Array.from({ length: 3 }, (_, index) => (
+                    <Skeleton key={index} className="h-36 w-full rounded-xl" />
+                  ))
+                ) : currentRows.length === 0 ? (
+                  <div className="rounded-lg border py-10 text-center text-sm text-muted-foreground">
+                    No location change requests found.
+                  </div>
+                ) : (
+                  currentRows.map((request) => {
                     const identifier = String(request.employeeId ?? request.id);
                     const isProcessing = actionInFlight === identifier;
                     const statusDate =
@@ -513,103 +510,282 @@ const HomeLocationRequests = () => {
                       parseDateFromParts(request.createdAt, request.createdTime);
                     const statusDateLabel = formatStatusDate(statusDate);
                     const fullAddress = buildAddress(request);
+                    const name = getDisplayName(request);
 
                     return (
-                      <TableRow key={`${identifier}-${request.id}`}>
-                        <TableCell>
-                          <p className="text-sm font-semibold text-foreground">
-                            {getDisplayName(request)}
-                          </p>
-                          {request.role && (
-                            <p className="text-xs text-muted-foreground">{request.role}</p>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="block max-w-[260px] cursor-help truncate text-sm font-medium text-foreground">
-                                {fullAddress}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs break-words bg-black text-white">
-                              <p className="text-sm text-white">{fullAddress}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm text-foreground">
-                            {formatContactNumber(request.primaryContact)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Alt: {formatContactNumber(request.secondaryContact)}
-                          </p>
-                          {request.email && (
-                            <p className="text-xs text-muted-foreground">{request.email}</p>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <Badge
-                              variant="outline"
-                              className="inline-flex w-fit items-center gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 hover:bg-black hover:text-white cursor-pointer transition-colors"
-                            >
-                              <Clock className="h-3.5 w-3.5" />
-                              Pending approval
-                            </Badge>
-                            <p className="text-xs text-muted-foreground">{statusDateLabel}</p>
+                      <Card key={`${identifier}-${request.id}`} className="overflow-hidden">
+                        <div className="p-3 border-b flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <Avatar className="h-8 w-8 bg-primary">
+                              <AvatarFallback className="text-xs text-primary-foreground">
+                                {getInitials(name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <h4 className="text-sm font-semibold text-foreground">{name}</h4>
+                              {request.role && (
+                                <p className="text-xs text-muted-foreground">{request.role}</p>
+                              )}
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 text-[10px]">
+                            Pending
+                          </Badge>
+                        </div>
+                        <div className="p-3 space-y-2 text-xs">
+                          <div className="flex items-start gap-1.5 text-foreground">
+                            <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />
+                            <span className="line-clamp-2">{fullAddress}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {formatContactNumber(request.primaryContact)}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {statusDateLabel}
+                            </span>
+                          </div>
+                          <div className="pt-2 flex items-center justify-end gap-1.5 border-t">
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="gap-1"
+                              className="h-7 px-2 text-xs gap-1"
                               onClick={() => handleOpenDetails(request)}
                             >
-                              <User className="h-4 w-4" />
+                              <User className="h-3.5 w-3.5" />
                               Details
                             </Button>
                             <Button
                               size="sm"
-                              className="gap-1"
-                              onClick={() => {
-                                void handleDecision(request, true);
-                              }}
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => void handleDecision(request, true)}
                               disabled={actionInFlight !== null}
                             >
                               {isProcessing ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
-                                <CheckCircle2 className="h-4 w-4" />
+                                <CheckCircle2 className="h-3.5 w-3.5" />
                               )}
                               Approve
                             </Button>
                             <Button
                               variant="outline"
                               size="sm"
-                              className="gap-1"
-                              onClick={() => {
-                                void handleDecision(request, false);
-                              }}
+                              className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
+                              onClick={() => void handleDecision(request, false)}
                               disabled={actionInFlight !== null}
                             >
                               {isProcessing ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                               ) : (
-                                <XCircle className="h-4 w-4" />
+                                <XCircle className="h-3.5 w-3.5" />
                               )}
                               Reject
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </Card>
                     );
-                  })}
-                </TableBody>
-              </Table>
-              </ScrollArea>
-            </TooltipProvider>
+                  })
+                )}
+              </div>
+
+              {/* Desktop View - Table */}
+              <div className="hidden min-w-0 overflow-x-auto md:block">
+                <TooltipProvider delayDuration={200}>
+                  <Table className="table-fixed text-xs font-poppins">
+                    <colgroup>
+                      <col className="w-[20%]" />
+                      <col className="w-[30%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[18%]" />
+                    </colgroup>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="overflow-hidden text-ellipsis whitespace-nowrap">Employee</TableHead>
+                        <TableHead className="overflow-hidden text-ellipsis whitespace-nowrap">Requested Address</TableHead>
+                        <TableHead className="overflow-hidden text-ellipsis whitespace-nowrap">Contacts</TableHead>
+                        <TableHead className="overflow-hidden text-ellipsis whitespace-nowrap">Status</TableHead>
+                        <TableHead className="overflow-hidden text-ellipsis whitespace-nowrap text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {isLoading ? (
+                        Array.from({ length: 3 }, (_, rowIndex) => (
+                          <TableRow key={`homeloc-loading-${rowIndex}`}>
+                            {Array.from({ length: 5 }, (_, cellIndex) => (
+                              <TableCell key={cellIndex}>
+                                <Skeleton className="h-4 w-full max-w-28" />
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))
+                      ) : currentRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                            No location change requests found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        currentRows.map((request) => {
+                          const identifier = String(request.employeeId ?? request.id);
+                          const isProcessing = actionInFlight === identifier;
+                          const statusDate =
+                            parseDateFromParts(request.updatedAt, request.updatedTime) ??
+                            parseDateFromParts(request.createdAt, request.createdTime);
+                          const statusDateLabel = formatStatusDate(statusDate);
+                          const fullAddress = buildAddress(request);
+                          const name = getDisplayName(request);
+
+                          return (
+                            <TableRow key={`${identifier}-${request.id}`}>
+                              <TableCell className="font-medium">
+                                <Ellipsis value={name} />
+                                {request.role && (
+                                  <span className="block text-[11px] text-muted-foreground truncate">{request.role}</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="block min-w-0 truncate cursor-help text-xs font-medium text-foreground">
+                                      {fullAddress}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs break-words bg-black text-white">
+                                    <p className="text-xs text-white">{fullAddress}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-0.5 text-xs">
+                                  <p className="font-medium text-foreground truncate">
+                                    {formatContactNumber(request.primaryContact)}
+                                  </p>
+                                  {request.email && (
+                                    <p className="text-[11px] text-muted-foreground truncate">{request.email}</p>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-0.5">
+                                  <Badge
+                                    variant="outline"
+                                    className="inline-flex items-center gap-1 border-amber-300 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+                                  >
+                                    <Clock className="h-3 w-3" />
+                                    Pending
+                                  </Badge>
+                                  <span className="block text-[11px] text-muted-foreground">{statusDateLabel}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-1.5 text-xs gap-1"
+                                    onClick={() => handleOpenDetails(request)}
+                                    title="View Details"
+                                  >
+                                    <User className="h-3.5 w-3.5" />
+                                    Details
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1"
+                                    onClick={() => void handleDecision(request, true)}
+                                    disabled={actionInFlight !== null}
+                                  >
+                                    {isProcessing ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="h-3.5 w-3.5" />
+                                    )}
+                                    Approve
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
+                                    onClick={() => void handleDecision(request, false)}
+                                    disabled={actionInFlight !== null}
+                                  >
+                                    {isProcessing ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <XCircle className="h-3.5 w-3.5" />
+                                    )}
+                                    Reject
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </TooltipProvider>
+              </div>
+
+              {/* Pagination Section */}
+              {!isLoading && totalPages > 0 && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
+                    <Select value={itemsPerPage.toString()} onValueChange={(value) => {
+                      const next = parseInt(value, 10);
+                      setItemsPerPage(next);
+                      const nextTotal = Math.ceil(filteredRequests.length / next) || 1;
+                      if (currentPage > nextTotal) setCurrentPage(nextTotal);
+                    }}>
+                      <SelectTrigger className="h-8 w-16 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="25">25</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                        Previous
+                      </Button>
+
+                      <span className="text-xs text-muted-foreground">
+                        Page {currentPage} of {totalPages}
+                      </span>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage >= totalPages}
+                      >
+                        Next
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -622,51 +798,45 @@ const HomeLocationRequests = () => {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-md">
           {detailRequest && (
             <>
               <DialogHeader>
-                <DialogTitle>{getDisplayName(detailRequest)}</DialogTitle>
+                <DialogTitle className="text-base font-semibold">{getDisplayName(detailRequest)}</DialogTitle>
                 {detailRequest.role && (
-                  <DialogDescription>{detailRequest.role}</DialogDescription>
+                  <DialogDescription className="text-xs">{detailRequest.role}</DialogDescription>
                 )}
               </DialogHeader>
-              <div className="grid gap-4 text-sm">
+              <div className="grid gap-3 text-xs">
                 <div className="rounded-lg border bg-muted/10 p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Contact
-                  </p>
-                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <p className="font-semibold text-muted-foreground uppercase text-[10px]">Contact</p>
+                  <div className="mt-1.5 space-y-1 text-xs">
                     <div className="flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5" />
+                      <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                       {formatContactNumber(detailRequest.primaryContact)}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5" />
+                      <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                       Alt: {formatContactNumber(detailRequest.secondaryContact)}
                     </div>
                     {detailRequest.email && (
                       <div className="flex items-center gap-2">
-                        <Mail className="h-3.5 w-3.5" />
+                        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                         {detailRequest.email}
                       </div>
                     )}
                   </div>
                 </div>
                 <div className="rounded-lg border bg-muted/10 p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Requested address
-                  </p>
-                  <p className="mt-2 flex items-center gap-2 text-sm text-foreground">
-                    <MapPin className="h-3.5 w-3.5" />
+                  <p className="font-semibold text-muted-foreground uppercase text-[10px]">Requested address</p>
+                  <p className="mt-1.5 flex items-start gap-2 text-xs text-foreground">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />
                     {buildAddress(detailRequest)}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/10 p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Timeline
-                  </p>
-                  <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <p className="font-semibold text-muted-foreground uppercase text-[10px]">Timeline</p>
+                  <p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5" />
                     Submitted:{" "}
                     {formatDateTime(
@@ -680,24 +850,10 @@ const HomeLocationRequests = () => {
                       parseDateFromParts(detailRequest.updatedAt, detailRequest.updatedTime)
                     )}
                   </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Location change requested flag:{" "}
-                    {detailRequest.locationChangeRequested ? "Yes" : "No"}
-                  </p>
                 </div>
-                {detailRequest.status && (
-                  <div className="rounded-lg border bg-muted/10 p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Employment status
-                    </p>
-                    <p className="mt-1 text-sm font-medium text-foreground">
-                      {String(detailRequest.status)}
-                    </p>
-                  </div>
-                )}
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={handleCloseDetails}>
+                <Button variant="outline" size="sm" onClick={handleCloseDetails}>
                   Close
                 </Button>
               </DialogFooter>

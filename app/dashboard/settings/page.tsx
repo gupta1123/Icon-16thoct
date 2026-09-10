@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CreditCard,
@@ -17,64 +17,90 @@ import Allowance from "@/components/Allowance";
 import WorkingDays from "@/components/WorkingDays";
 import DailyBreakdown from "@/components/DailyBreakdown";
 import HomeLocationRequests from "@/components/HomeLocationRequests";
-import TestTeamsPage from "@/app/dashboard/test-teams/page";
+import TeamsSettings from "@/components/teams-settings";
+import { UnsavedChangesProvider, useNavigationGuard } from "@/components/unsaved-changes-provider";
 
-export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("employeeSummary");
+function SettingsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { requestNavigation } = useNavigationGuard();
+  const tabParam = searchParams.get('tab');
+  
+  // Valid tab values
+  const validTabs = ['employeeSummary', 'allowance', 'working-days', 'home-location', 'dailyBreakdown', 'test-teams'];
+  const initialTab = tabParam && validTabs.includes(tabParam) ? tabParam : 'employeeSummary';
+  
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const tabScrollerRef = useRef<HTMLDivElement>(null);
+
+  // Update active tab when URL parameter changes
+  useEffect(() => {
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  useEffect(() => {
+    const scroller = tabScrollerRef.current;
+    if (!scroller) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const activeTrigger = scroller.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+      if (!activeTrigger) return;
+
+      const targetLeft = activeTrigger.offsetLeft
+        - (scroller.clientWidth - activeTrigger.offsetWidth) / 2;
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      scroller.scrollTo({
+        left: Math.max(0, targetLeft),
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab]);
+
+  const handleTabChange = (value: string) => {
+    requestNavigation(() => {
+      setActiveTab(value);
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.set("tab", value);
+      router.push(`/dashboard/settings?${nextParams.toString()}`, { scroll: false });
+    });
+  };
 
   return (
-    <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="w-full gap-2">
-          <TabsTrigger
-            value="employeeSummary"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Employee Summary"
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Employee Summary</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="allowance"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Allowance"
-          >
-            <CreditCard className="h-4 w-4" />
-            <span className="hidden sm:inline">Allowance</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="working-days"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Working Days"
-          >
-            <Calendar className="h-4 w-4" />
-            <span className="hidden sm:inline">Working Days</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="home-location"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Home Location Updates"
-          >
-            <Home className="h-4 w-4" />
-            <span className="hidden sm:inline">Home Location Updates</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="dailyBreakdown"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Daily Breakdown"
-          >
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Daily Breakdown</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="test-teams"
-            className="flex items-center justify-center gap-2 whitespace-nowrap text-xs sm:text-sm"
-            aria-label="Teams"
-          >
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Teams</span>
-          </TabsTrigger>
-        </TabsList>
+    <div className="space-y-4 py-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
+        <div ref={tabScrollerRef} className="-mx-1 overflow-x-auto px-1 pb-1">
+          <TabsList className="h-auto w-max justify-start gap-1 rounded-lg border border-border/70 bg-card p-1 shadow-sm">
+            <TabsTrigger value="employeeSummary" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <BarChart3 className="h-3.5 w-3.5" />
+              Employee Summary
+            </TabsTrigger>
+            <TabsTrigger value="allowance" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <CreditCard className="h-3.5 w-3.5" />
+              Allowance
+            </TabsTrigger>
+            <TabsTrigger value="working-days" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Calendar className="h-3.5 w-3.5" />
+              Working Days
+            </TabsTrigger>
+            <TabsTrigger value="home-location" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Home className="h-3.5 w-3.5" />
+              Home Location Updates
+            </TabsTrigger>
+            <TabsTrigger value="dailyBreakdown" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <BarChart3 className="h-3.5 w-3.5" />
+              Daily Breakdown
+            </TabsTrigger>
+            <TabsTrigger value="test-teams" className="h-9 gap-1.5 rounded-md px-3 text-xs font-medium whitespace-nowrap data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Users className="h-3.5 w-3.5" />
+              Teams
+            </TabsTrigger>
+          </TabsList>
+        </div>
         
         <TabsContent value="employeeSummary">
           <EmployeeSummary />
@@ -97,9 +123,19 @@ export default function SettingsPage() {
         </TabsContent>
         
         <TabsContent value="test-teams">
-          <TestTeamsPage />
+          <TeamsSettings />
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <UnsavedChangesProvider>
+      <Suspense fallback={<div>Loading...</div>}>
+        <SettingsContent />
+      </Suspense>
+    </UnsavedChangesProvider>
   );
 }

@@ -1,24 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Building2,
   Calendar,
+  Check,
   CheckCircle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Eye,
   Image as ImageIcon,
   Loader2,
   MapPin,
   Phone,
+  RotateCcw,
+  Search,
   User,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -34,10 +43,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Text } from "@/components/ui/typography";
+import { cn } from "@/lib/utils";
 import { API, type EmployeeDto, type SurveyDealerDto } from "@/lib/api";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const PAGE_SIZE = 10;
 const EMPTY_VALUE = "-";
 const STATUS_FILTERS = [
   { value: "all", label: "All statuses" },
@@ -132,20 +141,6 @@ const normalizeSurveyStatus = (status?: string | null) => {
   return null;
 };
 
-const getStatusClassName = (status?: string | null) => {
-  const normalized = normalizeSurveyStatus(status);
-
-  if (normalized === "COMPLETED") {
-    return "border-green-200 bg-green-100 text-green-800 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-200";
-  }
-
-  if (normalized === "DRAFT") {
-    return "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200";
-  }
-
-  return "border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200";
-};
-
 const getPhotoCount = (dealer: SurveyDealerDto) => {
   if (typeof dealer.imageCount === "number" && Number.isFinite(dealer.imageCount)) {
     return dealer.imageCount;
@@ -153,6 +148,15 @@ const getPhotoCount = (dealer: SurveyDealerDto) => {
 
   return dealer.photoResponse?.fileDownloadUri ? 1 : 0;
 };
+
+function Ellipsis({ value }: { value: React.ReactNode }) {
+  const title = typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+  return (
+    <span className="block min-w-0 truncate" title={title}>
+      {value ?? EMPTY_VALUE}
+    </span>
+  );
+}
 
 function StatCard({
   icon: Icon,
@@ -164,21 +168,13 @@ function StatCard({
   value: string | number;
 }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <Text size="xs" tone="muted" className="uppercase">
-              {label}
-            </Text>
-            <div className="mt-1 text-2xl font-semibold text-foreground">{value}</div>
-          </div>
-          <div className="rounded-md bg-muted p-2 text-muted-foreground">
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border bg-card px-3 py-3 sm:px-4">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="truncate">{label}</span>
+        <Icon className="hidden h-4 w-4 shrink-0 sm:block" />
+      </div>
+      <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{value}</p>
+    </div>
   );
 }
 
@@ -190,13 +186,13 @@ function BrandBadges({ dealer }: { dealer: SurveyDealerDto }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {brands.slice(0, 3).map((brand, index) => (
-        <Badge key={`${brand}-${index}`} variant="outline" className="max-w-[140px] truncate">
+    <div className="flex flex-wrap gap-1">
+      {brands.slice(0, 2).map((brand, index) => (
+        <Badge key={`${brand}-${index}`} variant="outline" className="max-w-[120px] truncate text-[11px] px-1.5 py-0">
           {brand}
         </Badge>
       ))}
-      {brands.length > 3 && <Badge variant="secondary">+{brands.length - 3}</Badge>}
+      {brands.length > 2 && <Badge variant="secondary" className="text-[11px] px-1 py-0">+{brands.length - 2}</Badge>}
     </div>
   );
 }
@@ -208,8 +204,15 @@ function StatusBadge({ status }: { status?: string | null }) {
     return <span className="text-muted-foreground">{EMPTY_VALUE}</span>;
   }
 
+  let colorClass = "border-border bg-muted/50 text-muted-foreground";
+  if (normalized === "COMPLETED") {
+    colorClass = "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300";
+  } else if (normalized === "DRAFT") {
+    colorClass = "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/35 dark:text-amber-300";
+  }
+
   return (
-    <Badge variant="outline" className={getStatusClassName(normalized)}>
+    <Badge className={cn("capitalize whitespace-nowrap text-xs", colorClass)}>
       {formatLabel(normalized)}
     </Badge>
   );
@@ -222,9 +225,17 @@ export default function DealerSurveyListPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isNavigating, setIsNavigating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  
+  // Employee Search Popover
+  const [isEmployeePopoverOpen, setIsEmployeePopoverOpen] = useState(false);
+  const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
 
   const fetchDealers = useCallback(async () => {
     setIsLoading(true);
@@ -273,22 +284,50 @@ export default function DealerSurveyListPage() {
     };
   }, []);
 
+  const filteredEmployees = useMemo(() => {
+    if (!employeeSearchTerm.trim()) return employees;
+    const term = employeeSearchTerm.toLowerCase();
+    return employees.filter((e) => getEmployeeName(e).toLowerCase().includes(term));
+  }, [employees, employeeSearchTerm]);
+
+  const selectedEmployeeLabel = useMemo(() => {
+    if (selectedEmployeeId === "all") return "All employees";
+    const found = employees.find((e) => String(e.id) === selectedEmployeeId);
+    return found ? getEmployeeName(found) : "All employees";
+  }, [selectedEmployeeId, employees]);
+
   const filteredDealers = useMemo(() => {
-    if (selectedStatus === "all") return dealers;
+    return dealers.filter((dealer) => {
+      // Status filter
+      if (selectedStatus !== "all" && normalizeSurveyStatus(dealer.status) !== selectedStatus) {
+        return false;
+      }
+      // Text search query filter (dealer name, owner name, city)
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const dealerName = String(dealer.dealerName ?? "").toLowerCase();
+        const ownerName = getOwnerName(dealer).toLowerCase();
+        const city = String(dealer.city ?? "").toLowerCase();
+        const contact = String(dealer.primaryContact ?? "").toLowerCase();
 
-    return dealers.filter((dealer) => normalizeSurveyStatus(dealer.status) === selectedStatus);
-  }, [dealers, selectedStatus]);
+        if (!dealerName.includes(query) && !ownerName.includes(query) && !city.includes(query) && !contact.includes(query)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [dealers, selectedStatus, searchQuery]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredDealers.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredDealers.length / pageSize));
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
   const visibleDealers = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredDealers.slice(start, start + PAGE_SIZE);
-  }, [filteredDealers, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredDealers.slice(start, start + pageSize);
+  }, [filteredDealers, currentPage, pageSize]);
 
   const stats = useMemo(() => {
     const completed = dealers.filter((dealer) => normalizeSurveyStatus(dealer.status) === "COMPLETED").length;
@@ -303,6 +342,16 @@ export default function DealerSurveyListPage() {
     };
   }, [dealers]);
 
+  const isFilterActive = selectedEmployeeId !== "all" || selectedStatus !== "all" || searchQuery.trim() !== "";
+
+  const handleResetFilters = () => {
+    setSelectedEmployeeId("all");
+    setSelectedStatus("all");
+    setSearchQuery("");
+    setEmployeeSearchTerm("");
+    setCurrentPage(1);
+  };
+
   const openDetail = (id: number) => {
     setIsNavigating(true);
     router.push(`/dashboard/dealer-survey/${id}`);
@@ -310,119 +359,227 @@ export default function DealerSurveyListPage() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <StatCard icon={Building2} label="Survey Dealers" value={stats.total} />
         <StatCard icon={CheckCircle} label="Completed" value={stats.completed} />
         <StatCard icon={Clock} label="Draft" value={stats.draft} />
         <StatCard icon={ImageIcon} label="With Photo" value={stats.withPhoto} />
       </div>
 
-      <Card>
-        <CardHeader className="space-y-4">
-          <div>
-            <CardTitle>Dealer Survey</CardTitle>
-            <Text tone="muted" size="sm" className="mt-1">
-              Survey dealer records captured separately from customer stores.
-            </Text>
+      {/* Main Container */}
+      <Card className="gap-0 border-border/70 py-0 shadow-sm">
+        <CardContent className="space-y-4 p-4">
+          {/* Header & Filter Controls Section */}
+          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-end lg:gap-2">
+              {/* Text Search Input */}
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Label className="text-xs font-medium text-foreground">Search Dealer / Owner / City</Label>
+                <div className="relative">
+                  <Input
+                    placeholder="Search dealer, owner, city, phone..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-9 bg-background pl-8 text-xs shadow-none"
+                  />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+
+              {/* Employee Searchable Popover */}
+              <div className="min-w-0 space-y-1.5 lg:w-[220px] lg:shrink-0">
+                <Label className="text-xs font-medium text-foreground">Assigned Employee</Label>
+                <Popover open={isEmployeePopoverOpen} onOpenChange={setIsEmployeePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between bg-background px-3 text-xs font-normal shadow-none">
+                      <span className="flex min-w-0 items-center gap-2 truncate">
+                        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{selectedEmployeeLabel}</span>
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <div className="border-b p-2">
+                      <Input
+                        placeholder="Search employees..."
+                        value={employeeSearchTerm}
+                        onChange={(e) => setEmployeeSearchTerm(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedEmployeeId("all");
+                          setIsEmployeePopoverOpen(false);
+                          setCurrentPage(1);
+                        }}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs hover:bg-muted/50",
+                          selectedEmployeeId === "all" && "bg-primary/10 font-medium text-primary"
+                        )}
+                      >
+                        All employees {selectedEmployeeId === "all" && <Check className="h-3 w-3" />}
+                      </button>
+                      {filteredEmployees.map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedEmployeeId(String(e.id));
+                            setIsEmployeePopoverOpen(false);
+                            setCurrentPage(1);
+                          }}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left text-xs hover:bg-muted/50",
+                            selectedEmployeeId === String(e.id) && "bg-primary/10 font-medium text-primary"
+                          )}
+                        >
+                          <span className="truncate">{getEmployeeName(e)}</span>
+                          {selectedEmployeeId === String(e.id) && <Check className="h-3 w-3 shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Status Select */}
+              <div className="min-w-0 space-y-1.5 lg:w-[160px] lg:shrink-0">
+                <Label className="text-xs font-medium text-foreground">Status</Label>
+                <Select
+                  value={selectedStatus}
+                  onValueChange={(value) => {
+                    setSelectedStatus(value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-9 bg-background text-xs shadow-none">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_FILTERS.map((status) => (
+                      <SelectItem key={status.value} value={status.value} className="text-xs">
+                        {status.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Reset Filters Button */}
+              {isFilterActive && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetFilters}
+                  className="h-9 px-3 text-xs shadow-none shrink-0"
+                  title="Reset filters"
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  Reset
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="relative z-20 grid w-full gap-3 sm:grid-cols-[minmax(180px,220px)_minmax(160px,200px)]">
-            <Select
-              value={selectedEmployeeId}
-              onValueChange={(value) => {
-                setSelectedEmployeeId(value);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Filter by employee" />
-              </SelectTrigger>
-              <SelectContent className="z-[100] max-h-72" sideOffset={8}>
-                <SelectItem value="all">All employees</SelectItem>
-                {employees.map((employee) => (
-                  <SelectItem key={employee.id} value={String(employee.id)}>
-                    {getEmployeeName(employee)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={selectedStatus}
-              onValueChange={(value) => {
-                setSelectedStatus(value);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent className="z-[100] max-h-60" sideOffset={8}>
-                {STATUS_FILTERS.map((status) => (
-                  <SelectItem key={status.value} value={status.value}>
-                    {status.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
+
+          {/* Error Message */}
           {error && (
-            <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="flex-1">{error}</div>
-              <Button variant="outline" size="sm" onClick={() => void fetchDealers()}>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void fetchDealers()} className="h-7 text-xs">
                 Retry
               </Button>
             </div>
           )}
 
-          <div className="relative z-0 hidden overflow-x-auto rounded-md border md:block">
-            <Table className="min-w-[1020px]">
+          {/* Desktop Table View */}
+          <div className="hidden min-w-0 overflow-x-auto rounded-md border md:block">
+            <Table className="table-fixed text-xs font-poppins">
+              <colgroup>
+                <col className="w-[17%]" />
+                <col className="w-[10%]" />
+                <col className="w-[13%]" />
+                <col className="w-[11%]" />
+                <col className="w-[12%]" />
+                <col className="w-[14%]" />
+                <col className="w-[12%]" />
+                <col className="w-[7%]" />
+                <col className="w-[4%]" />
+              </colgroup>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Dealer</TableHead>
+                <TableRow className="bg-muted/30">
+                  <TableHead>Dealer Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Surveyed By</TableHead>
                   <TableHead>Completed</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-20">Action</TableHead>
+                  <TableHead>Brands</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-24 text-center">
-                      <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading survey dealers...
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  Array.from({ length: 5 }, (_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                      <TableCell className="text-center"><Skeleton className="h-6 w-6 rounded-full mx-auto" /></TableCell>
+                    </TableRow>
+                  ))
                 ) : visibleDealers.length > 0 ? (
                   visibleDealers.map((dealer) => (
                     <TableRow
                       key={dealer.id}
-                      className="cursor-pointer hover:bg-muted/40"
+                      className="cursor-pointer hover:bg-muted/50"
                       onClick={() => openDetail(dealer.id)}
                     >
-                      <TableCell className="font-medium">{formatText(dealer.dealerName)}</TableCell>
+                      <TableCell className="font-medium overflow-hidden">
+                        <Ellipsis value={dealer.dealerName} />
+                      </TableCell>
                       <TableCell>
                         <StatusBadge status={dealer.status} />
                       </TableCell>
-                      <TableCell>{getOwnerName(dealer)}</TableCell>
-                      <TableCell>{formatText(dealer.primaryContact)}</TableCell>
-                      <TableCell>{[dealer.city, dealer.state].filter(isPresent).join(", ") || EMPTY_VALUE}</TableCell>
-                      <TableCell>{formatText(dealer.employeeName)}</TableCell>
-                      <TableCell>{formatDateTime(dealer.completedAt, dealer.completedTime)}</TableCell>
-                      <TableCell>{formatDate(dealer.createdAt)}</TableCell>
+                      <TableCell className="overflow-hidden">
+                        <Ellipsis value={getOwnerName(dealer)} />
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <Ellipsis value={dealer.primaryContact} />
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <Ellipsis value={[dealer.city, dealer.state].filter(isPresent).join(", ")} />
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <Ellipsis value={dealer.employeeName} />
+                      </TableCell>
+                      <TableCell className="overflow-hidden">
+                        <Ellipsis value={formatDateTime(dealer.completedAt, dealer.completedTime)} />
+                      </TableCell>
                       <TableCell>
+                        <BrandBadges dealer={dealer} />
+                      </TableCell>
+                      <TableCell className="text-center px-1">
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
-                          className="p-2"
+                          className="h-7 w-7 p-0"
                           title="View Details"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -437,7 +594,7 @@ export default function DealerSurveyListPage() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                      No survey dealers found.
+                      No survey dealers match your search or filters.
                     </TableCell>
                   </TableRow>
                 )}
@@ -445,102 +602,123 @@ export default function DealerSurveyListPage() {
             </Table>
           </div>
 
+          {/* Mobile Cards View */}
           <div className="space-y-3 md:hidden">
             {isLoading ? (
-              <div className="rounded-lg border p-6 text-center text-muted-foreground">
-                <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin" />
-                Loading survey dealers...
-              </div>
+              Array.from({ length: 3 }, (_, index) => (
+                <Skeleton key={index} className="h-36 w-full rounded-xl" />
+              ))
             ) : visibleDealers.length > 0 ? (
               visibleDealers.map((dealer) => (
                 <Card
                   key={dealer.id}
-                  className="cursor-pointer border-l-4 border-l-primary shadow-sm transition-shadow hover:shadow-md"
+                  className="cursor-pointer overflow-hidden border shadow-sm transition-shadow hover:shadow-md"
                   onClick={() => openDetail(dealer.id)}
                 >
-                  <CardContent className="space-y-4 p-4">
-                    <div className="flex items-start justify-between gap-3">
+                  <div className="p-3 border-b bg-muted/10">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate font-semibold">{formatText(dealer.dealerName)}</div>
-                        <Text size="sm" tone="muted" className="truncate">
-                          {getOwnerName(dealer)}
-                        </Text>
+                        <h4 className="text-sm font-semibold text-foreground truncate">{formatText(dealer.dealerName)}</h4>
+                        <p className="text-xs text-muted-foreground truncate">{getOwnerName(dealer)}</p>
                       </div>
                       <StatusBadge status={dealer.status} />
                     </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{formatText(dealer.primaryContact)}</span>
+                  </div>
+                  <div className="p-3 space-y-2 text-xs">
+                    <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-foreground">{formatText(dealer.primaryContact)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{formatText(dealer.city)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-foreground">{formatText(dealer.city)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{formatText(dealer.employeeName)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-foreground">{formatText(dealer.employeeName)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{formatDateTime(dealer.completedAt, dealer.completedTime)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-foreground">{formatDate(dealer.completedAt)}</span>
                       </div>
                     </div>
 
-                    <BrandBadges dealer={dealer} />
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openDetail(dealer.id);
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                      View Details
-                    </Button>
-                  </CardContent>
+                    <div className="pt-2 flex items-center justify-between gap-2 border-t">
+                      <BrandBadges dealer={dealer} />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs px-2 shrink-0"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openDetail(dealer.id);
+                        }}
+                      >
+                        <Eye className="mr-1 h-3.5 w-3.5" />
+                        View
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               ))
             ) : (
-              <div className="rounded-lg border p-6 text-center text-muted-foreground">
-                No survey dealers found.
+              <div className="rounded-lg border py-8 text-center text-xs text-muted-foreground">
+                No survey dealers match your search or filters.
               </div>
             )}
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Text size="sm" tone="muted">
-              Showing {visibleDealers.length} of {filteredDealers.length} survey dealers
-            </Text>
-            <div className="flex items-center gap-2">
+          {/* Pagination & Counter Footer */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <div className="flex items-center space-x-2 text-xs">
+              <Label htmlFor="pageSize" className="text-xs">Rows per page:</Label>
+              <Select value={pageSize.toString()} onValueChange={(value) => { setPageSize(parseInt(value, 10)); setCurrentPage(1); }}>
+                <SelectTrigger className="h-8 w-16 text-xs shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground ml-2">
+                Showing {visibleDealers.length} of {filteredDealers.length} survey dealers
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2 text-xs">
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 px-2 text-xs shadow-none"
                 disabled={currentPage <= 1}
                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               >
+                <ChevronLeft className="h-3.5 w-3.5" />
                 Previous
               </Button>
-              <span className="text-sm text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 Page {currentPage} of {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 px-2 text-xs shadow-none"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
               >
                 Next
+                <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Navigating Loader Overlay */}
       {isNavigating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
           <div className="flex items-center gap-3 rounded-md border bg-card px-4 py-3 shadow-sm">

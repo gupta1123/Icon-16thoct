@@ -17,14 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Calendar, 
-  User, 
-  Building, 
-  Clock, 
+import {
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  User,
+  Building,
+  Clock,
   Plus,
   MoreHorizontal,
   Edit,
@@ -48,7 +48,8 @@ import {
   LogIn,
   LogOut,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
@@ -89,6 +90,8 @@ import {
   getRequirementComplaintCategoryLabel,
 } from "@/lib/requirement-complaint-category";
 import BrandTab from './BrandTab';
+import VisitTasksTab from './visit-tasks-tab';
+import { normalizeVisitTask, filterVisitHistory, calculateDuration } from '@/lib/visit-detail';
 
 type Priority = 'low' | 'medium' | 'high';
 
@@ -127,6 +130,7 @@ const ALLOWED_EMPLOYEE_VISIT_FILTERS = new Set([
   'today',
   'yesterday',
   'last-2-days',
+  'this-week',
   'this-month',
   'last-month',
 ]);
@@ -160,9 +164,9 @@ type VisitDetail = {
   checkinLatitude?: number;
   checkinLongitude?: number;
   checkinTime?: string;
-  checkinDate?: string;  
+  checkinDate?: string;
   checkoutTime?: string;
-  checkoutDate?: string; 
+  checkoutDate?: string;
   rating?: number;
   status?: string;
   storeLatitude?: number;
@@ -431,14 +435,14 @@ const getStoreAddress = (store: StoreDto | null | undefined) =>
     store?.pincode,
   ]);
 
-export default function VisitDetailPage({ 
-  searchParams: propSearchParams 
-}: { 
-  searchParams?: { from?: string; employeeId?: string; [key: string]: string | string[] | undefined }
+export default function VisitDetailPage({
+  searchParams: propSearchParams
+}: {
+  searchParams?: { from?: string; employeeId?: string;[key: string]: string | string[] | undefined }
 } = {}) {
   const router = useRouter();
   const hookSearchParams = useSearchParams();
-  
+
   // Use prop searchParams if available, otherwise fall back to hook
   const searchParams = propSearchParams && Object.keys(propSearchParams).length > 0 ? {
     get: (key: string) => {
@@ -493,11 +497,11 @@ export default function VisitDetailPage({
       }
     }
   }, [searchParams]);
-  
+
   const params = useParams();
   const visitId = params?.id as string;
   const { userRole, userData, currentUser } = useAuth();
-  
+
   const [visitDetail, setVisitDetail] = useState<VisitDetail | null>(null);
   const [activeTab, setActiveTab] = useState("metrics");
   const [activeInfoTab, setActiveInfoTab] = useState("visit-info");
@@ -516,7 +520,14 @@ export default function VisitDetailPage({
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const visitsPerPage = 3;
+  const [visitsPerPage, setVisitsPerPage] = useState(3);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [taskErrors, setTaskErrors] = useState<{ requirement: string | null; complaint: string | null }>({ requirement: null, complaint: null });
+  const [taskCreateError, setTaskCreateError] = useState<string | null>(null);
+  const [isTaskSaving, setIsTaskSaving] = useState(false);
+  const [notePendingDelete, setNotePendingDelete] = useState<ApiNote | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [isNoteSaving, setIsNoteSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -591,17 +602,17 @@ export default function VisitDetailPage({
     address: string;
   } | null>(null);
   const [storeClientType, setStoreClientType] = useState<string | null>(null);
-  
+
   // Role-based state
   const [isManager, setIsManager] = useState(false);
-  
+
   // Notes functionality
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
   const [isNoteEditMode, setIsNoteEditMode] = useState(false);
   const [noteContent, setNoteContent] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [editingNoteDetails, setEditingNoteDetails] = useState<{ employeeId: number; storeId: number } | null>(null);
-  
+
   // Helper functions
   const getOutcomeStatus = (visit: VisitDetail | null): { emoji: React.ReactNode; status: string; color: string; isOngoing: boolean } => {
     if (visit?.checkinTime && visit?.checkoutTime) {
@@ -623,7 +634,7 @@ export default function VisitDetailPage({
   // Determine user role and display role
   const normalizedUserRole = normalizeRoleValue(userRole);
   const authorityRoles = extractAuthorityRoles(currentUser?.authorities ?? null);
-  
+
   const getDisplayRole = useMemo(() => {
     if (hasAnyRole(normalizedUserRole, authorityRoles, ['ADMIN'])) {
       return 'Admin';
@@ -660,7 +671,7 @@ export default function VisitDetailPage({
             auth.authority === 'ROLE_MANAGER' ||
             auth.authority === 'ROLE_AVP'
         );
-      
+
       setIsManager(!!isManagerRole);
     };
     checkUserRole();
@@ -718,17 +729,17 @@ export default function VisitDetailPage({
           .map(async (attachment: unknown) => {
             const att = attachment as { fileName?: string };
             try {
-           
+
               const response = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/downloadFile/${visitId}/check-in/${att.fileName}`, {
                 headers: {
                   'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
                 },
               });
-              
+
               if (!response.ok) {
                 throw new Error('Failed to fetch image');
               }
-              
+
               const blob = await response.blob();
               return URL.createObjectURL(blob);
             } catch (error) {
@@ -737,7 +748,7 @@ export default function VisitDetailPage({
             }
           })
       );
-      
+
 
       setCheckinImages(checkinImageUrls.filter(url => url !== null) as string[]);
     } catch (error) {
@@ -883,71 +894,27 @@ export default function VisitDetailPage({
             normalizedClientType.includes('engineer') ||
             normalizedClientType.includes('architect') ||
             normalizedClientType.includes('contractor');
-          if (isSiteVisitClient) {
-            setActiveTab((prev) =>
-              prev === 'site' || prev === 'brands' || prev === 'metrics' || prev === 'visits'
-                ? 'site'
-                : prev
-            );
-          }
-          if (isProfessionalClient) {
-            setActiveTab((prev) => (prev === 'discussion' || prev === 'metrics' || prev === 'visits' ? prev : 'discussion'));
-          }
-
           const [
             intentAuditData,
             stockData,
-            requirementsData,
-            complaintsData,
             notesData,
             storeVisitsData,
           ] = await Promise.all([
             api.getIntentAuditByVisit(Number(visitId)),
             api.getMonthlySaleByVisit(Number(visitId)),
-            Promise.resolve([]),
-            Promise.resolve([]),
             api.getNotesByVisit(Number(visitId)),
             api.getVisitsByStore(visitData.storeId || 0),
           ]);
-          
+
           console.log('📈 Auxiliary data loaded:', {
             intentAudit: intentAuditData?.length || 0,
             stock: stockData?.length || 0,
-            requirements: requirementsData?.length || 0,
-            complaints: complaintsData?.length || 0,
             notes: notesData?.length || 0,
             storeVisits: storeVisitsData?.length || 0,
           });
 
           setIntentAuditLogs(intentAuditData || []);
           setStockChanges(stockData || []);
-          // Normalize tasks for UI (use consistent keys)
-          const normalizedReqs: TaskWithAttachments[] = (requirementsData || []).map((t: RawTaskData) => ({
-            id: t.id,
-            title: (t.taskTitle && String(t.taskTitle).trim()) || (t.taskDesciption || 'Requirement'),
-            description: t.taskDesciption || '',
-            status: t.status || 'Assigned',
-            priority: t.priority || 'low',
-            assignedTo: t.assignedToName || '',
-            dueDate: t.dueDate || '',
-            type: t.taskType || 'requirement',
-            visitId: t.visitId || Number(visitId),
-            attachmentResponse: t.attachmentResponse || [],
-          }));
-          const normalizedCmps: TaskWithAttachments[] = (complaintsData || []).map((t: RawTaskData) => ({
-            id: t.id,
-            title: (t.taskTitle && String(t.taskTitle).trim()) || (t.taskDesciption || 'Complaint'),
-            description: t.taskDesciption || '',
-            status: t.status || 'Assigned',
-            priority: t.priority || 'low',
-            assignedTo: t.assignedToName || '',
-            dueDate: t.dueDate || '',
-            type: t.taskType || 'complaint',
-            visitId: t.visitId || Number(visitId),
-            attachmentResponse: t.attachmentResponse || [],
-          }));
-          setRequirements(normalizedReqs);
-          setComplaints(normalizedCmps);
           // Filter and validate notes - ensure they have valid IDs
           const validNotes = (notesData || []).filter((note: ApiNote) => {
             const hasValidId = note.id != null && (
@@ -995,8 +962,8 @@ export default function VisitDetailPage({
           if (storeVisitsData && storeVisitsData.length > 0) {
             const firstVisit = storeVisitsData[0];
             const fallbackAddress =
-                `${firstVisit.subDistrict || ''}, ${firstVisit.district || ''}, ${firstVisit.state || ''}`
-                  .replace(/^[, ]+|[, ]+$/g, '');
+              `${firstVisit.subDistrict || ''}, ${firstVisit.district || ''}, ${firstVisit.state || ''}`
+                .replace(/^[, ]+|[, ]+$/g, '');
             setStoreDetails((prev) => ({
               storeName: prev?.storeName || visitData.storeName || '',
               ownerName: prev?.ownerName || '',
@@ -1019,7 +986,31 @@ export default function VisitDetailPage({
       }
       isFetchingRef.current = false;
     }
-  }, [fetchCheckinImages]);
+  }, [fetchCheckinImages, fetchGiftImage]);
+
+  useEffect(() => {
+    if (!visitId) return;
+    let cancelled = false;
+    setTasksLoading(true);
+    setRequirements([]);
+    setComplaints([]);
+    setTaskErrors({ requirement: null, complaint: null });
+    const api = new API();
+    Promise.allSettled([api.getTasksByVisit('requirement', Number(visitId)), api.getTasksByVisit('complaint', Number(visitId))]).then(results => {
+      if (cancelled) return;
+      results.forEach((result, index) => {
+        const type = index === 0 ? 'requirement' : 'complaint';
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          const tasks = result.value.map(task => normalizeVisitTask(task, type, Number(visitId)));
+          (index === 0 ? setRequirements : setComplaints)(tasks);
+        } else {
+          setTaskErrors(prev => ({ ...prev, [type]: result.status === 'rejected' && result.reason instanceof Error ? result.reason.message : 'Unable to load records.' }));
+        }
+      });
+      setTasksLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [visitId]);
 
   const isSiteVisitClient = useMemo(() => {
     const normalized = (storeClientType ?? '')
@@ -1045,21 +1036,6 @@ export default function VisitDetailPage({
       normalized.includes('contractor')
     );
   }, [storeClientType]);
-
-  useEffect(() => {
-    if (isProfessionalClient) {
-      if (activeTab !== 'discussion' && activeTab !== 'metrics' && activeTab !== 'visits') {
-        setActiveTab('discussion');
-      }
-      return;
-    }
-    if (!isSiteVisitClient) return;
-    if (activeTab !== 'site' && activeTab !== 'brands' && activeTab !== 'metrics' && activeTab !== 'visits') {
-      setActiveTab('site');
-    }
-  }, [isSiteVisitClient, isProfessionalClient, activeTab]);
-
-
 
   // fetchIntentLevel removed (intent level no longer displayed)
 
@@ -1226,9 +1202,10 @@ export default function VisitDetailPage({
 
   const indexOfLastVisit = currentPage * visitsPerPage;
   const indexOfFirstVisit = indexOfLastVisit - visitsPerPage;
-  const currentVisits = storeVisits.slice(indexOfFirstVisit, indexOfLastVisit);
+  const filteredVisits = useMemo(() => filterVisitHistory(storeVisits, searchQuery), [storeVisits, searchQuery]);
+  const currentVisits = filteredVisits.slice(showAll ? indexOfFirstVisit : 0, showAll ? indexOfLastVisit : visitsPerPage);
 
-  const totalPages = Math.ceil(storeVisits.length / visitsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredVisits.length / visitsPerPage));
 
   const renderPaginationItems = () => {
     const items = [];
@@ -1284,10 +1261,18 @@ export default function VisitDetailPage({
   ];
 
   const stockValue = metrics.find(m => m.title === 'Stock')?.value;
-  
+
+  const visitSections = [
+    { value: 'metrics', label: 'Activity', mobileLabel: 'Activity & Overview', icon: TrendingUp },
+    { value: 'visits', label: 'Visits', mobileLabel: 'Recent Visits', icon: Calendar },
+    ...(isSiteVisitClient ? [{ value: 'site', label: 'Site Details', icon: ClipboardList }] : []),
+    isProfessionalClient ? { value: 'discussion', label: 'Discussion', icon: MessageSquare } : { value: 'brands', label: 'Brands', icon: Building },
+    { value: 'requirements', label: 'Requirements', icon: FileText },
+    { value: 'complaints', label: 'Complaints', icon: AlertCircle },
+  ];
   const displayMetrics = [
-    { label: "Total Visits", value: storeVisits.length || "N/A" },
-    { label: "Stock", value: stockValue || "" },
+    { label: "Total Visits", value: storeVisits.length },
+    { label: "Stock", value: stockValue || "Not recorded" },
     {
       label: "Priority",
       value: visitDetail?.priority || "N/A",
@@ -1332,7 +1317,7 @@ export default function VisitDetailPage({
   const editNote = (note: ApiNote) => {
     // Handle both number and string IDs, or try to parse if needed
     let noteId: number | null = null;
-    
+
     if (typeof note.id === 'number' && !isNaN(note.id)) {
       noteId = note.id;
     } else if (note.id != null && String(note.id).trim() !== '') {
@@ -1341,7 +1326,7 @@ export default function VisitDetailPage({
         noteId = parsed;
       }
     }
-    
+
     if (noteId === null || noteId === undefined) {
       console.error('Cannot edit note: invalid note ID', {
         noteId: note.id,
@@ -1350,32 +1335,33 @@ export default function VisitDetailPage({
       });
       return;
     }
-    
+
     if (!note.content) {
       console.error('Cannot edit note: missing content', note);
       return;
     }
-    
+
     setNoteContent(note.content);
     setIsNoteEditMode(true);
     setEditingNoteId(noteId);
-    setEditingNoteDetails({ 
-      employeeId: note.employeeId || 0, 
-      storeId: note.storeId || 0 
+    setEditingNoteDetails({
+      employeeId: note.employeeId || 0,
+      storeId: note.storeId || 0
     });
     setIsNoteModalVisible(true);
   };
 
   const saveNote = async () => {
-    if (!noteContent.trim()) return;
-
+    if (!noteContent.trim() || isNoteSaving) return;
+    setIsNoteSaving(true);
+    setNoteError(null);
     try {
       if (isNoteEditMode && editingNoteId != null && typeof editingNoteId === 'number') {
         if (!editingNoteDetails) {
           console.error('Cannot update note: missing note details');
           return;
         }
-        
+
         const response = await fetch(
           `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/edit?id=${editingNoteId}`,
           {
@@ -1391,11 +1377,11 @@ export default function VisitDetailPage({
             }),
           }
         );
-        
+
         if (!response.ok) {
           throw new Error('Failed to update note');
         }
-        
+
         const updatedNotes = notes.map((note) =>
           note.id === editingNoteId ? { ...note, content: noteContent } : note
         );
@@ -1410,18 +1396,18 @@ export default function VisitDetailPage({
               'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
             },
             body: JSON.stringify({
-          content: noteContent,
+              content: noteContent,
               employeeId: visitDetail.employeeId || 0,
               storeId: visitDetail.storeId || 0,
               visitId: Number(visitId),
             }),
           }
         );
-        
+
         if (!response.ok) {
           throw new Error('Failed to create note');
         }
-        
+
         const responseData = await response.json();
         const newNote: ApiNote = {
           id: responseData.id,
@@ -1438,17 +1424,22 @@ export default function VisitDetailPage({
         };
         setNotes([newNote, ...notes]);
       }
-      
+
       setIsNoteModalVisible(false);
       setNoteContent('');
       setIsNoteEditMode(false);
       setEditingNoteId(null);
     } catch (error) {
-      console.error('Error saving note:', error);
+      setNoteError(error instanceof Error ? error.message : 'Unable to save note.');
+    } finally {
+      setIsNoteSaving(false);
     }
   };
 
   const deleteNote = async (id: number) => {
+    if (isNoteSaving) return;
+    setIsNoteSaving(true);
+    setNoteError(null);
     try {
       const response = await fetch(
         `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/notes/delete?id=${id}`,
@@ -1459,18 +1450,24 @@ export default function VisitDetailPage({
           },
         }
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to delete note');
       }
-      
+
       setNotes(notes.filter((note) => note.id !== id));
+      setNotePendingDelete(null);
     } catch (error) {
-      console.error('Error deleting note:', error);
+      setNoteError(error instanceof Error ? error.message : 'Unable to delete note.');
+    } finally {
+      setIsNoteSaving(false);
     }
   };
 
   const createTask = async (taskType: string) => {
+    if (isTaskSaving) return;
+    setIsTaskSaving(true);
+    setTaskCreateError(null);
     try {
       const currentTask = taskType === 'requirement' ? newTask : complaintTask;
       // Basic validation
@@ -1478,7 +1475,7 @@ export default function VisitDetailPage({
       if (!currentTask.taskDesciption?.trim()) missing.push('Description');
       if (!currentTask.dueDate) missing.push('Due Date');
       if (missing.length) {
-        console.error(`Please provide: ${missing.join(', ')}`);
+        setTaskCreateError(`Please provide: ${missing.join(', ')}`);
         return;
       }
 
@@ -1488,8 +1485,8 @@ export default function VisitDetailPage({
       const assignedById = !Number.isNaN(localEmpId)
         ? localEmpId
         : (typeof userData?.employeeId === 'number' && userData.employeeId
-            ? userData.employeeId
-            : (visitDetail?.employeeId ?? currentTask.assignedById));
+          ? userData.employeeId
+          : (visitDetail?.employeeId ?? currentTask.assignedById));
       const due = currentTask.dueDate.includes('T') ? currentTask.dueDate.split('T')[0] : currentTask.dueDate;
 
       // Build API payload per backend spec
@@ -1519,7 +1516,7 @@ export default function VisitDetailPage({
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Failed to create task:', response.status, errorText);
+        setTaskCreateError(`Unable to create ${taskType} (${response.status}). Please try again.`);
         return;
       }
 
@@ -1533,7 +1530,7 @@ export default function VisitDetailPage({
           const text = await response.text();
           const parsed = parseInt(text, 10);
           if (!Number.isNaN(parsed)) newId = parsed;
-        } catch {}
+        } catch { }
       }
 
       // Build UI task entry minimal fields used in rendering
@@ -1609,15 +1606,17 @@ export default function VisitDetailPage({
         setActiveComplaintTab('general');
       }
     } catch (error) {
-      console.error('Error creating task:', error);
+      setTaskCreateError(error instanceof Error ? error.message : 'Unable to create record.');
+    } finally {
+      setIsTaskSaving(false);
     }
   };
 
   if (isLoading) {
-  return (
+    return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                </div>
+      </div>
     );
   }
 
@@ -1647,281 +1646,193 @@ export default function VisitDetailPage({
     );
   }
 
-                  return (
-    <div className="container mx-auto p-3 sm:p-6">
-      <div className="visit-details grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-        {/* Left Panel */}
-        <aside className="lg:col-span-3 space-y-4 sm:space-y-6">
-          <div className="back-button-container flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
-            <div className="back-button flex items-center cursor-pointer text-foreground hover:text-muted-foreground" onClick={handleBack}>
+  return (
+    <div className="icon-visit-details mx-auto w-full max-w-[1600px]">
+      <div className="visit-details grid grid-cols-1 items-start gap-3 lg:grid-cols-[216px_minmax(0,1fr)_216px] xl:grid-cols-[232px_minmax(0,1fr)_232px]">
+        {/* Record context rail */}
+        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
+          <div className="back-button-container flex items-start justify-between gap-2">
+            <button className="back-button inline-flex h-9 items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={handleBack}>
               <ArrowLeft className="w-4 h-4 mr-2" />
-              <span className="text-sm sm:text-base">Back</span>
-                      </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className={`status-badge ${visitStatus.color} px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1`}>
+              Back
+            </button>
+            <div className="flex flex-col items-end gap-1.5">
+              <Badge className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium">
                 {getStatusIcon(visitStatus.status as 'Assigned' | 'On Going' | 'Checked Out' | 'Completed')}
-                <span className="whitespace-nowrap">{visitStatus.status}</span>
-              </div>
+                <span>{visitStatus.status}</span>
+              </Badge>
               {userRole && (
-                <Badge variant={isManager ? "secondary" : "default"} className="text-xs">
-                  {getDisplayRole}
+                <Badge variant={isManager ? "secondary" : "default"} className="px-2 py-0.5 text-[11px] leading-5">
+                  {`${getDisplayRole} View`}
                 </Badge>
               )}
             </div>
-                    </div>
+          </div>
 
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-foreground">Visit Details</CardTitle>
-                <p className="text-xs text-muted-foreground">Visit information and actions</p>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-lg border border-dashed bg-muted flex items-center justify-center">
-                  <span className="text-sm font-medium text-muted-foreground">
-                    {getInitials(ownerCustomerName || storeProjectName || '')}
+          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+            <CardContent className="flex flex-col gap-3 p-3">
+              <div className="profile flex min-w-0 items-center gap-3">
+                <div className="avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <span className="text-sm font-semibold">
+                    {getInitials(storeProjectName)}
                   </span>
                 </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <h3 className="text-sm font-medium text-foreground truncate">
-                    {storeProjectName || 'Store not available'}
-                  </h3>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {ownerCustomerName
-                      ? `Owner/Customer: ${ownerCustomerName}`
-                      : visitDetail?.employeeName
-                        ? `Visited by ${visitDetail.employeeName}`
-                        : 'Field officer not available'}
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium leading-5 text-muted-foreground">Store</p>
+                  <h2 className="break-words text-sm font-semibold leading-5 text-foreground">
+                    {storeProjectName}
+                  </h2>
+                  <p className="mt-0.5 break-words text-xs leading-4 text-muted-foreground">
+                    {visitDetail?.employeeName || 'Unknown employee'}
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Button
-                  className="w-full justify-start px-3 py-2 h-auto"
-                  variant="outline"
-                  onClick={handleViewStore}
-                  disabled={isNavigatingToStore}
-                >
-                  <Store className="mr-2 h-4 w-4" />
-                  <span className="text-sm">
-                    {isNavigatingToStore ? 'Opening Store…' : 'View Store'}
-                  </span>
-                </Button>
-                {/* Requirement/Complaint actions removed */}
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full justify-start px-2.5 text-xs"
+                    disabled={isNavigatingToStore || !visitDetail?.storeId}
+                    onClick={handleViewStore}
+                  >
+                    <Store className="mr-1.5 h-3.5 w-3.5" />
+                    Store
+                  </Button>
+                </div>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full justify-start px-2.5 text-xs"
+                    onClick={() => {
+                      setTaskCreateError(null);
+                      setIsRequirementModalOpen(true);
+                    }}
+                  >
+                    <FileText className="mr-1.5 h-3.5 w-3.5" />
+                    Requirement
+                  </Button>
+                </div>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full justify-start px-2.5 text-xs"
+                    onClick={() => {
+                      setTaskCreateError(null);
+                      setIsComplaintModalOpen(true);
+                    }}
+                  >
+                    <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
+                    Complaint
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Visit Information Card - Sidebar typography */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-foreground">Visit Information</CardTitle>
-                <p className="text-xs text-muted-foreground">Detailed visit and store information</p>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          {/* Visit Information Card */}
+          <Card className="w-full gap-0 overflow-hidden rounded-lg border-border/80 bg-card py-0 shadow-none">
+            <header className="border-b px-3 py-2.5">
+              <CardTitle className="text-sm font-semibold text-foreground">
+                Visit information
+              </CardTitle>
+            </header>
+            <CardContent className="p-0">
               {/* Tabs Navigation */}
-              <div className="flex border-b">
+              <div className="flex border-b border-border bg-muted/20">
                 <button
-                  className={`px-3 py-2 text-sm border-b-2 transition-colors ${
-                    activeInfoTab === 'visit-info' 
-                      ? 'border-primary text-primary' 
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
+                  className={`flex-1 px-2 py-2 text-xs font-medium border-b-2 transition-colors ${activeInfoTab === 'visit-info'
+                      ? 'border-primary text-foreground bg-background'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    }`}
                   onClick={() => setActiveInfoTab('visit-info')}
                 >
-                  Visit Details
+                  <div className="flex items-center justify-center gap-2">
+                    <ClipboardList className="h-4 w-4" />
+                    <span>Visit</span>
+                  </div>
                 </button>
                 <button
-                  className={`px-3 py-2 text-sm border-b-2 transition-colors ${
-                    activeInfoTab === 'store-info' 
-                      ? 'border-primary text-primary' 
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
+                  className={`flex-1 px-2 py-2 text-xs font-medium border-b-2 transition-colors ${activeInfoTab === 'store-info'
+                      ? 'border-primary text-foreground bg-background'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    }`}
                   onClick={() => setActiveInfoTab('store-info')}
                 >
-                  Store Details
+                  <div className="flex items-center justify-center gap-2">
+                    <Store className="h-4 w-4" />
+                    <span>Store</span>
+                  </div>
                 </button>
               </div>
 
               {/* Tab Content */}
-              <div className="space-y-3">
-                {/* Visit Info Content */}
+              <div className="p-3">
                 {activeInfoTab === 'visit-info' && (
-                  <div className="space-y-2">
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <ListTodo className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Purpose</p>
-                        <p className="text-xs text-muted-foreground">{visitDetail?.purpose || 'N/A'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <MapMarker className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Location</p>
-                        <div className="text-xs text-muted-foreground">
-                          {visitDetail?.checkinLatitude && visitDetail?.checkinLongitude ? (
-                            <button
-                              onClick={handleOpenLocation}
-                              className="text-foreground hover:text-muted-foreground transition-colors flex items-center gap-1"
-                            >
-                              <ExternalLink className="w-2 h-2" />
-                              View Location
-                            </button>
-                          ) : (
-                            <span>N/A</span>
-                          )}
+                  <dl className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+                    {[
+                      { label: 'Purpose', icon: ListTodo, value: visitDetail?.purpose || 'Not recorded' },
+                      {
+                        label: 'Location', icon: MapMarker, value: visitDetail?.checkinLatitude && visitDetail?.checkinLongitude ? (
+                          <button onClick={handleOpenLocation} className="inline-flex items-center gap-1 text-primary hover:underline">
+                            View location <ExternalLink className="h-3 w-3" />
+                          </button>
+                        ) : 'Not recorded'
+                      },
+                      {
+                        label: 'Check-in', icon: LogIn, value: visitDetail?.checkinDate && visitDetail?.checkinTime ? (
+                          <><span className="block">{format(new Date(visitDetail.checkinDate), "MMM dd, yyyy")}</span><span className="text-[11px] text-muted-foreground">{format(parseISO(`1970-01-01T${visitDetail.checkinTime}`), 'h:mm a')}</span></>
+                        ) : 'Not checked in'
+                      },
+                      {
+                        label: 'Check-out', icon: LogOut, value: visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
+                          <><span className="block">{format(new Date(visitDetail.checkoutDate), "MMM dd, yyyy")}</span><span className="text-[11px] text-muted-foreground">{format(parseISO(`1970-01-01T${visitDetail.checkoutTime}`), 'h:mm a')}</span></>
+                        ) : 'Not checked out'
+                      },
+                    ].map(({ label, icon: Icon, value }) => (
+                      <div key={label} className="flex min-w-0 items-start gap-2">
+                        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <dt className="text-[11px] leading-4 text-muted-foreground">{label}</dt>
+                          <dd className="mt-0.5 break-words text-xs leading-4 text-foreground">{value}</dd>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <LogIn className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Check-in</p>
-                        <div className="text-xs text-muted-foreground">
-                          {visitDetail?.checkinDate && visitDetail?.checkinTime ? (
-                            <div className="flex flex-col">
-                              <span>{format(new Date(visitDetail.checkinDate), "dd MMM yyyy")}</span>
-                              <span className="text-xs">
-                                {format(parseISO(`1970-01-01T${visitDetail.checkinTime}`), 'h:mm a')}
-                              </span>
-                            </div>
-                          ) : (
-                            <span>N/A</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <LogOut className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Check-out</p>
-                        <div className="text-xs text-muted-foreground">
-                          {visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
-                            <div className="flex flex-col">
-                              <span>{format(new Date(visitDetail.checkoutDate), "dd MMM yyyy")}</span>
-                              <span className="text-xs">
-                                {format(parseISO(`1970-01-01T${visitDetail.checkoutTime}`), 'h:mm a')}
-                              </span>
-                            </div>
-                          ) : (
-                            <span>N/A</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    ))}
+                  </dl>
                 )}
 
-                {/* Store Info Content */}
                 {activeInfoTab === 'store-info' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 mb-3 p-3 bg-muted/30 rounded-lg">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                        <Store className="h-4 w-4 text-muted-foreground" />
-                      </div>
+                  <dl className="space-y-3">
+                    {ownerCustomerName && <div className="flex items-start gap-2"><User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" /><div className="min-w-0"><dt className="text-[11px] text-muted-foreground">Owner/Customer</dt><dd className="mt-0.5 break-words text-xs leading-4">{ownerCustomerName}</dd></div></div>}
+                    {storeEmail && <div className="flex items-start gap-2"><Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" /><div className="min-w-0"><dt className="text-[11px] text-muted-foreground">Email</dt><dd className="mt-0.5 break-all text-xs leading-4"><a href={`mailto:${storeEmail}`} className="hover:underline">{storeEmail}</a></dd></div></div>}
+                    <div className="flex items-start gap-2">
+                      <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-muted-foreground">Store/Project</p>
-                        <h3 className="text-sm font-medium text-foreground truncate">{storeProjectName}</h3>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {ownerCustomerName ? `Owner/Customer: ${ownerCustomerName}` : storeDetails?.city || 'N/A'}
-                        </p>
+                        <dt className="text-[11px] text-muted-foreground">Contact</dt>
+                        <dd className="mt-0.5 break-words text-xs leading-4">
+                          {storeDetails?.contactNumber ? <a href={`tel:${storeDetails.contactNumber}`} className="hover:underline">{storeDetails.contactNumber}</a> : 'Not recorded'}
+                        </dd>
                       </div>
                     </div>
-
                     <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <User className="h-3 w-3 text-muted-foreground" />
-                      </div>
+                      <MapMarker className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Owner/Customer</p>
-                        <p className="text-xs text-muted-foreground">{ownerCustomerName || 'N/A'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <Phone className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Contact</p>
-                        {storeContactNumber ? (
-                          <a 
-                            href={`tel:${storeContactNumber}`}
-                            className="text-xs text-foreground hover:text-muted-foreground transition-colors"
-                          >
-                            {storeContactNumber}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">N/A</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <Mail className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Email</p>
-                        {storeEmail ? (
-                          <a
-                            href={`mailto:${storeEmail}`}
-                            className="text-xs text-foreground hover:text-muted-foreground transition-colors break-all"
-                          >
-                            {storeEmail}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">N/A</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
-                        <MapMarker className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-foreground">Location</p>
-                        <div className="text-xs text-muted-foreground">
-                          <p>{storeDetails?.address || 'N/A'}</p>
-                          {(visitDetail?.storeLatitude && visitDetail?.storeLongitude) ? (
-                            <button
-                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${visitDetail.storeLatitude},${visitDetail.storeLongitude}`, "_blank")}
-                              className="text-foreground hover:text-muted-foreground transition-colors mt-1 inline-flex items-center gap-1 text-xs"
-                            >
-                              <ExternalLink className="w-2 h-2" />
-                              View on Maps
+                        <dt className="text-[11px] text-muted-foreground">Address</dt>
+                        <dd className="mt-0.5 break-words text-xs leading-5">
+                          {storeDetails?.address || 'Not recorded'}
+                          {storeDetails?.city && <span className="block text-muted-foreground">{storeDetails.city}</span>}
+                          {storeDetails?.city && (
+                            <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${visitDetail?.storeName} ${storeDetails?.address}`)}`, "_blank")} className="mt-1 inline-flex items-center gap-1 text-primary hover:underline">
+                              View map <ExternalLink className="h-3 w-3" />
                             </button>
-                          ) : storeDetails?.city ? (
-                            <button
-                              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${storeProjectName} ${storeDetails?.address}`)}`, "_blank")}
-                              className="text-foreground hover:text-muted-foreground transition-colors mt-1 inline-flex items-center gap-1 text-xs"
-                            >
-                              <ExternalLink className="w-2 h-2" />
-                              View on Maps
-                            </button>
-                          ) : null}
-                        </div>
+                          )}
+                        </dd>
                       </div>
                     </div>
-                  </div>
+                  </dl>
                 )}
               </div>
             </CardContent>
@@ -1929,70 +1840,28 @@ export default function VisitDetailPage({
         </aside>
 
         {/* Main Content */}
-                <section className="lg:col-span-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <div className="overflow-x-auto mb-3">
-              <TabsList className="inline-flex gap-2 w-max min-w-full">
-                {isProfessionalClient ? (
-                  <>
-                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <TrendingUp className="w-4 h-4" />
-                      Metrics
-                    </TabsTrigger>
-                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <Calendar className="w-4 h-4" />
-                      Visits
-                    </TabsTrigger>
-                    <TabsTrigger value="discussion" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <MessageSquare className="w-4 h-4" />
-                      Discussion
-                    </TabsTrigger>
-                  </>
-                ) : isSiteVisitClient ? (
-                  <>
-                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <TrendingUp className="w-4 h-4" />
-                      Metrics
-                    </TabsTrigger>
-                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <Calendar className="w-4 h-4" />
-                      Visits
-                    </TabsTrigger>
-                    <TabsTrigger value="site" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <ClipboardList className="w-4 h-4" />
-                      Site Details
-                    </TabsTrigger>
-                    <TabsTrigger value="brands" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <Building className="w-4 h-4" />
-                      Brands
-                    </TabsTrigger>
-                  </>
-                ) : (
-                  <>
-                    <TabsTrigger value="metrics" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <TrendingUp className="w-4 h-4" />
-                      Metrics
-                    </TabsTrigger>
-                    <TabsTrigger value="visits" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <Calendar className="w-4 h-4" />
-                      Visits
-                    </TabsTrigger>
-                    <TabsTrigger value="brands" className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
-                      <Building className="w-4 h-4" />
-                      Brands
-                    </TabsTrigger>
-                  </>
-                )}
-              </TabsList>
+        <section className="min-w-0">
+          <div className="mb-4 rounded-lg border bg-card p-1 shadow-sm">
+            <div className="md:hidden mb-3">
+              <Select value={activeTab} onValueChange={setActiveTab}>
+                <SelectTrigger aria-label="Visit section" className="w-full"><SelectValue placeholder="Select section" /></SelectTrigger>
+                <SelectContent>{visitSections.map(section => <SelectItem key={section.value} value={section.value}>{section.mobileLabel || section.label}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
+            <nav aria-label="Visit sections" className={cn("hidden min-w-0 gap-1 md:grid", isSiteVisitClient ? "grid-cols-6" : "grid-cols-5")}>
+              {visitSections.map(({ value, label, icon: Icon }) => <button key={value} type="button" aria-current={activeTab === value ? 'page' : undefined} onClick={() => setActiveTab(value)} className={cn("inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md px-1 py-2 text-xs font-medium transition-colors xl:px-2", activeTab === value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted")}><Icon className="hidden h-4 w-4 2xl:inline" /><span>{label}</span></button>)}
+            </nav>
+          </div>
 
-            {isSiteVisitClient && (
-              <TabsContent value="site">
-                <Card className="border-0 shadow-sm">
-                  <CardHeader className="pb-3">
+          {/* Tab Content */}
+          <div className="tab-content">
+            {isSiteVisitClient && activeTab === "site" && (
+              <div>
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <CardHeader className="border-b px-3 py-2.5">
                     <CardTitle className="text-sm font-medium text-foreground">Site Visit Details</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-4 p-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="rounded-lg border bg-muted/20 p-3">
                         <p className="text-xs font-medium text-foreground mb-1">Brands used</p>
@@ -2018,26 +1887,26 @@ export default function VisitDetailPage({
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Notes are available on the right panel.
+                      Notes are available in the Activity section.
                     </p>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </div>
             )}
 
-            {isProfessionalClient && (
-              <TabsContent value="discussion">
+            {isProfessionalClient && activeTab === "discussion" && (
+              <div>
                 {/* Discussion card is rendered in-place of the usual tabs for professional client types */}
-                <Card className="border-0 shadow-sm">
-                  <CardHeader className="pb-3">
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <CardHeader className="border-b px-3 py-2.5">
                     <div className="flex justify-between items-center">
                       <CardTitle className="text-sm font-medium text-foreground">Discussion</CardTitle>
                       <Button onClick={addNote} size="sm" className="text-xs">
-                        <i className="fas fa-plus mr-2"></i> Add Message
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Message
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-3">
                     <div className="notes-list space-y-2">
                       {notes.length === 0 ? (
                         <div className="text-center py-6">
@@ -2075,7 +1944,7 @@ export default function VisitDetailPage({
                                         onClick={() => {
                                           const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
                                           if (!isNaN(idToDelete)) {
-                                            deleteNote(idToDelete);
+                                            setNotePendingDelete(note);
                                           }
                                         }}
                                       >
@@ -2094,352 +1963,528 @@ export default function VisitDetailPage({
                     </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </div>
             )}
 
-            <TabsContent value="metrics" className="space-y-4">
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-foreground">Visit Metrics</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {displayMetrics.map((metric, index) => (
-                      <div key={index} className="text-center p-2">
-                        <h3 className="text-xs font-medium text-muted-foreground mb-1 truncate">{metric.label}</h3>
-                        <div className="text-sm font-medium text-foreground truncate">{metric.value || "-"}</div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <Package className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle className="text-sm font-medium text-foreground">Stock</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border bg-muted/20 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">Steel Available</p>
-                      <p className="mt-1 text-sm font-medium text-foreground">
-                        {formatStockValue(visitDetail?.steelStockAvailable, 'tons')}
-                      </p>
+            {activeTab === 'metrics' && (
+              <div className="space-y-4">
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <header className="border-b px-3 py-2.5">
+                    <div>
+                      <CardTitle className="text-sm font-semibold">Visit overview</CardTitle>
                     </div>
-                    <div className="rounded-lg border bg-muted/20 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">Steel Required</p>
-                      <p className="mt-1 text-sm font-medium text-foreground">
-                        {formatStockValue(visitDetail?.steelStockRequired, 'tons')}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/20 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">Cement Available</p>
-                      <p className="mt-1 text-sm font-medium text-foreground">
-                        {formatStockValue(visitDetail?.cementStockAvailable, 'bags')}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-muted/20 p-3">
-                      <p className="text-xs font-medium text-muted-foreground">Cement Required</p>
-                      <p className="mt-1 text-sm font-medium text-foreground">
-                        {formatStockValue(visitDetail?.cementStockRequired, 'bags')}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="visits" className="space-y-4">
-              <div className="filter-bar">
-                <Input
-                  placeholder="Search by Visit Purpose"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full sm:w-64 text-sm"
-                />
-              </div>
-              <div className="visits-list space-y-2">
-                {storeVisits.length === 0 && !isLoading ? (
-                  <div className="text-center py-6">
-                    <Calendar className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">No visits found for this store</p>
-                  </div>
-                ) : (
-                  currentVisits.map((visit) => (
-                    <Card key={visit.id} className="max-w-md mx-auto border-0 shadow-sm">
-                      <CardContent className="p-3">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-medium text-foreground">{visit.purpose}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {visit.checkinDate && visit.checkinTime
-                              ? `${format(new Date(visit.checkinDate), "dd MMM ''yy")} ${format(parseISO(`1970-01-01T${visit.checkinTime}`), 'h:mm a')}`
-                              : 'Check-in time not available'}
-                          </span>
+                  </header>
+                  <CardContent className="p-3">
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      {displayMetrics.map((metric, index) => (
+                        <div key={index} className="rounded-md bg-muted/45 px-3 py-2.5">
+                          <Text size="sm" tone="muted" weight="medium" className="mb-1 text-xs">
+                            {metric.label}
+                          </Text>
+                          <Heading size="lg" weight="semibold" className="break-words text-base text-foreground">
+                            {metric.value}
+                          </Heading>
                         </div>
-                        <div className="text-xs space-y-1">
-                          <p className="text-muted-foreground">Employee: {visit.employeeName}</p>
-                          <p className="text-muted-foreground">Store: {visit.storeName}</p>
-                          <p className="text-xs text-muted-foreground">Visit ID: {visit.id}</p>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <header className="border-b px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-sm font-semibold">Visit activity</CardTitle>
+                      </div>
+                      <Button onClick={addNote} size="sm" className="h-8 shrink-0 text-xs">
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        Add note
+                      </Button>
+                    </div>
+                  </header>
+                  <CardContent className="p-3">
+                    <div className="relative space-y-0 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-px before:bg-border">
+                      <div className="relative flex gap-3 pb-5">
+                        <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background">
+                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </div>
-              {storeVisits.length > visitsPerPage && (
-                <div className="mt-2 space-y-3">
-                  <Button onClick={() => setShowAll(!showAll)}>
-                    {showAll ? 'Show Less' : 'Show More'}
-                  </Button>
-                  {showAll && (
-                    <Pagination>
-                      <PaginationPrevious
-                        onClick={() => currentPage > 1 && handlePageChange(currentPage - 1)}
-                        className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-                        size="sm"
-                      />
-                      <PaginationContent>
-                        {renderPaginationItems()}
-                      </PaginationContent>
-                      <PaginationNext
-                        onClick={() => currentPage < totalPages && handlePageChange(currentPage + 1)}
-                        className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
-                        size="sm"
-                      />
-                    </Pagination>
-                  )}
-                </div>
-              )}
-            </TabsContent>
-
-            {!isProfessionalClient && (
-            <TabsContent value="brands">
-              <BrandTab brandPurchases={visitDetail?.brandPurchases ?? []} />
-            </TabsContent>
-            )}
-
-            {/* Requirements/Complaints tabs removed */}
-          </Tabs>
-        </section>
-
-
-        {/* Right Panel */}
-        <aside className="lg:col-span-3 space-y-4">
-              {isProfessionalClient && (
-                <>
-                  <Card className="border-0 shadow-sm">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-sm font-medium text-foreground">Upcoming Sites</CardTitle>
-                        <Badge variant="secondary">{upcomingSitesCount ?? '—'}</Badge>
+                        <div className="min-w-0 pt-0.5">
+                          <p className="text-sm font-medium text-foreground">Visit scheduled</p>
+                          <p className="text-xs text-muted-foreground">
+                            {visitDetail?.visit_date ? format(new Date(visitDetail.visit_date), "MMM dd, yyyy") : 'Date unavailable'}
+                            {visitDetail?.purpose ? ` · ${visitDetail.purpose}` : ''}
+                          </p>
+                        </div>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-xs text-muted-foreground">
-                        Total upcoming sites (as per customer record).
-                      </p>
-                    </CardContent>
-                  </Card>
 
-                  <Card className="border-0 shadow-sm">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-sm font-medium text-foreground">Gift Image</CardTitle>
-                        <Badge variant={giftImageUrl ? "secondary" : "destructive"}>
-                          {giftImageUrl ? "Available" : "Missing"}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {giftImageUrl ? (
-                        <div className="rounded-lg border overflow-hidden">
-                          <div className="relative w-full h-40 bg-muted">
-                            <NextImage
-                              src={giftImageUrl}
-                              alt="Gift image"
-                              width={420}
-                              height={280}
-                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => handleImageClick(giftImageUrl)}
-                            />
+                      {visitDetail?.checkinDate && visitDetail?.checkinTime && (
+                        <div className="relative flex gap-3 pb-5">
+                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950">
+                            <LogIn className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                           </div>
-                        </div>
-                      ) : (
-                        <div className="text-center py-6">
-                          <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                          <p className="text-xs text-muted-foreground">No gift image available for this visit</p>
+                          <div className="min-w-0 pt-0.5">
+                            <p className="text-sm font-medium text-foreground">Checked in</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(visitDetail.checkinDate), "MMM dd, yyyy")} at {format(parseISO(`1970-01-01T${visitDetail.checkinTime}`), 'h:mm a')}
+                            </p>
+                          </div>
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
 
-              {!isProfessionalClient && (
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-foreground">
-                      Check-in Images
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {checkinImages.length > 0 ? (
-                <div className="space-y-3">
-                      {checkinImages.map((image, index) => (
-                        <div key={index} className="rounded-lg border overflow-hidden">
-                          <div className="relative w-full h-32 bg-muted">
-                        <NextImage
-                              src={image}
-                              alt={`Check-in image ${index + 1}`}
-                          width={300}
-                          height={200}
-                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => handleImageClick(image)}
-                            />
+                      {notes.map((note) => (
+                        <div key={`activity-note-${note.id}`} className="relative flex gap-3 pb-5">
+                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
+                            <MessageSquare className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                           </div>
-                          <div className="p-3">
-                            <h4 className="text-xs font-medium text-foreground mb-2">
-                              Check-in Image {index + 1}
-                            </h4>
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              className="w-full text-xs"
-                              onClick={() => handleImageClick(image)}
-                            >
-                              View Full Size
-                            </Button>
+                          <div className="min-w-0 flex-1 pt-0.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-foreground">Note added</p>
+                                <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-muted-foreground">{note.content}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {format(new Date(note.createdDate), "MMM dd, yyyy")}{note.employeeName ? ` · ${note.employeeName}` : ''}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                <Button variant="ghost" size="icon" onClick={() => editNote(note)} className="h-7 w-7 text-muted-foreground hover:text-foreground" aria-label="Edit note">
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => setNotePendingDelete(note)} className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="Delete note">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
+
+                      {visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
+                        <div className="relative flex gap-3">
+                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+                            <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                          </div>
+                          <div className="min-w-0 pt-0.5">
+                            <p className="text-sm font-medium text-foreground">Visit completed</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(visitDetail.checkoutDate), "MMM dd, yyyy")} at {format(parseISO(`1970-01-01T${visitDetail.checkoutTime}`), 'h:mm a')}
+                            </p>
+                            {(visitDetail.outcome) && (
+                              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                                <span className="font-medium text-foreground">Outcome:</span> {visitDetail.outcome}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="relative flex gap-3">
+                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background">
+                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0 pt-0.5">
+                            <p className="text-sm font-medium text-foreground">{visitDetail?.checkinTime ? 'Visit in progress' : 'Visit assigned'}</p>
+                            <p className="text-xs text-muted-foreground">{visitDetail?.checkinTime ? 'Waiting for check-out' : 'Waiting for check-in'}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <CardHeader className="border-b px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                      <CardTitle className="text-sm font-medium text-foreground">Stock</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Steel Available</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatStockValue(visitDetail?.steelStockAvailable, 'tons')}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Steel Required</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatStockValue(visitDetail?.steelStockRequired, 'tons')}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Cement Available</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatStockValue(visitDetail?.cementStockAvailable, 'bags')}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Cement Required</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatStockValue(visitDetail?.cementStockRequired, 'bags')}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {activeTab === 'visits' && (
+              <section className="space-y-3" aria-labelledby="visit-history-heading">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 id="visit-history-heading" className="text-sm font-semibold text-foreground">Visit history</h2>
+                    <p className="text-xs text-muted-foreground">{searchQuery.trim() ? `${filteredVisits.length} matching visits of ${storeVisits.length}` : `${storeVisits.length} visits recorded for this store`}</p>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Input
+                      placeholder="Search visit purpose"
+                      value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                      className="h-9 pr-9 text-sm shadow-none"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        aria-label="Clear visit search"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-lg border bg-card">
+                  {currentVisits.map((visit: VisitDto) => {
+                    // Determine visit status
+                    const getVisitStatus = () => {
+                      if (visit.checkinDate && visit.checkinTime && visit.checkoutDate && visit.checkoutTime) {
+                        return { status: 'Completed', color: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300', icon: CheckCircle };
+                      } else if (visit.checkinDate && visit.checkinTime) {
+                        return { status: 'In progress', color: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300', icon: Clock };
+                      } else {
+                        return { status: 'Scheduled', color: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300', icon: Calendar };
+                      }
+                    };
+
+                    const visitStatus = getVisitStatus();
+                    const VisitStatusIcon = visitStatus.icon;
+
+                    return (
+                      <article
+                        key={visit.id}
+                        className="group grid gap-3 border-b px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/25 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4"
+                      >
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <Calendar className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <h3 className="text-sm font-semibold text-foreground">{visit.purpose || 'Visit'}</h3>
+                              <span className="text-[11px] text-muted-foreground">#{visit.id}</span>
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <Store className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{visit.storeName || 'Store unavailable'}</span>
+                              </span>
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <User className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{visit.employeeName || 'Employee unavailable'}</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5" />
+                                {visit.checkinDate && visit.checkinTime && visit.checkoutDate && visit.checkoutTime
+                                  ? calculateDuration(visit.checkinTime, visit.checkoutTime)
+                                  : 'Duration unavailable'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 pl-11 sm:justify-end sm:pl-0">
+                          <Badge variant="outline" className={`${visitStatus.color} gap-1 px-1.5 py-0.5 text-[11px] font-medium shadow-none`}>
+                            <VisitStatusIcon className="h-3 w-3" />
+                            {visitStatus.status}
+                          </Badge>
+                          <div className="min-w-[78px] text-right">
+                            <p className="text-xs font-medium text-foreground">
+                              {visit.checkinDate && visit.checkinTime
+                                ? format(new Date(visit.checkinDate), "MMM dd, yyyy")
+                                : 'Date pending'}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {visit.checkinDate && visit.checkinTime
+                                ? format(parseISO(`1970-01-01T${visit.checkinTime}`), 'h:mm a')
+                                : 'Time pending'}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => router.push(`/dashboard/visits/${visit.id}`)}
+                            className="h-8 px-2 text-xs font-medium"
+                          >
+                            View
+                            <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {currentVisits.length === 0 && (
+                    <div className="flex min-h-28 flex-col items-center justify-center px-4 py-8 text-center">
+                      <Calendar className="mb-2 h-5 w-5 text-muted-foreground" />
+                      <p className="text-sm font-medium text-foreground">No matching visits</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Try a different visit purpose.</p>
+                    </div>
+                  )}
+                </div>
+                {(filteredVisits.length > visitsPerPage || showAll) && (
+                  <div className="mt-4">
+                    <Button onClick={() => { setShowAll(!showAll); setCurrentPage(1); }}>
+                      {showAll ? 'Show Less' : 'Show More'}
+                    </Button>
+                    {showAll && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+                        <div className="flex items-center space-x-2">
+                          <Label htmlFor="visitsPerPage">Rows per page:</Label>
+                          <Select value={visitsPerPage.toString()} onValueChange={(value) => { setVisitsPerPage(parseInt(value)); setCurrentPage(1); }}>
+                            <SelectTrigger className="w-20">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="3">3</SelectItem>
+                              <SelectItem value="5">5</SelectItem>
+                              <SelectItem value="10">10</SelectItem>
+                              <SelectItem value="25">25</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                            disabled={currentPage === 1}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                            Previous
+                          </Button>
+
+                          <span className="text-sm text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                            disabled={currentPage >= totalPages}
+                          >
+                            Next
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'brands' && !isProfessionalClient && <BrandTab compact brandPurchases={visitDetail?.brandPurchases ?? []} />}
+
+            {activeTab === 'requirements' && (
+              <VisitTasksTab tasks={requirements} type="requirement" priority={priorityFilter} onPriorityChange={handlePriorityChange} loading={tasksLoading} error={taskErrors.requirement} />
+            )}
+
+            {activeTab === 'complaints' && (
+              <VisitTasksTab tasks={complaints} type="complaint" priority={priorityFilter} onPriorityChange={handlePriorityChange} loading={tasksLoading} error={taskErrors.complaint} />
+            )}
+          </div>
+
+        </section>
+
+        {/* Right Panel */}
+        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
+          {isProfessionalClient && (
+            <>
+              <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                <CardHeader className="border-b px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-medium text-foreground">Upcoming Sites</CardTitle>
+                    <Badge variant="secondary">{upcomingSitesCount ?? '—'}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Total upcoming sites (as per customer record).
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                <CardHeader className="border-b px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-medium text-foreground">Gift Image</CardTitle>
+                    <Badge variant={giftImageUrl ? "secondary" : "destructive"}>
+                      {giftImageUrl ? "Available" : "Missing"}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-3">
+                  {giftImageUrl ? (
+                    <div className="rounded-lg border overflow-hidden">
+                      <div className="relative w-full h-40 bg-muted">
+                        <NextImage
+                          src={giftImageUrl}
+                          alt="Gift image"
+                          width={420}
+                          height={280}
+                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => handleImageClick(giftImageUrl)}
+                        />
+                      </div>
                     </div>
                   ) : (
                     <div className="text-center py-6">
                       <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                      <p className="text-xs text-muted-foreground">No images available for this visit</p>
+                      <p className="text-xs text-muted-foreground">No gift image available for this visit</p>
                     </div>
                   )}
                 </CardContent>
               </Card>
-              )}
+            </>
+          )}
 
-              {!isProfessionalClient && (
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-              <div className="flex justify-between items-center">
-                    <CardTitle className="text-sm font-medium text-foreground">
-                  Notes
-                    </CardTitle>
-                <Button onClick={addNote} size="sm" className="text-xs">
-                  <i className="fas fa-plus mr-2"></i> Add Note
-                </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-              <div className="notes-list space-y-2">
-                {notes.map((note, index) => {
-                  // Check if note has valid ID for editing/deleting
-                  const hasValidId = note.id != null && (
-                    (typeof note.id === 'number' && !isNaN(note.id)) ||
-                    (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
-                  );
-                  
-                  return (
-                    <div key={note.id ?? `note-${index}`} className="rounded-lg border bg-card p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-muted-foreground">
-                          {note.createdDate ? format(new Date(note.createdDate), "MMM d, yyyy") : 'Unknown date'}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          {hasValidId && (
-                            <>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 px-2 text-xs" 
-                                onClick={() => editNote(note)}
-                              >
-                                <Edit className="h-3 w-3 mr-1" />
-                                Edit
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 px-2 text-xs" 
-                                onClick={() => {
-                                  const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
-                                  if (!isNaN(idToDelete)) {
-                                    deleteNote(idToDelete);
-                                  }
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3 mr-1" />
-                                Delete
-                              </Button>
-                            </>
-                          )}
-                        </div>
+          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+            <header className="border-b px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold leading-5">Check-in images</h3>
+                {visitDetail?.checkinLatitude && visitDetail?.checkinLongitude && (
+                  <button type="button" onClick={handleOpenLocation} aria-label="View check-in location" title="View check-in location" className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                    <MapPin className="h-3.5 w-3.5" /> Map
+                  </button>
+                )}
+              </div>
+            </header>
+            <CardContent className="space-y-2.5 p-3">
+              {/* Check-in Images */}
+              {checkinImages.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  {checkinImages.map((image, index) => (
+                    <div key={index} className="min-w-0">
+                      <div className="relative aspect-video w-full overflow-hidden rounded-md bg-muted">
+                        <NextImage
+                          src={image}
+                          alt={`Check-in image ${index + 1}`}
+                          width={300}
+                          height={200}
+                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => handleImageClick(image)}
+                        />
                       </div>
-                      <div className="text-xs text-foreground">{note.content || 'No content'}</div>
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <Heading as="h4" size="sm" weight="medium" className="text-xs">
+                          Image {index + 1}
+                        </Heading>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => handleImageClick(image)}
+                        >
+                          View full size
+                        </Button>
+                      </div>
                     </div>
-                  );
-                })}
-                    </div>
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md bg-muted/25 px-2 py-4 text-center">
+                  <ImageIcon className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground/60" />
+                  <Text tone="muted" className="text-xs">No check-in images</Text>
+                </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+            <header className="border-b px-3 py-2.5">
+              <Heading as="h3" size="sm" weight="semibold" className="text-sm leading-5">
+                Related records
+              </Heading>
+            </header>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                <button type="button" onClick={() => setActiveTab('requirements')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Requirements</span>
+                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{requirements.length}</Badge>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+                <button type="button" onClick={() => setActiveTab('complaints')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Complaints</span>
+                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{complaints.length}</Badge>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+                <button type="button" onClick={() => setActiveTab(isProfessionalClient ? 'discussion' : 'brands')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+                  <Building className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{isProfessionalClient ? "Discussion" : "Brands"}</span>
+                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{isProfessionalClient ? notes.length : (visitDetail?.brandPurchases.length ?? 0)}</Badge>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+                <button type="button" onClick={() => setActiveTab('visits')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+                  <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Previous visits</span>
+                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{storeVisits.length}</Badge>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
         </aside>
       </div>
 
       {/* Modals */}
       {/* Notes Modal */}
-      {isNoteModalVisible && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md border-0 shadow-lg">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-semibold text-foreground">
-              {isNoteEditMode ? 'Edit Note' : 'Add Note'}
-              </CardTitle>
-                </CardHeader>
-            <CardContent className="space-y-4">
-            <textarea
-              placeholder="Enter note content"
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-            />
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setIsNoteModalVisible(false)}>
-                Cancel
-              </Button>
-              <Button onClick={saveNote}>
-                {isNoteEditMode ? 'Update' : 'Add'}
-              </Button>
-            </div>
-                </CardContent>
-              </Card>
-        </div>
-      )}
+      <Dialog open={isNoteModalVisible} onOpenChange={open => { if (!isNoteSaving) { setIsNoteModalVisible(open); setNoteError(null); } }}>
+        <DialogContent className="icon-visit-details sm:max-w-md">
+          <DialogHeader><DialogTitle>{isNoteEditMode ? 'Edit Note' : 'Add Note'}</DialogTitle><DialogDescription>{isNoteEditMode ? 'Update the existing note.' : 'Add a quick note for this visit.'}</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <textarea aria-label="Note content" placeholder="Enter note content" value={noteContent} onChange={e => setNoteContent(e.target.value)} rows={4} className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent" />
+            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
+            <div className="flex flex-col sm:flex-row justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={() => setIsNoteModalVisible(false)}>Cancel</Button><Button disabled={isNoteSaving || !noteContent.trim()} onClick={saveNote}>{isNoteSaving ? 'Saving…' : isNoteEditMode ? 'Update' : 'Add'}</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!notePendingDelete} onOpenChange={open => { if (!open && !isNoteSaving) { setNotePendingDelete(null); setNoteError(null); } }}>
+        <DialogContent className="icon-visit-details sm:max-w-md"><DialogHeader><DialogTitle>Delete note?</DialogTitle><DialogDescription>This will permanently delete this note from the visit.</DialogDescription></DialogHeader>{noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={() => setNotePendingDelete(null)}>Cancel</Button><Button variant="destructive" disabled={isNoteSaving} onClick={() => notePendingDelete && deleteNote(notePendingDelete.id)}>{isNoteSaving ? 'Deleting…' : 'Delete'}</Button></div></DialogContent>
+      </Dialog>
 
       {/* Requirement Modal */}
-      {isRequirementModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-2xl border-0 shadow-lg">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-semibold text-foreground">Create Requirement</CardTitle>
-              <p className="text-sm text-muted-foreground">Fill in the requirement details</p>
+      <Dialog open={isRequirementModalOpen} onOpenChange={setIsRequirementModalOpen}>
+        <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <Card className="gap-0 border-0 py-0 shadow-none">
+            <CardHeader className="px-0 pb-4">
+              <DialogTitle className="text-lg font-semibold">Create Requirement</DialogTitle>
+              <DialogDescription>Fill in the requirement details</DialogDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0">{taskCreateError && <p role="alert" className="mb-3 text-sm text-destructive">{taskCreateError}</p>}
               <Tabs value={activeRequirementTab} onValueChange={setActiveRequirementTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
                   <TabsTrigger value="general">General</TabsTrigger>
                   <TabsTrigger value="details">Details</TabsTrigger>
                 </TabsList>
-                
+
                 <TabsContent value="general">
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
@@ -2450,8 +2495,8 @@ export default function VisitDetailPage({
                         value={newTask.taskTitle}
                         onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
                         className="w-full"
-                />
-              </div>
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="requirementDescription">Requirement Description</Label>
                       <Input
@@ -2461,7 +2506,7 @@ export default function VisitDetailPage({
                         onChange={(e) => setNewTask({ ...newTask, taskDesciption: e.target.value })}
                         className="w-full"
                       />
-                </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="requirementCategory">Category</Label>
                       <Select value="requirement" disabled>
@@ -2488,7 +2533,7 @@ export default function VisitDetailPage({
                     </div>
                   </div>
                 </TabsContent>
-                
+
                 <TabsContent value="details">
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
@@ -2501,7 +2546,7 @@ export default function VisitDetailPage({
                           >
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {newTask.dueDate ? format(new Date(newTask.dueDate), 'PPP') : <span>Pick a date</span>}
-                      </Button>
+                          </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
                           <CalendarComponent
@@ -2521,7 +2566,7 @@ export default function VisitDetailPage({
                         disabled
                         className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
                       />
-                </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="requirementPriority">Category</Label>
                       <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value as Priority })}>
@@ -2534,34 +2579,34 @@ export default function VisitDetailPage({
                           ))}
                         </SelectContent>
                       </Select>
-              </div>
+                    </div>
                     <div className="flex justify-between mt-4">
                       <Button variant="outline" onClick={() => setActiveRequirementTab('general')}>Back</Button>
-                      <Button onClick={() => createTask('requirement')}>Create Requirement</Button>
+                      <Button disabled={isTaskSaving} onClick={() => createTask('requirement')}>Create Requirement</Button>
                     </div>
                   </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Complaint Modal */}
-      {isComplaintModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-2xl border-0 shadow-lg">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-semibold text-foreground">Create Complaint</CardTitle>
-              <p className="text-sm text-muted-foreground">Fill in the complaint details</p>
+      <Dialog open={isComplaintModalOpen} onOpenChange={setIsComplaintModalOpen}>
+        <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <Card className="gap-0 border-0 py-0 shadow-none">
+            <CardHeader className="px-0 pb-4">
+              <DialogTitle className="text-lg font-semibold">Create Complaint</DialogTitle>
+              <DialogDescription>Fill in the complaint details</DialogDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0">{taskCreateError && <p role="alert" className="mb-3 text-sm text-destructive">{taskCreateError}</p>}
               <Tabs value={activeComplaintTab} onValueChange={setActiveComplaintTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
                   <TabsTrigger value="general">General</TabsTrigger>
                   <TabsTrigger value="details">Details</TabsTrigger>
                 </TabsList>
-                
+
                 <TabsContent value="general">
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
@@ -2573,7 +2618,7 @@ export default function VisitDetailPage({
                         onChange={(e) => setComplaintTask({ ...complaintTask, taskTitle: e.target.value })}
                         className="w-full"
                       />
-                </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="complaintDescription">Complaint Description</Label>
                       <Input
@@ -2594,7 +2639,7 @@ export default function VisitDetailPage({
                           <SelectItem value="complaint">Complaint</SelectItem>
                         </SelectContent>
                       </Select>
-                </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="complaintStoreName">Store</Label>
                       <Input
@@ -2603,27 +2648,27 @@ export default function VisitDetailPage({
                         disabled
                         className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
                       />
-              </div>
+                    </div>
                     <div className="flex justify-between mt-4">
                       <Button variant="outline" onClick={() => setIsComplaintModalOpen(false)}>Cancel</Button>
                       <Button onClick={() => setActiveComplaintTab('details')}>Next</Button>
-            </div>
+                    </div>
                   </div>
                 </TabsContent>
-                
+
                 <TabsContent value="details">
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
                       <Label htmlFor="complaintDueDate">Due Date</Label>
                       <Popover>
                         <PopoverTrigger asChild>
-              <Button 
-                variant="outline"
+                          <Button
+                            variant="outline"
                             className={`w-full justify-start text-left font-normal ${!complaintTask.dueDate && 'text-muted-foreground'}`}
-              >
+                          >
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {complaintTask.dueDate ? format(new Date(complaintTask.dueDate), 'PPP') : <span>Pick a date</span>}
-              </Button>
+                          </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0">
                           <CalendarComponent
@@ -2634,7 +2679,7 @@ export default function VisitDetailPage({
                           />
                         </PopoverContent>
                       </Popover>
-            </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="complaintAssignedTo">Assigned To</Label>
                       <Input
@@ -2643,7 +2688,7 @@ export default function VisitDetailPage({
                         disabled
                         className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
                       />
-          </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="complaintPriority">Category</Label>
                       <Select value={complaintTask.priority} onValueChange={(value) => setComplaintTask({ ...complaintTask, priority: value as Priority })}>
@@ -2659,15 +2704,15 @@ export default function VisitDetailPage({
                     </div>
                     <div className="flex justify-between mt-4">
                       <Button variant="outline" onClick={() => setActiveComplaintTab('general')}>Back</Button>
-                      <Button onClick={() => createTask('complaint')}>Create Complaint</Button>
+                      <Button disabled={isTaskSaving} onClick={() => createTask('complaint')}>Create Complaint</Button>
                     </div>
                   </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Task Image Preview Dialog */}
       {isImagePreviewOpen && (
@@ -2724,28 +2769,9 @@ export default function VisitDetailPage({
       )}
 
       {/* Image Preview Modal */}
-      {previewVisible && previewImage && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setPreviewVisible(false)}>
-          <div className="relative max-w-4xl max-h-4xl p-4">
-            <NextImage 
-              src={previewImage} 
-              alt="Preview Image" 
-              width={800}
-              height={600}
-              className="max-w-full max-h-full object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <button
-              className="absolute top-2 right-2 bg-white rounded-full p-2 hover:bg-gray-100"
-              onClick={() => setPreviewVisible(false)}
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+      <Dialog open={previewVisible} onOpenChange={setPreviewVisible}>
+        <DialogContent className="icon-visit-details sm:max-w-4xl"><DialogHeader><DialogTitle>Visit image</DialogTitle><DialogDescription>Full-size image captured for this visit.</DialogDescription></DialogHeader>{previewImage && <NextImage src={previewImage} alt="Visit image preview" width={800} height={600} className="max-h-[75dvh] w-full object-contain" />}</DialogContent>
+      </Dialog>
     </div>
   );
 };

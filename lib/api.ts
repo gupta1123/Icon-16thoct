@@ -1287,6 +1287,10 @@ export class API {
     return apiService.getVisitsByDateRange(startDate, endDate);
   }
 
+  static async getVisitsByStorePaged(storeId: number, page: number = 0, size: number = 10, sort: string = 'visitDate,desc'): Promise<{ content: VisitDto[]; totalPages: number; totalElements: number }> {
+    return apiService.getVisitsByStorePaged(storeId, page, size, sort);
+  }
+
   static async createVisit(visit: Partial<VisitDto>): Promise<number> {
     return apiService.createVisit(visit);
   }
@@ -1577,7 +1581,6 @@ export class API {
     console.log('🌐 Making API request:', {
       url,
       method: config.method || 'GET',
-      headers: config.headers,
       hasToken: !!this.token
     });
 
@@ -1642,8 +1645,7 @@ export class API {
       log('🌐 Request details:', {
         url,
         method: config.method || 'GET',
-        hasToken: !!this.token,
-        tokenPreview: this.token ? `${this.token.substring(0, 20)}...` : 'No token'
+        hasToken: !!this.token
       });
       
       // If it's a network error, provide more helpful error message
@@ -1821,6 +1823,36 @@ export class API {
 
   async getVisitsByStore(id: number): Promise<VisitDto[]> {
     return this.makeRequest<VisitDto[]>(`/visit/getByStore?id=${id}`);
+  }
+
+  async getVisitsByStorePaged(storeId: number, page: number = 0, size: number = 10, sort: string = 'visitDate,desc'): Promise<{ content: VisitDto[]; totalPages: number; totalElements: number }> {
+    if (!Number.isSafeInteger(storeId) || storeId <= 0) throw new Error('A valid customer ID is required.');
+    // Icon exposes getByStore (api.md), not German's getByStorePaged endpoint.
+    // Use its authenticated response directly; do not probe a forbidden endpoint
+    // or catch authorization failures and silently retry a different API.
+    const visits = await this.getVisitsByStore(storeId);
+    if (!Array.isArray(visits)) throw new Error('Invalid customer visits response.');
+    const safePage = Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0;
+    const safeSize = Number.isFinite(size) && size > 0 ? Math.max(1, Math.floor(size)) : 10;
+    const [field, order] = sort.split(',');
+    const key = (field === 'visitDate' ? 'visit_date' : field) as keyof VisitDto;
+    const direction = order === 'asc' ? 1 : -1;
+    const sorted = [...visits].sort((a, b) => {
+      const left = a[key];
+      const right = b[key];
+      if (left == null && right != null) return 1;
+      if (right == null && left != null) return -1;
+      const difference = typeof left === 'number' && typeof right === 'number'
+        ? left - right
+        : String(left ?? '').localeCompare(String(right ?? ''));
+      return direction * (difference || a.id - b.id);
+    });
+    const totalElements = sorted.length;
+    return {
+      content: sorted.slice(safePage * safeSize, (safePage + 1) * safeSize),
+      totalPages: Math.max(1, Math.ceil(totalElements / safeSize)),
+      totalElements,
+    };
   }
 
   // Notes by store

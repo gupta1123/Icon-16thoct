@@ -1,6 +1,6 @@
 "use client";
 
-import { PanelLeft } from "lucide-react";
+import { ArrowLeft, PanelLeft, ShieldCheck, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -9,6 +9,8 @@ interface TopbarProps {
   subheading?: string;
   showSidebarTrigger?: boolean;
   onOpenSidebar?: () => void;
+  onBack?: () => void;
+  viewRole?: "admin" | "manager";
 }
 
 export default function Topbar({
@@ -16,10 +18,13 @@ export default function Topbar({
   subheading,
   showSidebarTrigger = false,
   onOpenSidebar,
+  onBack,
+  viewRole,
 }: TopbarProps) {
   return (
-    <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-1.5 sm:border-0 sm:bg-transparent sm:px-6">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="icon-dashboard-header sticky top-0 z-30 flex h-14 w-full shrink-0 items-center gap-3 border-b border-border/60 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        {onBack && <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onBack} aria-label="Back"><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Button>}
         {showSidebarTrigger && (
           <Button
             type="button"
@@ -34,14 +39,14 @@ export default function Topbar({
           </Button>
         )}
 
-        <div className="flex min-w-0 flex-col justify-center overflow-hidden m-0 p-0">
+        <div className="flex min-w-0 flex-col justify-center gap-0.5">
           {heading && (
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate m-0 p-0 leading-none">
+            <h1 className="m-0 truncate text-base font-semibold leading-tight tracking-tight text-foreground" title={heading}>
               {heading}
             </h1>
           )}
           {subheading && (
-            <p className="text-xs text-muted-foreground truncate m-0 p-0 leading-none mt-0.5">
+            <p className="m-0 truncate text-xs font-normal leading-tight text-muted-foreground" title={subheading}>
               {subheading}
             </p>
           )}
@@ -49,6 +54,10 @@ export default function Topbar({
       </div>
       
       <div className="flex items-center gap-2 shrink-0">
+        {viewRole && <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium leading-5 text-foreground" aria-label={`Current view: ${viewRole === "admin" ? "Admin" : "Regional manager"}`}>
+          {viewRole === "admin" ? <ShieldCheck className="h-3 w-3" aria-hidden="true" /> : <UsersRound className="h-3 w-3" aria-hidden="true" />}
+          {viewRole === "admin" ? "Admin view" : "Regional manager view"}
+        </span>}
         <ThemeToggle />
       </div>
     </header>
