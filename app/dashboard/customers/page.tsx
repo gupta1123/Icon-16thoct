@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, useMemo, useRef } from 'react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -25,6 +25,7 @@ import CreateCustomerFlowModal from "@/components/CreateCustomerFlowModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { filterCustomers, sortCustomers } from "@/lib/customer-filter";
 
 export default function CustomerListPage() {
     return (
@@ -133,6 +134,7 @@ function CustomerListContent() {
     const searchParams = useSearchParams();
     const pathname = usePathname();
     const [isFiltersInitialized, setIsFiltersInitialized] = useState(false);
+    const customerRequestSequenceRef = useRef(0);
 
     const viewCustomer = (id: number | string) => {
         setIsNavigating(true);
@@ -375,6 +377,7 @@ function CustomerListContent() {
     };
 
     const fetchFilteredCustomers = async () => {
+        const requestSequence = ++customerRequestSequenceRef.current;
         setIsLoading(true);
         setError(null);
         try {
@@ -423,7 +426,37 @@ function CustomerListContent() {
                     setTotalPages(1);
                     return;
                 }
-                data = await API.getStoresForTeam(teamId, currentPage - 1, pageSize);
+                // The team endpoint has no filter or sort parameters. Fetch its
+                // complete dataset before filtering so matches on later server
+                // pages are not incorrectly reported as empty.
+                const firstPage = await API.getStoresForTeam(teamId, 0, 100);
+                const teamStores = [...(firstPage.content || [])];
+                for (let page = 1; page < (firstPage.totalPages || 1); page += 1) {
+                    if (requestSequence !== customerRequestSequenceRef.current) return;
+                    const nextPage = await API.getStoresForTeam(teamId, page, 100);
+                    teamStores.push(...(nextPage.content || []));
+                }
+
+                const uniqueStores = Array.from(
+                    new Map(teamStores.map((store) => [store.storeId, store])).values()
+                );
+                const filteredStores = filterCustomers(uniqueStores, desktopFilters);
+                const sortedStores = sortCustomers(filteredStores, sortColumn, sortDirection);
+                const teamTotalPages = Math.max(1, Math.ceil(sortedStores.length / pageSize));
+                const pageStart = (currentPage - 1) * pageSize;
+
+                data = {
+                    ...firstPage,
+                    content: sortedStores.slice(pageStart, pageStart + pageSize),
+                    totalElements: sortedStores.length,
+                    totalPages: teamTotalPages,
+                    number: currentPage - 1,
+                    size: pageSize,
+                    numberOfElements: Math.min(pageSize, Math.max(0, sortedStores.length - pageStart)),
+                    first: currentPage === 1,
+                    last: currentPage >= teamTotalPages,
+                    empty: sortedStores.length === 0,
+                };
             } else if (isCoordinator || isAdmin) {
                 let mappedSortColumn = sortColumn;
                 if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
@@ -476,6 +509,7 @@ function CustomerListContent() {
                 });
             }
             
+            if (requestSequence !== customerRequestSequenceRef.current) return;
             const transformedCustomers: Customer[] = (data.content || []).map((store: StoreDto) => ({
                 ...store,
                 storeId: store.storeId,
@@ -487,10 +521,11 @@ function CustomerListContent() {
             setCustomers(transformedCustomers);
             setTotalPages(data.totalPages || 1);
         } catch (err: unknown) {
+            if (requestSequence !== customerRequestSequenceRef.current) return;
             setError(err instanceof Error ? err.message : 'Failed to load customers');
             setCustomers([]);
         } finally {
-            setIsLoading(false);
+            if (requestSequence === customerRequestSequenceRef.current) setIsLoading(false);
         }
     };
 

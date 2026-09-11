@@ -252,16 +252,15 @@ export default function ApprovalsPage() {
         });
 
         return flat.filter(req => {
-            const matchesEmployee = !selectedEmployeeId || String(req.employeeId) === selectedEmployeeId;
             const status = req.status?.toLowerCase() || 'pending';
             
             if (activeTab === 'pending') {
-                return matchesEmployee && status === 'pending';
+                return status === 'pending';
             } else {
-                return matchesEmployee && status !== 'pending';
+                return status !== 'pending';
             }
         }).sort((a, b) => new Date(b.requestDate || b.logDate).getTime() - new Date(a.requestDate || a.logDate).getTime());
-    }, [requests, selectedEmployeeId, activeTab]);
+    }, [requests, activeTab]);
 
     const employeeOptions = useMemo<SearchableOption[]>(() => eligibleEmployees.map((emp) => ({
         value: String(emp.id),

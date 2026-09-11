@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { useAuth } from "@/components/auth-provider";
 import { Skeleton } from "@/components/ui/skeleton";
+import { matchesSelectedEmployee } from "@/lib/employee-filter";
 
 interface Expense {
   id: number;
@@ -495,7 +496,7 @@ export default function ExpensesPage() {
     .sort((a, b) => a.label.localeCompare(b.label)), [employeeDirectory]);
 
   const filteredEmployees = employees.filter((employee) =>
-    !selectedEmployeeId || String(employee.id) === selectedEmployeeId
+    matchesSelectedEmployee(employee.id, selectedEmployeeId, employeeDirectory)
   );
 
   const toggleCardExpansion = (id: number) => {
@@ -526,7 +527,7 @@ export default function ExpensesPage() {
     }))
   );
   const filteredTableExpenses = allExpenses.filter((expense) =>
-    !selectedEmployeeId || String(expense.employeeId) === selectedEmployeeId
+    matchesSelectedEmployee(expense.employeeId, selectedEmployeeId, employeeDirectory)
   );
 
   const toViewModel = (expense: { id: number; date: string; category: string; amount: number; description: string; status: "approved" | "pending" | "rejected"; employeeName: string; employeePosition: string; attachments?: ExpensePhotoAttachment[] }): ExpenseViewModel => ({
