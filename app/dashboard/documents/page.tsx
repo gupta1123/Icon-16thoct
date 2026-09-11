@@ -17,8 +17,8 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth-provider";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -89,6 +89,10 @@ export default function DocumentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<AdminDocument | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [form, setForm] = useState<DocumentForm>(initialForm);
+  const uploadDraftIsDirty = isUploadOpen && Boolean(
+    form.title.trim() || form.description.trim() || form.category.trim() || form.file
+  );
+  const { markSaved: markUploadSaved, requestDiscard: requestUploadDiscard } = useUnsavedChanges(uploadDraftIsDirty);
 
   const loadDocuments = useCallback(async () => {
     if (!token) {
@@ -123,9 +127,17 @@ export default function DocumentsPage() {
     loadDocuments();
   }, [loadDocuments]);
 
-  const resetUploadForm = () => {
+  const resetUploadForm = useCallback(() => {
     setForm(initialForm);
-  };
+  }, []);
+
+  const closeUploadDialog = useCallback(() => {
+    if (isUploading) return;
+    requestUploadDiscard(() => {
+      setIsUploadOpen(false);
+      resetUploadForm();
+    }, uploadDraftIsDirty);
+  }, [isUploading, requestUploadDiscard, resetUploadForm, uploadDraftIsDirty]);
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -168,6 +180,7 @@ export default function DocumentsPage() {
       }
 
       toast.success("Document uploaded.");
+      markUploadSaved();
       setIsUploadOpen(false);
       resetUploadForm();
       await loadDocuments();
@@ -283,11 +296,6 @@ export default function DocumentsPage() {
       </div>
 
       <div className="w-full space-y-4">
-        <div className="flex flex-row items-center justify-end gap-4">
-          <Badge variant="secondary">
-            {documents.length} total
-          </Badge>
-        </div>
         <div>
           {isLoading ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
@@ -370,8 +378,8 @@ export default function DocumentsPage() {
       <Dialog
         open={isUploadOpen}
         onOpenChange={(open) => {
-          setIsUploadOpen(open);
-          if (!open) resetUploadForm();
+          if (open) setIsUploadOpen(true);
+          else closeUploadDialog();
         }}
       >
         <DialogContent>
@@ -426,7 +434,7 @@ export default function DocumentsPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setIsUploadOpen(false)}
+                onClick={closeUploadDialog}
                 disabled={isUploading}
               >
                 Cancel

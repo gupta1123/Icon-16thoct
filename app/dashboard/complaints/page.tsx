@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays, differenceInDays } from 'date-fns';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { API, type TeamDataDto } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +22,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon, Check, ChevronsUpDown } from 'lucide-react';
 import SearchableSelect from "@/components/searchable-select";
+import { useDashboardHeader } from "@/components/dashboard-header-context";
+import { useGuardedRouter, useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS } from "@/lib/requirement-complaint-category";
 
 interface Task {
@@ -86,7 +88,7 @@ const Complaints = () => {
         taskType: 'complaint',
         imageCount: 0
     });
-    const router = useRouter();
+    const router = useGuardedRouter();
     const searchParams = useSearchParams();
     const [initializedFromQuery, setInitializedFromQuery] = useState(false);
     const [activeTab, setActiveTab] = useState('general');
@@ -125,6 +127,56 @@ const Complaints = () => {
     const [isMobileStartDatePickerOpen, setIsMobileStartDatePickerOpen] = useState(false);
     const [isMobileEndDatePickerOpen, setIsMobileEndDatePickerOpen] = useState(false);
     const [isDueDatePickerOpen, setIsDueDatePickerOpen] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+
+    const complaintDraftIsDirty = isModalOpen && (
+        newTask.taskTitle.trim() !== '' ||
+        newTask.taskDescription.trim() !== '' ||
+        newTask.dueDate !== '' ||
+        newTask.assignedToId !== 0 ||
+        newTask.storeId !== 0 ||
+        newTask.priority !== 'low' ||
+        newTask.category !== 'Complaint'
+    );
+    const { markSaved: markComplaintSaved, requestDiscard: requestComplaintDiscard } = useUnsavedChanges(complaintDraftIsDirty);
+    const closeComplaintCreator = useCallback(() => {
+        if (isCreating) return;
+        requestComplaintDiscard(() => {
+            setIsModalOpen(false);
+            setActiveTab('general');
+            setErrorMessage(null);
+            setNewTask((current) => ({
+                id: 0,
+                taskTitle: '',
+                taskDescription: '',
+                dueDate: '',
+                assignedToId: 0,
+                assignedToName: '',
+                assignedById: current.assignedById,
+                status: 'Assigned',
+                priority: 'low',
+                category: 'Complaint',
+                storeId: 0,
+                storeName: '',
+                storeCity: '',
+                storeDistrict: '',
+                taskType: 'complaint',
+                imageCount: 0,
+            }));
+        }, complaintDraftIsDirty);
+    }, [complaintDraftIsDirty, isCreating, requestComplaintDiscard]);
+
+    const headerActions = useMemo(() => (
+        <Button size="sm" className="h-8 px-3 text-xs" onClick={() => setIsModalOpen(true)}>
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> New
+        </Button>
+    ), []);
+
+    useDashboardHeader({
+        heading: 'Complaints',
+        subheading: 'Track and manage customer complaints',
+        actions: headerActions,
+    });
 
     const { token, userRole, userData, currentUser } = useAuth();
 
@@ -491,7 +543,6 @@ const Complaints = () => {
         setFilteredTasks(filtered);
     };
 
-    const [isCreating, setIsCreating] = useState(false);
     const createTask = async () => {
         if (!token) return;
 
@@ -565,6 +616,7 @@ const Complaints = () => {
                 taskType: 'complaint',
                 imageCount: 0
             });
+            markComplaintSaved();
             setIsModalOpen(false);
         } catch (error) {
             console.error('Error creating task:', error);
@@ -737,9 +789,9 @@ const Complaints = () => {
   return (
         <div className="mx-auto w-full max-w-none py-4">
             {/* Filters Row - single-row alignment */}
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="hidden flex-wrap items-center gap-2 lg:flex">
-                    <div className="relative w-60 shrink-0">
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center">
+                <div className="hidden min-w-0 flex-1 grid-cols-[minmax(150px,1.35fr)_minmax(135px,1.05fr)_minmax(115px,1fr)_minmax(110px,0.9fr)_minmax(115px,1fr)_minmax(250px,1.9fr)] items-center gap-2 xl:grid">
+                    <div className="relative min-w-0">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             placeholder="Search complaints"
@@ -750,7 +802,7 @@ const Complaints = () => {
                     </div>
                     <Popover open={filterEmployeePopoverOpen} onOpenChange={setFilterEmployeePopoverOpen}>
                         <PopoverTrigger asChild>
-                            <Button variant="outline" className="h-9 w-[170px] shrink-0 justify-between px-3 text-xs font-normal shadow-none">
+                            <Button variant="outline" className="h-9 w-full min-w-0 justify-between px-3 text-xs font-normal shadow-none">
                                 <span className="truncate text-left">{topEmployeeDisplay}</span>
                                 <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                             </Button>
@@ -809,7 +861,7 @@ const Complaints = () => {
                         </PopoverContent>
                     </Popover>
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
-                        <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
+                        <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by category" />
                         </SelectTrigger>
                         <SelectContent>
@@ -820,7 +872,7 @@ const Complaints = () => {
                         </SelectContent>
                     </Select>
                 <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
-                    <SelectTrigger className="h-9 w-[140px] shrink-0 text-xs shadow-none">
+                    <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                         <SelectValue placeholder="Filter by status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -831,7 +883,7 @@ const Complaints = () => {
                     </SelectContent>
                 </Select>
                 <Select value={filters.district} onValueChange={(value) => handleFilterChange('district', value)}>
-                    <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
+                    <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                         <SelectValue placeholder="Filter by district" />
                     </SelectTrigger>
                     <SelectContent>
@@ -844,14 +896,14 @@ const Complaints = () => {
                     </SelectContent>
                 </Select>
                     {/* Date Filters */}
-                    <div className="flex shrink-0 items-center gap-2">
-                    <div>
+                    <div className="grid min-w-0 grid-cols-2 items-center gap-2">
+                    <div className="min-w-0">
                         <Label htmlFor="startDate" className="sr-only">From date</Label>
                         <Popover modal={false} open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                     variant="outline"
-                                    className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
+                                    className={`h-9 w-full min-w-0 justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
                                 >
                                     <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                     <span className="shrink-0 text-muted-foreground">From</span>
@@ -880,13 +932,13 @@ const Complaints = () => {
                             </PopoverContent>
                         </Popover>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <Label htmlFor="endDate" className="sr-only">To date</Label>
                         <Popover modal={false} open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                     variant="outline"
-                                    className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
+                                    className={`h-9 w-full min-w-0 justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
                                 >
                                     <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                     <span className="shrink-0 text-muted-foreground">To</span>
@@ -917,22 +969,15 @@ const Complaints = () => {
                     </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 lg:ml-auto lg:shrink-0">
+                <div className="flex items-center gap-2 xl:ml-auto xl:shrink-0">
                     <Button
                         variant="outline"
                         size="sm"
-                        className="lg:hidden"
+                        className="xl:hidden"
                         onClick={() => setIsFilterDrawerOpen(true)}
                     >
                         <Filter className="mr-2 h-4 w-4" />
                         Filters
-                    </Button>
-                    <Button
-                        size="sm"
-                        className="h-9 text-xs"
-                        onClick={() => setIsModalOpen(true)}
-                    >
-                        <PlusCircle className="mr-2 h-4 w-4" /> New
                     </Button>
                 </div>
             </div>
@@ -1106,7 +1151,13 @@ const Complaints = () => {
                 </SheetContent>
             </Sheet>
 
-            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+            <Dialog
+                open={isModalOpen}
+                onOpenChange={(open) => {
+                    if (open) setIsModalOpen(true);
+                    else closeComplaintCreator();
+                }}
+            >
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Create New Complaint</DialogTitle>
@@ -1149,7 +1200,7 @@ const Complaints = () => {
             </Select>
           </div>
                                 <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+                                    <Button variant="outline" onClick={closeComplaintCreator}>Cancel</Button>
                                     <Button onClick={handleNext} disabled={isTabLoading}>
                                         {isTabLoading ? (
                                             <>

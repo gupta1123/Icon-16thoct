@@ -2,7 +2,6 @@
 
 import { useParams } from "next/navigation";
 import EmployeeEditPage from '@/components/employee-edit-page';
-import { UnsavedChangesProvider } from '@/components/unsaved-changes-provider';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -20,5 +19,5 @@ export default function EditEmployeePage() {
     );
   }
 
-  return <UnsavedChangesProvider><EmployeeEditPage employeeId={employeeId} /></UnsavedChangesProvider>;
+  return <EmployeeEditPage employeeId={employeeId} />;
 }

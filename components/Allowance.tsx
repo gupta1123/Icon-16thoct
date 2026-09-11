@@ -366,8 +366,6 @@ const Allowance: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
                     <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center">
                         <Popover open={employeeFilterOpen} onOpenChange={setEmployeeFilterOpen}>
                             <PopoverTrigger asChild>
@@ -792,8 +790,6 @@ const Allowance: React.FC = () => {
                             )}
                         </>
                     )}
-                </CardContent>
-            </Card>
         </div>
     );
 };

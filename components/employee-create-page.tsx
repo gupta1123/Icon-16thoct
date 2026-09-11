@@ -47,22 +47,6 @@ export default function EmployeeCreatePage() {
   const back = useCallback(() => { if (!savingRef.current) requestDiscard(() => router.push('/dashboard/employees')); }, [requestDiscard, router]);
   useDashboardHeader({ heading: 'Add Employee', subheading: 'Create a new user profile', onBack: back });
 
-  // The sidebar lives outside the page provider; guard its same-tab links too.
-  useEffect(() => {
-    if (!dirty) return;
-    const handleLink = (event: MouseEvent) => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
-      const target = new URL(anchor.href, window.location.href);
-      if (target.origin !== window.location.origin || target.pathname === window.location.pathname) return;
-      event.preventDefault(); event.stopPropagation();
-      if (!savingRef.current) requestDiscard(() => router.push(target.pathname + target.search + target.hash));
-    };
-    document.addEventListener('click', handleLink, true);
-    return () => document.removeEventListener('click', handleLink, true);
-  }, [dirty, requestDiscard, router]);
-
   useEffect(() => {
     setDraft(current => ({ ...current, dateOfJoining: format(new Date(), 'yyyy-MM-dd'), password: generateEmployeePassword() }));
     setReady(true);

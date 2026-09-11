@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import NextImage from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +84,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
 import { API, formatStockQuantity, getStock, IntentAuditLog, MonthlySaleChange as StockChange, Task, Note as ApiNote, VisitDto, VisitBrandPurchase, type StoreDto } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { useGuardedRouter, useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { normalizeRoleValue, extractAuthorityRoles, hasAnyRole } from "@/lib/role-utils";
 import {
   REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS,
@@ -440,7 +441,7 @@ export default function VisitDetailPage({
 }: {
   searchParams?: { from?: string; employeeId?: string;[key: string]: string | string[] | undefined }
 } = {}) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const hookSearchParams = useSearchParams();
 
   // Use prop searchParams if available, otherwise fall back to hook
@@ -612,6 +613,50 @@ export default function VisitDetailPage({
   const [noteContent, setNoteContent] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
   const [editingNoteDetails, setEditingNoteDetails] = useState<{ employeeId: number; storeId: number } | null>(null);
+  const originalNoteContent = isNoteEditMode && editingNoteId !== null
+    ? notes.find((note) => Number(note.id) === editingNoteId)?.content ?? ''
+    : '';
+  const noteDraftIsDirty = isNoteModalVisible && noteContent !== originalNoteContent;
+  const requirementDraftIsDirty = isRequirementModalOpen && Boolean(
+    newTask.taskTitle.trim() || newTask.taskDesciption.trim() || newTask.dueDate || newTask.priority !== 'low'
+  );
+  const complaintDraftIsDirty = isComplaintModalOpen && Boolean(
+    complaintTask.taskTitle.trim() || complaintTask.taskDesciption.trim() || complaintTask.dueDate || complaintTask.priority !== 'low'
+  );
+  const visitDraftIsDirty = noteDraftIsDirty || requirementDraftIsDirty || complaintDraftIsDirty;
+  const { markSaved: markVisitDraftSaved, requestDiscard: requestVisitDraftDiscard } = useUnsavedChanges(visitDraftIsDirty);
+
+  const closeNoteEditor = useCallback(() => {
+    if (isNoteSaving) return;
+    requestVisitDraftDiscard(() => {
+      setIsNoteModalVisible(false);
+      setNoteContent('');
+      setIsNoteEditMode(false);
+      setEditingNoteId(null);
+      setEditingNoteDetails(null);
+      setNoteError(null);
+    }, noteDraftIsDirty);
+  }, [isNoteSaving, noteDraftIsDirty, requestVisitDraftDiscard]);
+
+  const closeRequirementCreator = useCallback(() => {
+    if (isTaskSaving) return;
+    requestVisitDraftDiscard(() => {
+      setIsRequirementModalOpen(false);
+      setActiveRequirementTab('general');
+      setTaskCreateError(null);
+      setNewTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: 'low' }));
+    }, requirementDraftIsDirty);
+  }, [isTaskSaving, requestVisitDraftDiscard, requirementDraftIsDirty]);
+
+  const closeComplaintCreator = useCallback(() => {
+    if (isTaskSaving) return;
+    requestVisitDraftDiscard(() => {
+      setIsComplaintModalOpen(false);
+      setActiveComplaintTab('general');
+      setTaskCreateError(null);
+      setComplaintTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: 'low' }));
+    }, complaintDraftIsDirty);
+  }, [complaintDraftIsDirty, isTaskSaving, requestVisitDraftDiscard]);
 
   // Helper functions
   const getOutcomeStatus = (visit: VisitDetail | null): { emoji: React.ReactNode; status: string; color: string; isOngoing: boolean } => {
@@ -1425,6 +1470,7 @@ export default function VisitDetailPage({
         setNotes([newNote, ...notes]);
       }
 
+      markVisitDraftSaved();
       setIsNoteModalVisible(false);
       setNoteContent('');
       setIsNoteEditMode(false);
@@ -1547,6 +1593,7 @@ export default function VisitDetailPage({
       };
 
       if (taskType === 'requirement') {
+        markVisitDraftSaved();
         setRequirements(prevTasks => [createdTask as unknown as Task, ...prevTasks]);
         // Reset requirement form
         setNewTask({
@@ -1576,6 +1623,7 @@ export default function VisitDetailPage({
         setIsRequirementModalOpen(false);
         setActiveRequirementTab('general');
       } else {
+        markVisitDraftSaved();
         setComplaints(prevTasks => [createdTask as unknown as Task, ...prevTasks]);
         // Reset complaint form
         setComplaintTask({
@@ -2456,13 +2504,13 @@ export default function VisitDetailPage({
 
       {/* Modals */}
       {/* Notes Modal */}
-      <Dialog open={isNoteModalVisible} onOpenChange={open => { if (!isNoteSaving) { setIsNoteModalVisible(open); setNoteError(null); } }}>
+      <Dialog open={isNoteModalVisible} onOpenChange={open => { if (open) setIsNoteModalVisible(true); else closeNoteEditor(); }}>
         <DialogContent className="icon-visit-details sm:max-w-md">
           <DialogHeader><DialogTitle>{isNoteEditMode ? 'Edit Note' : 'Add Note'}</DialogTitle><DialogDescription>{isNoteEditMode ? 'Update the existing note.' : 'Add a quick note for this visit.'}</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <textarea aria-label="Note content" placeholder="Enter note content" value={noteContent} onChange={e => setNoteContent(e.target.value)} rows={4} className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent" />
             {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
-            <div className="flex flex-col sm:flex-row justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={() => setIsNoteModalVisible(false)}>Cancel</Button><Button disabled={isNoteSaving || !noteContent.trim()} onClick={saveNote}>{isNoteSaving ? 'Saving…' : isNoteEditMode ? 'Update' : 'Add'}</Button></div>
+            <div className="flex flex-col sm:flex-row justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={closeNoteEditor}>Cancel</Button><Button disabled={isNoteSaving || !noteContent.trim()} onClick={saveNote}>{isNoteSaving ? 'Saving…' : isNoteEditMode ? 'Update' : 'Add'}</Button></div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2471,7 +2519,7 @@ export default function VisitDetailPage({
       </Dialog>
 
       {/* Requirement Modal */}
-      <Dialog open={isRequirementModalOpen} onOpenChange={setIsRequirementModalOpen}>
+      <Dialog open={isRequirementModalOpen} onOpenChange={open => { if (open) setIsRequirementModalOpen(true); else closeRequirementCreator(); }}>
         <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <Card className="gap-0 border-0 py-0 shadow-none">
             <CardHeader className="px-0 pb-4">
@@ -2528,7 +2576,7 @@ export default function VisitDetailPage({
                       />
                     </div>
                     <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={() => setIsRequirementModalOpen(false)}>Cancel</Button>
+                      <Button variant="outline" onClick={closeRequirementCreator}>Cancel</Button>
                       <Button onClick={() => setActiveRequirementTab('details')}>Next</Button>
                     </div>
                   </div>
@@ -2593,7 +2641,7 @@ export default function VisitDetailPage({
       </Dialog>
 
       {/* Complaint Modal */}
-      <Dialog open={isComplaintModalOpen} onOpenChange={setIsComplaintModalOpen}>
+      <Dialog open={isComplaintModalOpen} onOpenChange={open => { if (open) setIsComplaintModalOpen(true); else closeComplaintCreator(); }}>
         <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <Card className="gap-0 border-0 py-0 shadow-none">
             <CardHeader className="px-0 pb-4">
@@ -2650,7 +2698,7 @@ export default function VisitDetailPage({
                       />
                     </div>
                     <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={() => setIsComplaintModalOpen(false)}>Cancel</Button>
+                      <Button variant="outline" onClick={closeComplaintCreator}>Cancel</Button>
                       <Button onClick={() => setActiveComplaintTab('details')}>Next</Button>
                     </div>
                   </div>

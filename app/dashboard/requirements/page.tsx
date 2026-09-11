@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays } from 'date-fns';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { API, type TeamDataDto } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +22,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, Target, Trash2, Calendar as CalendarIcon2, Image, Check, ChevronsUpDown } from 'lucide-react';
 import RequirementCreationForm from "@/components/RequirementCreationForm";
 import SearchableSelect from "@/components/searchable-select";
+import { useDashboardHeader } from "@/components/dashboard-header-context";
+import { useGuardedRouter, useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS } from "@/lib/requirement-complaint-category";
 import {
     RequirementPhotoUploadError,
@@ -86,7 +88,7 @@ const Requirements = () => {
         storeDistrict: '',
         taskType: 'requirement'
     });
-    const router = useRouter();
+    const router = useGuardedRouter();
     const searchParams = useSearchParams();
     const [initializedFromQuery, setInitializedFromQuery] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -122,6 +124,62 @@ const Requirements = () => {
     const [isLoadingImages, setIsLoadingImages] = useState(false);
     const [taskImages, setTaskImages] = useState<string[]>([]);
     const [pendingRequirementUpload, setPendingRequirementUpload] = useState<{ taskId: number; nextPhotoIndex: number } | null>(null);
+
+    const requirementDraftIsDirty = isModalOpen && (
+        newTask.taskTitle.trim() !== '' ||
+        newTask.taskDescription.trim() !== '' ||
+        newTask.dueDate !== '' ||
+        newTask.assignedToId !== 0 ||
+        newTask.storeId !== 0 ||
+        newTask.priority !== 'low' ||
+        newTask.category !== 'Requirement'
+    );
+    const { markSaved: markRequirementSaved, requestDiscard: requestRequirementDiscard } = useUnsavedChanges(requirementDraftIsDirty);
+    const closeRequirementCreator = useCallback(() => {
+        if (isCreating) return;
+        requestRequirementDiscard(() => {
+            setIsModalOpen(false);
+            setErrorMessage(null);
+            setPendingRequirementUpload(null);
+            setNewTask((current) => ({
+                id: 0,
+                taskTitle: '',
+                taskDescription: '',
+                dueDate: '',
+                assignedToId: 0,
+                assignedToName: '',
+                assignedById: current.assignedById,
+                status: 'Assigned',
+                priority: 'low',
+                category: 'Requirement',
+                storeId: 0,
+                storeName: '',
+                storeCity: '',
+                storeDistrict: '',
+                taskType: 'requirement',
+            }));
+        }, requirementDraftIsDirty);
+    }, [isCreating, requestRequirementDiscard, requirementDraftIsDirty]);
+
+    const headerActions = useMemo(() => (
+        <Button
+            size="sm"
+            className="h-8 px-3 text-xs"
+            onClick={() => {
+                setErrorMessage(null);
+                setPendingRequirementUpload(null);
+                setIsModalOpen(true);
+            }}
+        >
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> New
+        </Button>
+    ), []);
+
+    useDashboardHeader({
+        heading: 'Requirements',
+        subheading: 'Manage project and client requirements',
+        actions: headerActions,
+    });
 
     const { token, userRole, userData, currentUser } = useAuth();
 
@@ -573,6 +631,7 @@ const Requirements = () => {
                 storeCity: '',
                 taskType: 'requirement'
             });
+            markRequirementSaved();
             setIsModalOpen(false);
             setPendingRequirementUpload(null);
         } catch (error) {
@@ -749,9 +808,9 @@ const Requirements = () => {
   return (
         <div className="mx-auto w-full max-w-none py-4">
             {/* Filters Row - single-row alignment */}
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="hidden flex-wrap items-center gap-2 lg:flex">
-                    <div className="relative w-60 shrink-0">
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center">
+                <div className="hidden min-w-0 flex-1 grid-cols-[minmax(150px,1.35fr)_minmax(135px,1.05fr)_minmax(115px,1fr)_minmax(110px,0.9fr)_minmax(115px,1fr)_minmax(250px,1.9fr)] items-center gap-2 xl:grid">
+                    <div className="relative min-w-0">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             placeholder="Search requirements"
@@ -762,7 +821,7 @@ const Requirements = () => {
                     </div>
                     <Popover open={filterEmployeePopoverOpen} onOpenChange={setFilterEmployeePopoverOpen}>
                         <PopoverTrigger asChild>
-                            <Button variant="outline" className="h-9 w-[170px] shrink-0 justify-between px-3 text-xs font-normal shadow-none">
+                            <Button variant="outline" className="h-9 w-full min-w-0 justify-between px-3 text-xs font-normal shadow-none">
                                 <span className="truncate text-left">{topEmployeeDisplay}</span>
                                 <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                             </Button>
@@ -821,7 +880,7 @@ const Requirements = () => {
                         </PopoverContent>
                     </Popover>
                     <Select value={filters.priority} onValueChange={(value) => handleFilterChange('priority', value)}>
-                        <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
+                        <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by category" />
                         </SelectTrigger>
                         <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
@@ -832,7 +891,7 @@ const Requirements = () => {
                         </SelectContent>
                     </Select>
                     <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
-                        <SelectTrigger className="h-9 w-[140px] shrink-0 text-xs shadow-none">
+                        <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
                         <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
@@ -843,7 +902,7 @@ const Requirements = () => {
                         </SelectContent>
                     </Select>
                     <Select value={filters.district} onValueChange={(value) => handleFilterChange('district', value)}>
-                        <SelectTrigger className="h-9 w-[150px] shrink-0 text-xs shadow-none">
+                        <SelectTrigger className="h-9 w-full min-w-0 text-xs shadow-none">
                             <SelectValue placeholder="Filter by district" />
                         </SelectTrigger>
                         <SelectContent sideOffset={6} className={FILTER_SELECT_CONTENT_CLASS} style={FILTER_SELECT_CONTENT_STYLE}>
@@ -856,14 +915,14 @@ const Requirements = () => {
                         </SelectContent>
                     </Select>
                     {/* Date Filters */}
-                    <div className="flex shrink-0 items-center gap-2">
-                        <div>
+                    <div className="grid min-w-0 grid-cols-2 items-center gap-2">
+                        <div className="min-w-0">
                             <Label htmlFor="startDate" className="sr-only">From date</Label>
                             <Popover modal={false} open={isStartDatePickerOpen} onOpenChange={setIsStartDatePickerOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
-                                        className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
+                                        className={`h-9 w-full min-w-0 justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.startDate && 'text-muted-foreground'}`}
                                     >
                                         <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                         <span className="shrink-0 text-muted-foreground">From</span>
@@ -892,13 +951,13 @@ const Requirements = () => {
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <Label htmlFor="endDate" className="sr-only">To date</Label>
                             <Popover modal={false} open={isEndDatePickerOpen} onOpenChange={setIsEndDatePickerOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
-                                        className={`h-9 w-[165px] justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
+                                        className={`h-9 w-full min-w-0 justify-start gap-2 overflow-hidden px-3 text-left text-xs font-normal shadow-none ${!filters.endDate && 'text-muted-foreground'}`}
                                     >
                                         <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
                                         <span className="shrink-0 text-muted-foreground">To</span>
@@ -929,26 +988,15 @@ const Requirements = () => {
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 lg:ml-auto lg:shrink-0">
+                <div className="flex items-center gap-2 xl:ml-auto xl:shrink-0">
                     <Button
                         variant="outline"
                         size="sm"
-                        className="lg:hidden"
+                        className="xl:hidden"
                         onClick={() => setIsFilterDrawerOpen(true)}
                     >
                         <Filter className="mr-2 h-4 w-4" />
                         Filters
-                    </Button>
-                    <Button
-                        size="sm"
-                        className="h-9 text-xs"
-                        onClick={() => {
-                            setErrorMessage(null);
-                            setPendingRequirementUpload(null);
-                            setIsModalOpen(true);
-                        }}
-                    >
-                        <PlusCircle className="mr-2 h-4 w-4" /> New
                     </Button>
                 </div>
             </div>
@@ -1128,9 +1176,8 @@ const Requirements = () => {
             <Dialog
                 open={isModalOpen}
                 onOpenChange={(open) => {
-                    if (!isCreating) {
-                        setIsModalOpen(open);
-                    }
+                    if (open) setIsModalOpen(true);
+                    else closeRequirementCreator();
                 }}
             >
                 <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -1161,7 +1208,7 @@ const Requirements = () => {
                                 fetchStores(newTask.assignedToId);
                             }
                         }}
-                        onCancel={() => setIsModalOpen(false)}
+                        onCancel={closeRequirementCreator}
                         onSubmit={createTask}
                     />
                 </DialogContent>

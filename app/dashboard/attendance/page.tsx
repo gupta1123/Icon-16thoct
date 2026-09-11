@@ -403,29 +403,29 @@ export default function AttendancePage() {
           </div>
 
           {/* Inline Legend Pills */}
-          <div className="flex items-center gap-2 flex-wrap text-[11px] font-medium text-muted-foreground pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40">
-            <span className="text-xs font-semibold text-foreground mr-1">Legend:</span>
-            <div className="flex items-center gap-1.5 bg-purple-500/10 text-purple-700 dark:text-purple-400 px-2 py-0.5 rounded-md border border-purple-500/20">
+          <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap border-t border-border/40 pt-2 text-[11px] font-medium text-muted-foreground lg:border-t-0 lg:pt-0">
+            <span className="mr-1 shrink-0 text-xs font-semibold text-foreground">Legend:</span>
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-purple-500/20 bg-purple-500/10 px-2 py-0.5 text-purple-700 dark:text-purple-400">
               <span className="w-2 h-2 rounded-full bg-purple-500"></span>
               <span>Paid Leave</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 px-2 py-0.5 rounded-md border border-cyan-500/20">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-cyan-700 dark:text-cyan-400">
               <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
               <span>Activity</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-500/20">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>Full Day</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-400">
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
               <span>Half Day</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/20">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-blue-700 dark:text-blue-400">
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
               <span>Present</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-md border border-rose-500/20">
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:text-rose-400">
               <span className="w-2 h-2 rounded-full bg-rose-500"></span>
               <span>Absent</span>
             </div>

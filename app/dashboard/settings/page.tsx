@@ -18,7 +18,7 @@ import WorkingDays from "@/components/WorkingDays";
 import DailyBreakdown from "@/components/DailyBreakdown";
 import HomeLocationRequests from "@/components/HomeLocationRequests";
 import TeamsSettings from "@/components/teams-settings";
-import { UnsavedChangesProvider, useNavigationGuard } from "@/components/unsaved-changes-provider";
+import { useNavigationGuard } from "@/components/unsaved-changes-provider";
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -132,10 +132,8 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <UnsavedChangesProvider>
-      <Suspense fallback={<div>Loading...</div>}>
-        <SettingsContent />
-      </Suspense>
-    </UnsavedChangesProvider>
+    <Suspense fallback={<div>Loading...</div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }
