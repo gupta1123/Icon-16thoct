@@ -113,6 +113,7 @@ export default function VisitsTable() {
   const [isNavigating, startTransition] = useTransition();
   const filterInitialisedRef = useRef(false);
   const hasHydratedRef = useRef(false);
+  const visitsRequestSequenceRef = useRef(0);
   const [isStateHydrated, setIsStateHydrated] = useState(false);
   
   // Set default date range to last 7 days
@@ -348,27 +349,54 @@ export default function VisitsTable() {
 
   useEffect(() => {
     if (!isStateHydrated) return;
-    if (!startDate || !endDate || dateRangeInvalid) return;
+    if (!startDate || !endDate || dateRangeInvalid) {
+      visitsRequestSequenceRef.current += 1;
+      setRows([]);
+      setTotalPages(0);
+      setTotalElements(0);
+      setIsLoading(false);
+      return;
+    }
     
     const startStr = formatDate(startDate, 'yyyy-MM-dd');
     const endStr = formatDate(endDate, 'yyyy-MM-dd');
 
     const run = async () => {
+      const requestSequence = ++visitsRequestSequenceRef.current;
       setIsLoading(true);
       setError(null);
       try {
         const storeNameFilter = customerName.trim() !== '' ? customerName : undefined;
-        
-        const response: VisitResponse = await API.getVisitsByDateSorted(
-          startStr,
-          endStr,
-          currentPage,
-          pageSize,
-          'visitDate,desc',
-          storeNameFilter
-        );
-        
-        const visits: VisitDto[] = response.content || [];
+        const selectedEmployeeApiId = Number(selectedExecutive);
+        const hasEmployeeFilter = selectedExecutive !== "all" && Number.isFinite(selectedEmployeeApiId);
+        const needsLocalPagination = hasEmployeeFilter || selectedPurpose !== "all";
+        let response: VisitResponse | null = null;
+        let visits: VisitDto[] = [];
+
+        if (hasEmployeeFilter) {
+          const employeeResponse = await API.getEmployeeStatsByDateRange(selectedEmployeeApiId, startStr, endStr);
+          visits = Array.isArray(employeeResponse.visitDto) ? employeeResponse.visitDto : [];
+        } else if (selectedPurpose !== "all") {
+          const firstPage = await API.getVisitsByDateSorted(startStr, endStr, 0, 100, 'visitDate,desc', storeNameFilter);
+          visits = [...(firstPage.content || [])];
+          for (let page = 1; page < (firstPage.totalPages || 1); page += 1) {
+            if (requestSequence !== visitsRequestSequenceRef.current) return;
+            const nextPage = await API.getVisitsByDateSorted(startStr, endStr, page, 100, 'visitDate,desc', storeNameFilter);
+            visits.push(...(nextPage.content || []));
+          }
+        } else {
+          response = await API.getVisitsByDateSorted(
+            startStr,
+            endStr,
+            currentPage,
+            pageSize,
+            'visitDate,desc',
+            storeNameFilter
+          );
+          visits = response.content || [];
+        }
+
+        if (requestSequence !== visitsRequestSequenceRef.current) return;
         
         const mapped: Row[] = visits.map(v => ({
           id: v.id,
@@ -390,11 +418,30 @@ export default function VisitsTable() {
           checkinTime: v.checkinTime ?? undefined,
           checkoutTime: v.checkoutTime ?? undefined,
         }));
-        
-        setRows(mapped);
-        const resolvedTotalPages = response.totalPages && response.totalPages > 0 ? response.totalPages : 1;
+
+        const locallyFiltered = needsLocalPagination
+          ? mapped
+              .filter((visit) => {
+                if (storeNameFilter && !visit.customerName.toLowerCase().includes(storeNameFilter.toLowerCase())) return false;
+                if (selectedPurpose !== "all" && visit.purpose !== selectedPurpose) return false;
+                return true;
+              })
+              .sort((left, right) => {
+                const dateCompare = String(right.date).localeCompare(String(left.date));
+                return dateCompare !== 0 ? dateCompare : right.id - left.id;
+              })
+          : mapped;
+        const resolvedTotalElements = needsLocalPagination ? locallyFiltered.length : (response?.totalElements || 0);
+        const resolvedTotalPages = needsLocalPagination
+          ? Math.max(1, Math.ceil(resolvedTotalElements / pageSize))
+          : (response?.totalPages && response.totalPages > 0 ? response.totalPages : 1);
+        const visibleRows = needsLocalPagination
+          ? locallyFiltered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+          : locallyFiltered;
+
+        setRows(visibleRows);
         setTotalPages(resolvedTotalPages);
-        setTotalElements(response.totalElements || 0);
+        setTotalElements(resolvedTotalElements);
 
         if (currentPage >= resolvedTotalPages) {
           const nextPage = Math.max(resolvedTotalPages - 1, 0);
@@ -403,13 +450,17 @@ export default function VisitsTable() {
           }
         }
       } catch (err) {
+        if (requestSequence !== visitsRequestSequenceRef.current) return;
+        setRows([]);
+        setTotalPages(0);
+        setTotalElements(0);
         setError((err as Error)?.message || 'Failed to load visits');
       } finally {
-        setIsLoading(false);
+        if (requestSequence === visitsRequestSequenceRef.current) setIsLoading(false);
       }
     };
     run();
-  }, [isStateHydrated, startDate, endDate, dateRangeInvalid, selectedPurpose, customerName, currentPage, pageSize]);
+  }, [isStateHydrated, startDate, endDate, dateRangeInvalid, selectedPurpose, selectedExecutive, customerName, currentPage, pageSize, employees]);
 
   useEffect(() => {
     if (!isStateHydrated) return;
@@ -425,7 +476,6 @@ export default function VisitsTable() {
       return false;
     }
     if (selectedPurpose !== "all" && visit.purpose !== selectedPurpose) return false;
-    if (selectedExecutive !== "all" && String(visit.employeeId ?? '') !== selectedExecutive) return false;
     return true;
   });
 
@@ -492,27 +542,32 @@ export default function VisitsTable() {
       let page = 0;
       const size = 100;
 
-      const first = await API.getVisitsByDateSorted(
-        startStr,
-        endStr,
-        page,
-        size,
-        'visitDate,desc',
-        customerName.trim() !== '' ? customerName : undefined
-      );
-      all = all.concat(first.content || []);
-      const total = first.totalPages || 1;
-
-      for (page = 1; page < total; page++) {
-        const res = await API.getVisitsByDateSorted(
+      if (selectedExecutive !== 'all' && Number.isFinite(Number(selectedExecutive))) {
+        const employeeResponse = await API.getEmployeeStatsByDateRange(Number(selectedExecutive), startStr, endStr);
+        all = Array.isArray(employeeResponse.visitDto) ? employeeResponse.visitDto : [];
+      } else {
+        const first = await API.getVisitsByDateSorted(
           startStr,
           endStr,
-          page,
+          0,
           size,
           'visitDate,desc',
           customerName.trim() !== '' ? customerName : undefined
         );
-        all = all.concat(res.content || []);
+        all = all.concat(first.content || []);
+        const total = first.totalPages || 1;
+
+        for (page = 1; page < total; page++) {
+          const res = await API.getVisitsByDateSorted(
+            startStr,
+            endStr,
+            page,
+            size,
+            'visitDate,desc',
+            customerName.trim() !== '' ? customerName : undefined
+          );
+          all = all.concat(res.content || []);
+        }
       }
 
       all = Array.from(new Map(all.map((visit) => [visit.id, visit])).values());
@@ -541,7 +596,6 @@ export default function VisitsTable() {
       const rowsForCsv = mapped.filter(visit => {
         if (customerName.trim() !== '' && !visit.customerName.toLowerCase().includes(customerName.trim().toLowerCase())) return false;
         if (selectedPurpose !== 'all' && visit.purpose !== selectedPurpose) return false;
-        if (selectedExecutive !== 'all' && String(visit.employeeId ?? '') !== selectedExecutive) return false;
         return true;
       });
 
