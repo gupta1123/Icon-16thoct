@@ -121,7 +121,7 @@ export default function EmployeeExpenseCard({
   const initials = employee.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
 
   return (
-    <Card className="min-w-0 w-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden">
+    <Card className="min-w-0 h-full w-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden">
       <CardContent className="min-w-0 p-3.5 space-y-3">
         {/* Compact Header */}
         <div className="flex items-center justify-between gap-2">
@@ -214,54 +214,56 @@ export default function EmployeeExpenseCard({
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
                     <span className="whitespace-nowrap font-bold text-xs text-foreground">
                       ₹{expense.amount.toFixed(2)}
                     </span>
-                    {onViewDetails && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
-                        onClick={() => onViewDetails({
-                          ...expense,
-                          employeeName: employee.name,
-                          employeePosition: employee.position,
-                        })}
-                        title="View expense details"
-                      >
-                        <Eye className="h-3 w-3" />
-                        <span className="sr-only">View expense details</span>
-                      </Button>
-                    )}
-                    {expense.status === "pending" ? (
-                      <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-end gap-1">
+                      {onViewDetails && (
                         <Button
                           size="icon"
-                          variant="outline"
-                          className="h-6 w-6 rounded-md border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10"
-                          onClick={() => {
-                            updateExpenseStatus(expense.id, "approved");
-                            onApprove?.(employee.name, expense.id);
-                          }}
+                          variant="ghost"
+                          className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
+                          onClick={() => onViewDetails({
+                            ...expense,
+                            employeeName: employee.name,
+                            employeePosition: employee.position,
+                          })}
+                          title="View expense details"
                         >
-                          <Check className="h-3 w-3" />
+                          <Eye className="h-3 w-3" />
+                          <span className="sr-only">View expense details</span>
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="h-6 w-6 rounded-md border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
-                          onClick={() => {
-                            updateExpenseStatus(expense.id, "rejected");
-                            onReject?.(employee.name, expense.id);
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      getStatusBadge(expense.status)
-                    )}
+                      )}
+                      {expense.status === "pending" ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-6 w-6 rounded-md border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10"
+                            onClick={() => {
+                              updateExpenseStatus(expense.id, "approved");
+                              onApprove?.(employee.name, expense.id);
+                            }}
+                          >
+                            <Check className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-6 w-6 rounded-md border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
+                            onClick={() => {
+                              updateExpenseStatus(expense.id, "rejected");
+                              onReject?.(employee.name, expense.id);
+                            }}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        getStatusBadge(expense.status)
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
