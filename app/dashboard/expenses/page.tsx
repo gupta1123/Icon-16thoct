@@ -581,29 +581,25 @@ export default function ExpensesPage() {
 
   // Helper to render the card grid (reused for mobile and desktop)
   const renderCards = () => (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {filteredEmployees.length === 0 ? (
         <div className="col-span-full text-center py-12">
           <Text tone="muted">No expenses found for the selected period.</Text>
         </div>
       ) : (
-        filteredEmployees.map((employee) => {
-          const isExpanded = expandedCardId === employee.id;
-          return (
-            <div key={employee.id} className={isExpanded ? "min-w-0 md:col-span-2" : "min-w-0"}>
-              <EmployeeExpenseCard
-                employee={employee}
-                showExpenses={isExpanded}
-                onToggleExpenses={() => toggleCardExpansion(employee.id)}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                onApproveMultiple={handleApproveMultiple}
-                onRejectMultiple={handleRejectMultiple}
-                onViewDetails={(expense) => setSelectedExpense(toViewModel(expense))}
-              />
-            </div>
-          );
-        })
+        filteredEmployees.map((employee) => (
+          <EmployeeExpenseCard
+            key={employee.id}
+            employee={employee}
+            showExpenses={expandedCardId === employee.id}
+            onToggleExpenses={() => toggleCardExpansion(employee.id)}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onApproveMultiple={handleApproveMultiple}
+            onRejectMultiple={handleRejectMultiple}
+            onViewDetails={(expense) => setSelectedExpense(toViewModel(expense))}
+          />
+        ))
       )}
     </div>
   );
@@ -707,7 +703,7 @@ export default function ExpensesPage() {
               <Text>Loading expenses...</Text>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i}>
                 <CardHeader>
