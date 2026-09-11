@@ -121,8 +121,8 @@ export default function EmployeeExpenseCard({
   const initials = employee.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
 
   return (
-    <Card className="w-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden">
-      <CardContent className="p-3.5 space-y-3">
+    <Card className="min-w-0 w-full border border-border/60 hover:border-primary/30 transition-all shadow-sm rounded-xl overflow-hidden">
+      <CardContent className="min-w-0 p-3.5 space-y-3">
         {/* Compact Header */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -190,11 +190,11 @@ export default function EmployeeExpenseCard({
             <Separator className="my-1" />
             <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
               {expenses.map((expense) => (
-                <div key={expense.id} className="flex items-center justify-between p-2 hover:bg-muted/40 rounded-lg text-xs border border-border/30">
+                <div key={expense.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border/30 p-2 text-xs hover:bg-muted/40">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <Checkbox
                       checked={selectedExpenseIds.includes(expense.id)}
-                      className="h-3.5 w-3.5 rounded"
+                      className="h-3.5 w-3.5 shrink-0 rounded"
                       onCheckedChange={(checked: boolean) => {
                         if (checked) {
                           setSelectedExpenseIds(prev => [...prev, expense.id]);
@@ -214,8 +214,8 @@ export default function EmployeeExpenseCard({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-bold text-xs text-foreground">
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="whitespace-nowrap font-bold text-xs text-foreground">
                       ₹{expense.amount.toFixed(2)}
                     </span>
                     {onViewDetails && (
