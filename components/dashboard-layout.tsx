@@ -34,6 +34,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import Topbar from "@/components/topbar";
 import { DashboardHeaderOverrideProvider, type DashboardHeaderConfig } from "@/components/dashboard-header-context";
+import { useNavigationGuard } from "@/components/unsaved-changes-provider";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import MobileBottomNav from "@/components/mobile-bottom-nav";
@@ -222,6 +223,7 @@ export default function DashboardLayout({
   const usesHeaderOverride = pathname === "/dashboard" || employeeCreateLayout || employeeEditLayout || employeeDetailLayout || surveyDetailLayout;
   const compactPageLayout = pathname === "/dashboard" || pathname === "/dashboard/reports" || /^\/dashboard\/visits\/[^/]+$/.test(pathname) || compactSettingsLayout || employeeCreateLayout || employeeEditLayout || employeeDetailLayout || surveyDetailLayout;
   const router = useRouter();
+  const { requestNavigation } = useNavigationGuard();
   const { logout } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -348,14 +350,16 @@ export default function DashboardLayout({
   };
 
   const handleLogout = async () => {
-    try {
-      await logout();
-      router.push("/login");
-    } catch (error) {
-      console.error('Logout error:', error);
-      // Still redirect to login even if logout API fails
-      router.push("/login");
-    }
+    requestNavigation(async () => {
+      try {
+        await logout();
+        router.push("/login");
+      } catch (error) {
+        console.error('Logout error:', error);
+        // Still redirect to login even if logout API fails
+        router.push("/login");
+      }
+    });
   };
 
   const canSeeSettings = isAdmin || isDataManager;
@@ -538,7 +542,7 @@ export default function DashboardLayout({
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                     onClick={() => {
                       setUserMenuOpen(false);
-                      router.push("/dashboard/settings");
+                      requestNavigation(() => router.push("/dashboard/settings"));
                     }}
                   >
                     <Settings className="h-4 w-4" />
@@ -572,6 +576,7 @@ export default function DashboardLayout({
           subheading={usesHeaderOverride ? dashboardHeader?.subheading ?? subheading : subheading}
           onBack={usesHeaderOverride ? dashboardHeader?.onBack : undefined}
           viewRole={isAdmin ? "admin" : isManager ? "manager" : undefined}
+          actions={dashboardHeader?.actions}
         />
         
         {/* Page content */}

@@ -12,7 +12,8 @@ import {
     RefreshCw,
     CheckCircle2,
     XCircle,
-    MessageSquareText
+    MessageSquareText,
+    Filter
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { apiService, API_BASE_URL, type ApprovalRequest, type AttendanceRequestPageResponse } from '@/lib/api';
@@ -27,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SpacedCalendar } from '@/components/ui/spaced-calendar';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
-import { format } from 'date-fns';
+import { format, startOfDay, subDays } from 'date-fns';
 
 type ApprovalTypeValue = 'full day' | 'half day';
 type ApprovalTypeState = Record<number, ApprovalTypeValue>;
@@ -47,12 +48,13 @@ export default function ApprovalsPage() {
     
     // UI State
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-    const [startDate, setStartDate] = useState<Date>();
-    const [endDate, setEndDate] = useState<Date>();
+    const [startDate, setStartDate] = useState<Date | undefined>(() => startOfDay(subDays(new Date(), 6)));
+    const [endDate, setEndDate] = useState<Date | undefined>(() => startOfDay(new Date()));
     const [eligibleEmployees, setEligibleEmployees] = useState<{ id: number; firstName: string; lastName: string; role?: string }[]>([]);
     const [activeTab, setActiveTab] = useState<string>('pending');
     const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
     const [savingIds, setSavingIds] = useState<number[]>([]);
+    const [showFilters, setShowFilters] = useState(false);
     
     // Pagination state
     const [currentPage, setCurrentPage] = useState(0);
@@ -281,13 +283,47 @@ export default function ApprovalsPage() {
     return (
         <div className="mx-auto w-full max-w-none py-4 space-y-4">
             <Tabs defaultValue="pending" value={activeTab} onValueChange={(val) => { setActiveTab(val); setCurrentPage(0); }} className="space-y-4">
-                <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-                    <TabsList className="grid h-9 w-full shrink-0 grid-cols-2 p-1 sm:w-[300px]">
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <TabsList className="relative z-10 grid h-9 w-full shrink-0 grid-cols-2 p-1 sm:w-[320px]">
                         <TabsTrigger value="pending" className="text-xs">Pending requests</TabsTrigger>
                         <TabsTrigger value="history" className="text-xs">Request history</TabsTrigger>
                     </TabsList>
 
-                    <div className="flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:flex-nowrap lg:justify-end">
+                    <div className="flex items-center justify-end gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 whitespace-nowrap text-xs shadow-none"
+                            onClick={() => setShowFilters((visible) => !visible)}
+                            aria-expanded={showFilters}
+                            aria-controls="approval-filters"
+                        >
+                            <Filter className="mr-1.5 h-3.5 w-3.5" />
+                            {showFilters ? 'Hide filters' : 'Show filters'}
+                        </Button>
+
+                        <div className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
+                            <Clock className="h-3.5 w-3.5 text-amber-600" />
+                            <span><span className="font-semibold text-foreground">{statusCounts.pending}</span> pending</span>
+                            <span className="text-border">•</span>
+                            <span><span className="font-semibold text-foreground">{statusCounts.total}</span> total</span>
+                        </div>
+
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => { fetchRequests(); fetchStatusCounts(); }}
+                            disabled={isRefreshing}
+                            className="h-9 w-9 shrink-0 shadow-none"
+                            aria-label="Refresh approval requests"
+                        >
+                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                        </Button>
+                    </div>
+                </div>
+
+                {showFilters && (
+                    <div id="approval-filters" className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
                         <div className="w-full sm:w-[200px] sm:shrink-0">
                             <Label className="sr-only">Employee</Label>
                             <SearchableSelect
@@ -354,25 +390,8 @@ export default function ApprovalsPage() {
                             </Button>
                         )}
 
-                        <div className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border bg-card px-3 text-xs text-muted-foreground">
-                            <Clock className="h-3.5 w-3.5 text-amber-600" />
-                            <span><span className="font-semibold text-foreground">{statusCounts.pending}</span> pending</span>
-                            <span className="text-border">•</span>
-                            <span><span className="font-semibold text-foreground">{statusCounts.total}</span> total</span>
-                        </div>
-
-                        <Button 
-                            variant="outline" 
-                            size="icon" 
-                            onClick={() => { fetchRequests(); fetchStatusCounts(); }} 
-                            disabled={isRefreshing}
-                            className="h-9 w-9 shrink-0 shadow-none"
-                            aria-label="Refresh approval requests"
-                        >
-                            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                        </Button>
                     </div>
-                </div>
+                )}
 
                 <DateRangeError fromDate={startDate} toDate={endDate} />
 

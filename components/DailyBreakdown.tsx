@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -302,8 +301,6 @@ const DailyBreakdown: React.FC = () => {
 
     return (
         <div className="relative space-y-4 pb-24">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
                     {hasNegativeDistance && (
                         <div className="rounded-md border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-left dark:border-amber-900/50 dark:bg-amber-950/25">
                             <DistanceIssueNote href={distanceRecalculationHref} />
@@ -452,7 +449,7 @@ const DailyBreakdown: React.FC = () => {
                             </div>
 
                             {/* Desktop Table View */}
-                            <div className="hidden md:block rounded-md border">
+                            <div className="hidden min-w-0 overflow-x-auto md:block">
                                 <Table className="table-fixed text-xs font-poppins">
                                     <colgroup>
                                         <col className="w-[40px]" />
@@ -528,9 +525,6 @@ const DailyBreakdown: React.FC = () => {
                             </div>
                         </>
                     )}
-                </CardContent>
-            </Card>
-
             {/* --- Floating Action Bar (Shadcn floating pill for bulk actions) --- */}
             {dailyResult.loaded && selectedRecords.size > 0 && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] md:w-auto min-w-[350px] z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">

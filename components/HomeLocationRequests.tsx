@@ -28,6 +28,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -42,6 +49,7 @@ import {
   Loader2,
   Mail,
   MapPin,
+  MoreHorizontal,
   Phone,
   RefreshCcw,
   Search,
@@ -130,6 +138,25 @@ const buildAddress = (request: PendingLocationChangeRequest) => {
   ].filter((value): value is string => Boolean(value && String(value).trim()));
 
   return parts.length > 0 ? parts.join(", ") : "Address details not provided";
+};
+
+const hasValidCoordinates = (request: PendingLocationChangeRequest) => {
+  const latitudeValue = request.houseLatitude;
+  const longitudeValue = request.houseLongitude;
+  if (
+    latitudeValue === null ||
+    latitudeValue === undefined ||
+    String(latitudeValue).trim() === "" ||
+    longitudeValue === null ||
+    longitudeValue === undefined ||
+    String(longitudeValue).trim() === ""
+  ) {
+    return false;
+  }
+
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
 };
 
 const parseDateFromParts = (date?: string | null, time?: string | null): Date | null => {
@@ -357,21 +384,6 @@ const HomeLocationRequests = () => {
     setCurrentPage(1);
   }, [searchTerm, itemsPerPage]);
 
-  const summary = useMemo(() => {
-    const withCoordinates = requests.filter(
-      (request) =>
-        request.houseLatitude !== null &&
-        request.houseLatitude !== undefined &&
-        request.houseLongitude !== null &&
-        request.houseLongitude !== undefined
-    ).length;
-
-    return {
-      pending: requests.length,
-      withCoordinates,
-    };
-  }, [requests]);
-
   const totalPages = Math.ceil(filteredRequests.length / itemsPerPage) || 1;
   const indexOfLastRow = currentPage * itemsPerPage;
   const indexOfFirstRow = indexOfLastRow - itemsPerPage;
@@ -444,10 +456,8 @@ const HomeLocationRequests = () => {
         </div>
       )}
 
-      <Card className="gap-0 border-border/70 py-0 shadow-sm">
-        <CardContent className="space-y-4 p-4">
           {/* Compact Filter & Summary Header */}
-          <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 sm:flex-row sm:items-center">
             <div className="flex flex-1 flex-wrap items-center gap-2">
               <div className="relative min-w-[200px] flex-1 max-w-sm">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -470,16 +480,6 @@ const HomeLocationRequests = () => {
                 <RefreshCcw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <Badge variant="outline" className="h-7 border-amber-300 bg-amber-50/80 text-amber-700 font-medium dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
-                <Clock className="mr-1 h-3 w-3" />
-                Pending: {summary.pending}
-              </Badge>
-              <Badge variant="outline" className="h-7 border-primary/30 bg-primary/5 text-primary font-medium">
-                <MapPin className="mr-1 h-3 w-3" />
-                With Coordinates: {summary.withCoordinates}
-              </Badge>
             </div>
           </div>
 
@@ -547,43 +547,35 @@ const HomeLocationRequests = () => {
                               {statusDateLabel}
                             </span>
                           </div>
-                          <div className="pt-2 flex items-center justify-end gap-1.5 border-t">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => handleOpenDetails(request)}
-                            >
-                              <User className="h-3.5 w-3.5" />
-                              Details
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => void handleDecision(request, true)}
-                              disabled={actionInFlight !== null}
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                              )}
-                              Approve
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
-                              onClick={() => void handleDecision(request, false)}
-                              disabled={actionInFlight !== null}
-                            >
-                              {isProcessing ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <XCircle className="h-3.5 w-3.5" />
-                              )}
-                              Reject
-                            </Button>
+                          <div className="flex items-center justify-end border-t pt-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${name}`}>
+                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem onSelect={() => handleOpenDetails(request)}>
+                                  <User />
+                                  Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={actionInFlight !== null}
+                                  onSelect={() => void handleDecision(request, true)}
+                                >
+                                  <CheckCircle2 />
+                                  Approve
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  disabled={actionInFlight !== null}
+                                  onSelect={() => void handleDecision(request, false)}
+                                >
+                                  <XCircle />
+                                  Reject
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
                       </Card>
@@ -595,13 +587,13 @@ const HomeLocationRequests = () => {
               {/* Desktop View - Table */}
               <div className="hidden min-w-0 overflow-x-auto md:block">
                 <TooltipProvider delayDuration={200}>
-                  <Table className="table-fixed text-xs font-poppins">
+                  <Table className="min-w-[900px] table-fixed text-xs font-poppins">
                     <colgroup>
-                      <col className="w-[20%]" />
-                      <col className="w-[30%]" />
                       <col className="w-[18%]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[18%]" />
+                      <col className="w-[40%]" />
+                      <col className="w-[17%]" />
+                      <col className="w-[15%]" />
+                      <col className="w-[10%]" />
                     </colgroup>
                     <TableHeader>
                       <TableRow>
@@ -642,25 +634,36 @@ const HomeLocationRequests = () => {
 
                           return (
                             <TableRow key={`${identifier}-${request.id}`}>
-                              <TableCell className="font-medium">
+                              <TableCell className="max-w-0 overflow-hidden font-medium">
                                 <Ellipsis value={name} />
                                 {request.role && (
                                   <span className="block text-[11px] text-muted-foreground truncate">{request.role}</span>
                                 )}
                               </TableCell>
-                              <TableCell>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="block min-w-0 truncate cursor-help text-xs font-medium text-foreground">
-                                      {fullAddress}
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent className="max-w-xs break-words bg-black text-white">
-                                    <p className="text-xs text-white">{fullAddress}</p>
-                                  </TooltipContent>
-                                </Tooltip>
+                              <TableCell className="max-w-0 overflow-hidden">
+                                <Popover>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="block w-full min-w-0 cursor-help truncate text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          aria-label={`Show full address: ${fullAddress}`}
+                                        >
+                                          {fullAddress}
+                                        </button>
+                                      </PopoverTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-sm break-words bg-black text-white">
+                                      <p className="text-xs text-white">{fullAddress}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] p-3">
+                                    <p className="break-words text-sm leading-relaxed">{fullAddress}</p>
+                                  </PopoverContent>
+                                </Popover>
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="max-w-0 overflow-hidden">
                                 <div className="space-y-0.5 text-xs">
                                   <p className="font-medium text-foreground truncate">
                                     {formatContactNumber(request.primaryContact)}
@@ -670,58 +673,44 @@ const HomeLocationRequests = () => {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell>
-                                <div className="space-y-0.5">
-                                  <Badge
-                                    variant="outline"
-                                    className="inline-flex items-center gap-1 border-amber-300 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
-                                  >
-                                    <Clock className="h-3 w-3" />
-                                    Pending
-                                  </Badge>
-                                  <span className="block text-[11px] text-muted-foreground">{statusDateLabel}</span>
-                                </div>
+                              <TableCell className="max-w-0 overflow-hidden">
+                                <Badge
+                                  variant="outline"
+                                  className="inline-flex items-center gap-1 border-amber-300 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+                                >
+                                  <Clock className="h-3 w-3" />
+                                  Pending
+                                </Badge>
                               </TableCell>
                               <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-1.5 text-xs gap-1"
-                                    onClick={() => handleOpenDetails(request)}
-                                    title="View Details"
-                                  >
-                                    <User className="h-3.5 w-3.5" />
-                                    Details
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    className="h-7 px-2 text-xs gap-1"
-                                    onClick={() => void handleDecision(request, true)}
-                                    disabled={actionInFlight !== null}
-                                  >
-                                    {isProcessing ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
-                                    )}
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
-                                    onClick={() => void handleDecision(request, false)}
-                                    disabled={actionInFlight !== null}
-                                  >
-                                    {isProcessing ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <XCircle className="h-3.5 w-3.5" />
-                                    )}
-                                    Reject
-                                  </Button>
-                                </div>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${name}`}>
+                                      {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-40">
+                                    <DropdownMenuItem onSelect={() => handleOpenDetails(request)}>
+                                      <User />
+                                      Details
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={actionInFlight !== null}
+                                      onSelect={() => void handleDecision(request, true)}
+                                    >
+                                      <CheckCircle2 />
+                                      Approve
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      disabled={actionInFlight !== null}
+                                      onSelect={() => void handleDecision(request, false)}
+                                    >
+                                      <XCircle />
+                                      Reject
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </TableCell>
                             </TableRow>
                           );
@@ -787,9 +776,6 @@ const HomeLocationRequests = () => {
               )}
             </>
           )}
-        </CardContent>
-      </Card>
-
       <Dialog
         open={isDetailOpen && !!detailRequest}
         onOpenChange={(open) => {
@@ -828,9 +814,41 @@ const HomeLocationRequests = () => {
                   </div>
                 </div>
                 <div className="rounded-lg border bg-muted/10 p-3">
-                  <p className="font-semibold text-muted-foreground uppercase text-[10px]">Requested address</p>
-                  <p className="mt-1.5 flex items-start gap-2 text-xs text-foreground">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="pt-1 font-semibold uppercase text-[10px] text-muted-foreground">Requested address</p>
+                    {hasValidCoordinates(detailRequest) ? (
+                      <Popover>
+                        <PopoverTrigger className="shrink-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <Badge
+                            variant="outline"
+                            className="cursor-pointer border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/70"
+                          >
+                            <CheckCircle2 className="h-3 w-3" />
+                            Coordinates available
+                          </Badge>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="z-[70] w-72 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Home coordinates</p>
+                          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+                            <dt className="text-muted-foreground">Latitude</dt>
+                            <dd className="font-mono font-medium">{Number(detailRequest.houseLatitude).toFixed(6)}</dd>
+                            <dt className="text-muted-foreground">Longitude</dt>
+                            <dd className="font-mono font-medium">{Number(detailRequest.houseLongitude).toFixed(6)}</dd>
+                          </dl>
+                        </PopoverContent>
+                      </Popover>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 border-muted-foreground/30 bg-muted text-muted-foreground"
+                      >
+                        <XCircle className="h-3 w-3" />
+                        Coordinates not available
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="mt-3 flex items-start gap-2 text-xs text-foreground">
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     {buildAddress(detailRequest)}
                   </p>
                 </div>

@@ -41,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
+import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
 import {
   apiService,
   type BulkVisitCreateResult,
@@ -448,6 +449,7 @@ export default function AssignVisitsPage() {
   // Assignments state: key = `${empId}-${dateKey}` => pending store assignment.
   const [assignments, setAssignments] = useState<Record<CellKey, Assignment>>({});
   const [dirty, setDirty] = useState(false);
+  const { markSaved: markAssignmentsSaved } = useUnsavedChanges(dirty);
 
   // Group employees by city
   const [employeeSearch, setEmployeeSearch] = useState('');
@@ -792,6 +794,7 @@ export default function AssignVisitsPage() {
   };
 
   const discardPendingAssignments = () => {
+    markAssignmentsSaved();
     setAssignments({});
     setDirty(false);
     setSaveSummary(null);
@@ -920,6 +923,7 @@ export default function AssignVisitsPage() {
     try {
       const toCreate = Object.values(assignments);
       if (toCreate.length === 0) {
+        markAssignmentsSaved();
         setDirty(false);
         setSaveSummary({
           created: 0,
@@ -958,6 +962,7 @@ export default function AssignVisitsPage() {
       setSaveSummary(summary);
       
       if (summary.skipped === 0 && summary.failed === 0) {
+        markAssignmentsSaved();
         setAssignments({});
         setDirty(false);
       } else {

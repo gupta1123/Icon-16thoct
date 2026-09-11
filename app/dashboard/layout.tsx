@@ -1,6 +1,7 @@
 "use client";
 
 import DashboardLayout from "@/components/dashboard-layout";
+import { UnsavedChangesProvider } from "@/components/unsaved-changes-provider";
 import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
@@ -160,11 +161,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const currentPage = getPageHeading();
 
   return (
-    <DashboardLayout 
-      heading={currentPage.heading} 
-      subheading={currentPage.subheading}
-    >
-      {children}
-    </DashboardLayout>
+    <UnsavedChangesProvider>
+      <DashboardLayout
+        heading={currentPage.heading}
+        subheading={currentPage.subheading}
+      >
+        {children}
+      </DashboardLayout>
+    </UnsavedChangesProvider>
   );
 }

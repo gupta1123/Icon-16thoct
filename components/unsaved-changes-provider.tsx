@@ -11,20 +11,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 export const UNSAVED_CHANGES_MESSAGE =
-  "You have unsaved changes. If you leave this page, your changes will be lost. Leave without saving?";
+  "You have unsaved changes. If you leave now, those changes will be lost. Do you want to discard them and leave?";
 
 interface UnsavedChangesContextValue {
   hasUnsavedChanges: boolean;
@@ -33,10 +26,23 @@ interface UnsavedChangesContextValue {
   requestConfirmation: (action: () => void | Promise<void>, message?: string) => void;
 }
 
+interface BrowserNavigationEvent extends Event {
+  canIntercept: boolean;
+  navigationType: string;
+  destination: { key: string };
+}
+
+interface BrowserNavigation extends EventTarget {
+  traverseTo: (key: string) => Promise<unknown>;
+}
+
 const UnsavedChangesContext = createContext<UnsavedChangesContextValue | null>(null);
 
 export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const confirmationTitleId = useId();
+  const confirmationDescriptionId = useId();
   const blockersRef = useRef(new Map<string, string>());
   const allowNextNavigationRef = useRef(false);
   const allowResetTimerRef = useRef<number | null>(null);
@@ -80,6 +86,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const requestNavigation = useCallback((action: () => void | Promise<void>) => {
+    if (allowNextNavigationRef.current) {
+      allowNextNavigationRef.current = false;
+      void action();
+      return;
+    }
+
     if (blockersRef.current.size === 0) {
       void action();
       return;
@@ -113,6 +125,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     if (!hasUnsavedChanges) return;
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowNextNavigationRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -120,6 +133,60 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const handleInternalLink = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) return;
+
+      const anchor = event.target instanceof Element
+        ? event.target.closest<HTMLAnchorElement>("a[href]")
+        : null;
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.href === window.location.href) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      requestNavigation(() => router.push(`${destination.pathname}${destination.search}${destination.hash}`));
+    };
+
+    document.addEventListener("click", handleInternalLink, true);
+    return () => document.removeEventListener("click", handleInternalLink, true);
+  }, [hasUnsavedChanges, requestNavigation, router]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const browserNavigation = (window as Window & { navigation?: BrowserNavigation }).navigation;
+    if (!browserNavigation) return;
+
+    const handleHistoryNavigation = (rawEvent: Event) => {
+      const event = rawEvent as BrowserNavigationEvent;
+      if (event.navigationType !== "traverse" || !event.canIntercept || !event.cancelable) return;
+      if (allowNextNavigationRef.current) {
+        allowNextNavigationRef.current = false;
+        return;
+      }
+
+      event.preventDefault();
+      requestNavigation(() => {
+        void browserNavigation.traverseTo(event.destination.key);
+      });
+    };
+
+    browserNavigation.addEventListener("navigate", handleHistoryNavigation);
+    return () => browserNavigation.removeEventListener("navigate", handleHistoryNavigation);
+  }, [hasUnsavedChanges, requestNavigation]);
 
   useEffect(() => {
     if (previousPathnameRef.current === pathname) return;
@@ -134,6 +201,20 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     syncBlockedState();
   }, [closeConfirmation, pathname, syncBlockedState]);
 
+  useEffect(() => {
+    if (confirmationMessage === null) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeConfirmation();
+    };
+
+    document.addEventListener("keydown", handleEscape, true);
+    return () => document.removeEventListener("keydown", handleEscape, true);
+  }, [closeConfirmation, confirmationMessage]);
+
   const value = useMemo<UnsavedChangesContextValue>(() => ({
     hasUnsavedChanges,
     setBlocker,
@@ -144,32 +225,52 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   return (
     <UnsavedChangesContext.Provider value={value}>
       {children}
-      <Dialog
-        open={confirmationMessage !== null}
-        onOpenChange={(open) => {
-          if (!open) closeConfirmation();
-        }}
-      >
-        <DialogContent showCloseButton={false} className="z-[70] sm:max-w-md">
-          <DialogHeader className="gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
+      {confirmationMessage !== null && createPortal(
+        <div
+          className="pointer-events-auto fixed inset-0 z-[100] grid place-items-center bg-black/50 p-4"
+          role="presentation"
+        >
+          <div
+            aria-describedby={confirmationDescriptionId}
+            aria-labelledby={confirmationTitleId}
+            aria-modal="true"
+            className="pointer-events-auto w-full max-w-md rounded-lg border bg-background p-6 text-foreground shadow-xl"
+            role="alertdialog"
+          >
+            <div className="space-y-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <h2 id={confirmationTitleId} className="text-lg font-semibold leading-none tracking-tight">
+                Discard unsaved changes?
+              </h2>
+              <p id={confirmationDescriptionId} className="text-sm leading-relaxed text-muted-foreground">
+                {confirmationMessage}
+              </p>
             </div>
-            <DialogTitle>Unsaved changes</DialogTitle>
-            <DialogDescription className="leading-relaxed">
-              {confirmationMessage}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="mt-2 sm:justify-end">
-            <Button variant="outline" onClick={closeConfirmation}>
-              Keep Editing
-            </Button>
-            <Button onClick={confirmPendingAction}>
-              Discard Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                autoFocus
+                className="pointer-events-auto"
+                type="button"
+                variant="outline"
+                onClick={closeConfirmation}
+              >
+                Keep editing
+              </Button>
+              <Button
+                className="pointer-events-auto"
+                type="button"
+                variant="destructive"
+                onClick={confirmPendingAction}
+              >
+                Discard and leave
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </UnsavedChangesContext.Provider>
   );
 }

@@ -24,9 +24,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import AddTeam from "@/components/AddTeam";
 import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 import { API_BASE_URL } from "@/lib/api";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { normalizeRoleValue } from "@/lib/role-utils";
 import { useAuth } from "@/components/auth-provider";
+import { useGuardedRouter, useUnsavedChanges } from "@/components/unsaved-changes-provider";
 
 interface User {
   id: number;
@@ -79,7 +80,7 @@ const toSentenceCase = (text: string): string => {
 };
 
 function EmployeeListContent() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const searchParams = useSearchParams();
   const requestedEditId = searchParams.get('edit');
   const [users, setUsers] = useState<User[]>([]);
@@ -112,7 +113,41 @@ function EmployeeListContent() {
   const [archiveSearchQuery, setArchiveSearchQuery] = useState("");
   const [isEditUsernameModalOpen, setIsEditUsernameModalOpen] = useState(false);
   const [editingUsername, setEditingUsername] = useState<{ id: number; username: string } | null>(null);
+  const [editingUsernameBaseline, setEditingUsernameBaseline] = useState("");
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
+  const resetPasswordDraftIsDirty = isResetPasswordOpen && Boolean(newPassword || confirmPassword);
+  const usernameDraftIsDirty = isEditUsernameModalOpen && Boolean(
+    editingUsername && editingUsername.username !== editingUsernameBaseline
+  );
+  const cityAssignmentDraftIsDirty = isAssignCityModalOpen && Boolean(selectedCityToAssign);
+  const employeeDialogIsDirty = resetPasswordDraftIsDirty || usernameDraftIsDirty || cityAssignmentDraftIsDirty;
+  const { markSaved: markEmployeeDialogSaved, requestDiscard: requestEmployeeDialogDiscard } = useUnsavedChanges(employeeDialogIsDirty);
+
+  const closeResetPasswordDialog = useCallback(() => {
+    requestEmployeeDialogDiscard(() => {
+      setIsResetPasswordOpen(false);
+      setResetPasswordUserId(null);
+      setNewPassword('');
+      setConfirmPassword('');
+    }, resetPasswordDraftIsDirty);
+  }, [requestEmployeeDialogDiscard, resetPasswordDraftIsDirty]);
+
+  const closeUsernameDialog = useCallback(() => {
+    requestEmployeeDialogDiscard(() => {
+      setIsEditUsernameModalOpen(false);
+      setEditingUsername(null);
+      setEditingUsernameBaseline('');
+    }, usernameDraftIsDirty);
+  }, [requestEmployeeDialogDiscard, usernameDraftIsDirty]);
+
+  const closeCityAssignmentDialog = useCallback(() => {
+    if (isAssigningCity) return;
+    requestEmployeeDialogDiscard(() => {
+      setIsAssignCityModalOpen(false);
+      setUserToAssignCity(null);
+      setSelectedCityToAssign('');
+    }, cityAssignmentDraftIsDirty);
+  }, [cityAssignmentDraftIsDirty, isAssigningCity, requestEmployeeDialogDiscard]);
 
   useEffect(() => {
     if (!requestedEditId) return;
@@ -271,6 +306,7 @@ function EmployeeListContent() {
       );
       if (response.ok) {
         await fetchEmployees();
+        markEmployeeDialogSaved();
         setIsAssignCityModalOpen(false);
         setUserToAssignCity(null);
         setSelectedCityToAssign("");
@@ -280,12 +316,6 @@ function EmployeeListContent() {
     } finally {
       setIsAssigningCity(false);
     }
-  };
-
-  const cancelAssignCity = () => {
-    setIsAssignCityModalOpen(false);
-    setUserToAssignCity(null);
-    setSelectedCityToAssign("");
   };
 
   const toggleCardExpansion = (userId: number) => {
@@ -312,6 +342,7 @@ function EmployeeListContent() {
         })
       });
       if (response.ok) {
+        markEmployeeDialogSaved();
         setIsResetPasswordOpen(false);
         setNewPassword('');
         setConfirmPassword('');
@@ -346,8 +377,10 @@ function EmployeeListContent() {
         { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }
       );
       if (response.ok) {
+        markEmployeeDialogSaved();
         setIsEditUsernameModalOpen(false);
         setEditingUsername(null);
+        setEditingUsernameBaseline('');
         fetchEmployees();
       }
     } catch (error) {
@@ -409,6 +442,7 @@ function EmployeeListContent() {
 
   const handleEditUsername = (userId: number, currentUsername: string) => {
     setEditingUsername({ id: userId, username: currentUsername });
+    setEditingUsernameBaseline(currentUsername);
     setIsEditUsernameModalOpen(true);
   };
 
@@ -553,10 +587,10 @@ function EmployeeListContent() {
 
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">{error}</div>}
 
-        {/* Filter Card Grid */}
+        {/* Filters - single desktop row */}
         {areFiltersVisible && (
           <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))]">
               <div className="relative min-w-0">
                 <Label htmlFor="employee-search" className="sr-only">Search</Label>
                 <Input
@@ -915,7 +949,7 @@ function EmployeeListContent() {
         </div>
 
       {/* Reset Password Modal */}
-      <Dialog open={isResetPasswordOpen} onOpenChange={setIsResetPasswordOpen}>
+      <Dialog open={isResetPasswordOpen} onOpenChange={(open) => open ? setIsResetPasswordOpen(true) : closeResetPasswordDialog()}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Reset Password</DialogTitle>
@@ -932,7 +966,7 @@ function EmployeeListContent() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={closeResetPasswordDialog}>Cancel</Button>
             <Button onClick={handleResetPasswordSubmit}>Save</Button>
           </DialogFooter>
         </DialogContent>
@@ -988,7 +1022,7 @@ function EmployeeListContent() {
       </Dialog>
 
       {/* Edit Username Modal */}
-      <Dialog open={isEditUsernameModalOpen} onOpenChange={setIsEditUsernameModalOpen}>
+      <Dialog open={isEditUsernameModalOpen} onOpenChange={(open) => open ? setIsEditUsernameModalOpen(true) : closeUsernameDialog()}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Edit Username</DialogTitle>
@@ -1006,7 +1040,7 @@ function EmployeeListContent() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditUsernameModalOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={closeUsernameDialog}>Cancel</Button>
             <Button onClick={handleSaveUsername} disabled={!editingUsername?.username.trim()}>Save Changes</Button>
           </DialogFooter>
         </DialogContent>
@@ -1029,7 +1063,7 @@ function EmployeeListContent() {
       </Dialog>
 
       {/* Assign City Modal */}
-      <Dialog open={isAssignCityModalOpen} onOpenChange={setIsAssignCityModalOpen}>
+      <Dialog open={isAssignCityModalOpen} onOpenChange={(open) => open ? setIsAssignCityModalOpen(true) : closeCityAssignmentDialog()}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Assign City</DialogTitle>
@@ -1049,7 +1083,7 @@ function EmployeeListContent() {
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={cancelAssignCity}>Cancel</Button>
+            <Button variant="outline" onClick={closeCityAssignmentDialog}>Cancel</Button>
             <Button onClick={handleAssignCity} disabled={!selectedCityToAssign || isAssigningCity}>
               {isAssigningCity ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Assign City'}
             </Button>

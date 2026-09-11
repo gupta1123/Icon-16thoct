@@ -521,8 +521,6 @@ const EmployeeSummary: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <Card className="gap-0 border-border/70 py-0 shadow-sm">
-                <CardContent className="space-y-4 p-4">
                     {/* Filters Section */}
                     <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:flex-nowrap lg:gap-3">
@@ -769,12 +767,12 @@ const EmployeeSummary: React.FC = () => {
                                 ))}
                             </div>
 
-                            <div className="hidden md:block rounded-lg border bg-card">
-                                <div className="p-4 border-b">
+                            <div className="hidden space-y-2 md:block">
+                                <div>
                                     <Skeleton className="h-5 w-64" />
                                     <Skeleton className="h-4 w-40 mt-2" />
                                 </div>
-                                <div className="p-4 space-y-2">
+                                <div className="space-y-2">
                                     {[...Array(6)].map((_, i) => (
                                         <div key={i} className="flex items-center justify-between p-3 border rounded">
                                             <Skeleton className="h-4 w-40" />
@@ -942,8 +940,8 @@ const EmployeeSummary: React.FC = () => {
 
                             {/* Desktop view */}
                             <div className="hidden md:block">
-                                <div className="rounded-lg border bg-card">
-                                    <div className="border-b p-4">
+                                <div className="space-y-2">
+                                    <div>
                                         <h3 className="text-sm font-semibold text-foreground">Summary results</h3>
                                         <p className="mt-0.5 text-xs text-muted-foreground">{getDateRangeDisplay()}</p>
                                     </div>
@@ -1014,8 +1012,6 @@ const EmployeeSummary: React.FC = () => {
                             </div>
                         </>
                     )}
-                </CardContent>
-            </Card>
 
             <Dialog open={isAdjustmentModalOpen} onOpenChange={(open) => (open ? setIsAdjustmentModalOpen(true) : closeAdjustmentModal())}>
                 <DialogContent className="sm:max-w-lg">

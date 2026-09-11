@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { useUnsavedChanges } from '@/components/unsaved-changes-provider';
 
 interface DailyPricingModalProps {
   open: boolean;
@@ -21,19 +22,29 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
     city: ''
   });
   const [isLoading, setIsLoading] = useState(false);
+  const pricingDraftIsDirty = open && Boolean(newBrand.price || newBrand.city);
+  const { markSaved, requestDiscard } = useUnsavedChanges(pricingDraftIsDirty);
 
-  const handleResetForm = () => {
+  const handleResetForm = useCallback(() => {
     setNewBrand({
       brandName: 'Icon Steel',
       price: '',
       city: ''
     });
-  };
+  }, []);
+
+  const closePricingDialog = useCallback(() => {
+    if (isLoading) return;
+    requestDiscard(() => {
+      onOpenChange(false);
+      handleResetForm();
+    }, pricingDraftIsDirty);
+  }, [handleResetForm, isLoading, onOpenChange, pricingDraftIsDirty, requestDiscard]);
 
   // Reset form when open/close
   useEffect(() => {
     if (!open) handleResetForm();
-  }, [open]);
+  }, [handleResetForm, open]);
 
   const handleCreateBrand = async () => {
     setIsLoading(true);
@@ -57,6 +68,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
         throw new Error('API Error');
       }
 
+      markSaved();
       onOpenChange(false);
       onCreateSuccess?.();
       
@@ -70,7 +82,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
   return (
     <Dialog 
       open={open} 
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => nextOpen ? onOpenChange(true) : closePricingDialog()}
     >
       <DialogContent className="sm:max-w-[425px] p-6">
         <DialogHeader>
