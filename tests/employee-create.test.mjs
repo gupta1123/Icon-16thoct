@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyEmployeeDraft, employeeCreatePayload, employeeDraftErrors, generateEmployeePassword, saveEmployeeDraft, suggestEmployeeId, suggestUsername } from '../lib/employee-create.ts';
+import { employeeAssignedCities, emptyEmployeeDraft, employeeCreatePayload, employeeDraftErrors, generateEmployeePassword, saveEmployeeDraft, suggestEmployeeId, suggestUsername } from '../lib/employee-create.ts';
 import { API } from '../lib/api.ts';
 
 const valid = { ...emptyEmployeeDraft, employeeId: 'EMP-003', firstName: 'Test', lastName: 'Person', primaryContact: '9876543210', role: 'Regional Manager', userName: 'test_person', password: 'ExampleOnly@9' };
@@ -30,6 +30,10 @@ test('payload retains Icon role and string contact contract with separate accoun
   assert.equal(payload.employee.employeeId, 'EMP-003');
   assert.equal(payload.user.username, 'test_person');
   assert.equal('password' in payload.employee, false);
+});
+test('residential city is never treated as an operational city assignment', () => {
+  assert.deepEqual(employeeAssignedCities({ city: 'Bengaluru' }), []);
+  assert.deepEqual(employeeAssignedCities({ city: 'Bengaluru', assignedCity: ['Mysuru', ' mysuru ', 'Pune'] }), ['Mysuru', 'Pune']);
 });
 test('employee creation accepts the backend plain-text success response', async () => {
   const originalFetch = globalThis.fetch;

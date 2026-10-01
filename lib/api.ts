@@ -893,10 +893,6 @@ const resolveAssignedCities = (employee?: HierarchyEmployee | null): string[] =>
   combined.push(...toStringArray(employee.assignedCities));
   combined.push(...toStringArray(employee.cities));
 
-  if (combined.length === 0 && employee.city) {
-    combined.push(employee.city);
-  }
-
   const seen = new Set<string>();
   return combined.filter((city) => {
     if (!city) return false;

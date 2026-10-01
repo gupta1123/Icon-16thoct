@@ -88,7 +88,7 @@ export default function TeamsSettings() {
               const response = await request(`/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`);
               return await response.json() as EmployeeDto[];
             }))).flat();
-        if (version === panelVersion.current) setOfficers(eligibleOfficers(candidates, team, teams));
+        if (version === panelVersion.current) setOfficers(eligibleOfficers(candidates, team, teams, isCoordinator(team) ? [] : teamCities(team)));
       } else if (next === 'cities') {
         const options = await API.getCities();
         if (version === panelVersion.current) setCities([...new Map(options.filter(Boolean).map(city => [cityKey(city), city])).values()].sort((a, b) => a.localeCompare(b)));
