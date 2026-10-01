@@ -1448,7 +1448,7 @@ export class API {
     return apiService.getAllInactiveEmployees();
   }
 
-  static async createEmployee(employeeData: unknown): Promise<unknown> {
+  static async createEmployee(employeeData: unknown): Promise<string> {
     return apiService.createEmployee(employeeData);
   }
 
@@ -2200,10 +2200,11 @@ export class API {
     return this.makeRequest<EmployeeUserDto[]>('/employee/getAllInactive');
   }
 
-  async createEmployee(employeeData: unknown): Promise<unknown> {
-    return this.makeRequest<unknown>('/employee-user/create', {
+  async createEmployee(employeeData: unknown): Promise<string> {
+    return this.makeRequest<string>('/employee-user/create', {
       method: 'POST',
       body: JSON.stringify(employeeData),
+      allowTextResponse: true,
     });
   }
 

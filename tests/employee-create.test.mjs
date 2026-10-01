@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { emptyEmployeeDraft, employeeCreatePayload, employeeDraftErrors, generateEmployeePassword, saveEmployeeDraft, suggestEmployeeId, suggestUsername } from '../lib/employee-create.ts';
+import { API } from '../lib/api.ts';
 
 const valid = { ...emptyEmployeeDraft, employeeId: 'EMP-003', firstName: 'Test', lastName: 'Person', primaryContact: '9876543210', role: 'Regional Manager', userName: 'test_person', password: 'ExampleOnly@9' };
 const progress = () => ({ created: false, assignedCities: [] });
@@ -29,6 +30,24 @@ test('payload retains Icon role and string contact contract with separate accoun
   assert.equal(payload.employee.employeeId, 'EMP-003');
   assert.equal(payload.user.username, 'test_person');
   assert.equal('password' in payload.employee, false);
+});
+test('employee creation accepts the backend plain-text success response', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return new Response('User Created! 10020', {
+      status: 200,
+      headers: { 'content-type': 'text/plain;charset=UTF-8' },
+    });
+  };
+  try {
+    assert.equal(await API.createEmployee(employeeCreatePayload(valid)), 'User Created! 10020');
+    assert.match(String(request.url), /\/employee-user\/create$/);
+    assert.equal(request.options.method, 'POST');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 test('duplicate employee IDs or usernames do not submit a create request', async () => {
   for (const record of [{ employeeId: ' emp-003 ' }, { userDto: { username: 'TEST_PERSON' } }]) {
