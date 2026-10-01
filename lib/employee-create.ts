@@ -13,6 +13,28 @@ export const emptyEmployeeDraft: EmployeeDraft = {
 };
 export type EmployeeIdentity = { id?: number; employeeId?: string | number | null; userName?: string; userDto?: { username?: string } };
 
+const toCityArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map(item => String(item ?? '').trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(',').map(item => item.trim()).filter(Boolean);
+  return [];
+};
+
+/** Operational city assignments only. The residential `city` field is intentionally excluded. */
+export function employeeAssignedCities(record: Record<string, unknown>): string[] {
+  const combined = [
+    ...toCityArray(record.assignedCity),
+    ...toCityArray(record.assignedCities),
+    ...toCityArray(record.cities),
+  ];
+  const seen = new Set<string>();
+  return combined.filter(city => {
+    const key = city.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Business IDs are independent of the database and login IDs. */
 export function suggestEmployeeId(records: EmployeeIdentity[]): string {
   const ids = [...new Set(records.map(record => String(record.employeeId ?? '').trim().toUpperCase()).filter(Boolean))];

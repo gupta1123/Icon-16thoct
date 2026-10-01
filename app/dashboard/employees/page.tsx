@@ -22,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddTeam from "@/components/AddTeam";
-import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
+import { TeamCityPicker } from "@/components/team-city-picker";
 import { API_BASE_URL } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 import { normalizeRoleValue } from "@/lib/role-utils";
@@ -106,7 +106,8 @@ function EmployeeListContent() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [isAssignCityModalOpen, setIsAssignCityModalOpen] = useState(false);
   const [userToAssignCity, setUserToAssignCity] = useState<User | null>(null);
-  const [selectedCityToAssign, setSelectedCityToAssign] = useState<string>("");
+  const [selectedCitiesToAssign, setSelectedCitiesToAssign] = useState<string[]>([]);
+  const [cityAssignmentError, setCityAssignmentError] = useState<string | null>(null);
   const [isAssigningCity, setIsAssigningCity] = useState(false);
   const [archivedEmployees, setArchivedEmployees] = useState<User[]>([]);
   const [isArchivedModalOpen, setIsArchivedModalOpen] = useState(false);
@@ -119,7 +120,7 @@ function EmployeeListContent() {
   const usernameDraftIsDirty = isEditUsernameModalOpen && Boolean(
     editingUsername && editingUsername.username !== editingUsernameBaseline
   );
-  const cityAssignmentDraftIsDirty = isAssignCityModalOpen && Boolean(selectedCityToAssign);
+  const cityAssignmentDraftIsDirty = isAssignCityModalOpen && selectedCitiesToAssign.length > 0;
   const employeeDialogIsDirty = resetPasswordDraftIsDirty || usernameDraftIsDirty || cityAssignmentDraftIsDirty;
   const { markSaved: markEmployeeDialogSaved, requestDiscard: requestEmployeeDialogDiscard } = useUnsavedChanges(employeeDialogIsDirty);
 
@@ -145,7 +146,8 @@ function EmployeeListContent() {
     requestEmployeeDialogDiscard(() => {
       setIsAssignCityModalOpen(false);
       setUserToAssignCity(null);
-      setSelectedCityToAssign('');
+      setSelectedCitiesToAssign([]);
+      setCityAssignmentError(null);
     }, cityAssignmentDraftIsDirty);
   }, [cityAssignmentDraftIsDirty, isAssigningCity, requestEmployeeDialogDiscard]);
 
@@ -154,13 +156,10 @@ function EmployeeListContent() {
     router.replace(`/dashboard/employees/${requestedEditId}/edit`);
   }, [requestedEditId, router]);
 
-  const cityOptions = useMemo<SearchableOption<string>[]>(() =>
-    cities.map((city) => ({
-      value: city,
-      label: city,
-      data: city,
-    })),
-  [cities]);
+  const assignableCities = useMemo(() => {
+    const assigned = new Set((userToAssignCity?.assignedCity ?? []).map(city => city.trim().toLowerCase()));
+    return cities.filter(city => !assigned.has(city.trim().toLowerCase()));
+  }, [cities, userToAssignCity]);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
@@ -289,30 +288,34 @@ function EmployeeListContent() {
 
   const openAssignCityModal = (user: User) => {
     setUserToAssignCity(user);
-    setSelectedCityToAssign("");
+    setSelectedCitiesToAssign([]);
+    setCityAssignmentError(null);
     setIsAssignCityModalOpen(true);
   };
 
   const handleAssignCity = async () => {
-    if (!userToAssignCity || !selectedCityToAssign) return;
+    if (!userToAssignCity || selectedCitiesToAssign.length === 0) return;
     setIsAssigningCity(true);
+    setCityAssignmentError(null);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/employee/assignCity?id=${userToAssignCity.id}&city=${encodeURIComponent(selectedCityToAssign)}`,
-        {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (response.ok) {
-        await fetchEmployees();
-        markEmployeeDialogSaved();
-        setIsAssignCityModalOpen(false);
-        setUserToAssignCity(null);
-        setSelectedCityToAssign("");
+      for (const city of selectedCitiesToAssign) {
+        const response = await fetch(
+          `${API_BASE_URL}/employee/assignCity?id=${userToAssignCity.id}&city=${encodeURIComponent(city)}`,
+          {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        if (!response.ok) throw new Error(`Could not assign ${city} (${response.status}).`);
       }
+      await fetchEmployees();
+      markEmployeeDialogSaved();
+      setIsAssignCityModalOpen(false);
+      setUserToAssignCity(null);
+      setSelectedCitiesToAssign([]);
     } catch (error) {
       console.error('Error assigning city:', error);
+      setCityAssignmentError(error instanceof Error ? error.message : 'Could not assign the selected cities.');
     } finally {
       setIsAssigningCity(false);
     }
@@ -812,7 +815,7 @@ function EmployeeListContent() {
                               </DropdownMenuItem>
                               {canAssignCities && (
                                 <DropdownMenuItem onClick={() => openAssignCityModal(user)}>
-                                  Assign City
+                                  Assign Cities
                                 </DropdownMenuItem>
                               )}
                               {!isDataManager && (
@@ -891,7 +894,7 @@ function EmployeeListContent() {
                         </DropdownMenuItem>
                         {normalizeRoleValue(user.role) === 'FIELD_OFFICER' && (
                           <DropdownMenuItem onClick={() => openAssignCityModal(user)}>
-                            Assign City
+                            Assign Cities
                           </DropdownMenuItem>
                         )}
                         {!isDataManager && (
@@ -1062,30 +1065,26 @@ function EmployeeListContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Assign City Modal */}
+      {/* Assign Cities Modal */}
       <Dialog open={isAssignCityModalOpen} onOpenChange={(open) => open ? setIsAssignCityModalOpen(true) : closeCityAssignmentDialog()}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Assign City</DialogTitle>
-            <DialogDescription>Assign a city to {userToAssignCity?.firstName} {userToAssignCity?.lastName}</DialogDescription>
+            <DialogTitle>Assign Cities</DialogTitle>
+            <DialogDescription>Select one or more operational cities for {userToAssignCity?.firstName} {userToAssignCity?.lastName}. Their residential address is kept separate.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="city-select">Select City</Label>
-              <SearchableSelect<string>
-                options={cityOptions}
-                value={selectedCityToAssign || undefined}
-                onSelect={(option) => setSelectedCityToAssign(option?.value || "")}
-                placeholder="Choose a city"
-                searchPlaceholder="Search cities..."
-                triggerClassName="w-full"
-              />
+              <Label>Select operational cities</Label>
+              <TeamCityPicker cities={assignableCities} selected={selectedCitiesToAssign} onChange={setSelectedCitiesToAssign} disabled={isAssigningCity} />
+              {selectedCitiesToAssign.length > 0 && <div className="flex flex-wrap gap-2">{selectedCitiesToAssign.map(city => <Badge key={city} variant="secondary">{city}</Badge>)}</div>}
+              {assignableCities.length === 0 && <p className="text-sm text-muted-foreground">All available cities are already assigned.</p>}
+              {cityAssignmentError && <p role="alert" className="text-sm text-destructive">{cityAssignmentError}</p>}
             </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={closeCityAssignmentDialog}>Cancel</Button>
-            <Button onClick={handleAssignCity} disabled={!selectedCityToAssign || isAssigningCity}>
-              {isAssigningCity ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Assign City'}
+            <Button onClick={handleAssignCity} disabled={selectedCitiesToAssign.length === 0 || isAssigningCity}>
+              {isAssigningCity ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : `Assign ${selectedCitiesToAssign.length || ''} ${selectedCitiesToAssign.length === 1 ? 'City' : 'Cities'}`}
             </Button>
           </DialogFooter>
         </DialogContent>

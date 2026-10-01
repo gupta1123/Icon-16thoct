@@ -6,6 +6,12 @@ export const personName = (person?: Pick<EmployeeDto, 'id' | 'firstName' | 'last
 export const roleKey = (role?: string | null) => (role ?? '').trim().toUpperCase().replace(/^ROLE_/, '').replace(/[\s-]+/g, '_');
 export const cityKey = (city: string) => city.trim().toLowerCase();
 export const cityLabel = (city: string) => city.trim().toLowerCase().replace(/\b\p{L}/gu, letter => letter.toUpperCase());
+export const employeeCities = (employee: EmployeeDto): string[] => {
+  const record = employee as unknown as Record<string, unknown>;
+  const values = [record.assignedCity, record.assignedCities, record.cities];
+  const cities = values.flatMap(value => Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []);
+  return [...new Map(cities.map(city => String(city ?? '').trim()).filter(Boolean).map(city => [cityKey(city), city])).values()];
+};
 export const teamCities = (team: SettingsTeam) => [...new Map((team.officeManager?.assignedCity ?? []).filter(Boolean).map(city => [cityKey(city), city.trim()])).values()];
 export const isCoordinator = (team: SettingsTeam) => team.teamType === 'COORDINATOR_TEAM' || roleKey(team.officeManager?.role) === 'COORDINATOR';
 export const teamLeadLabel = (team: SettingsTeam) => isCoordinator(team) ? 'Coordinator' : 'Regional Manager';
@@ -25,8 +31,15 @@ export function filterTeams(teams: SettingsTeam[], filters: { search: string; ma
 }
 
 // Identity is the team ID, not the manager ID: a manager can own several teams.
-export function eligibleOfficers(candidates: EmployeeDto[], team: SettingsTeam, teams: SettingsTeam[]) {
+export function eligibleOfficers(candidates: EmployeeDto[], team: SettingsTeam, teams: SettingsTeam[], requiredCities: string[] = []) {
   const excluded = new Set(teams.filter(other => other.id === team.id || isCoordinator(other) === isCoordinator(team)).flatMap(other => other.fieldOfficers.map(person => person.id)));
-  return [...new Map(candidates.filter(person => roleKey(person.role) === 'FIELD_OFFICER' && !excluded.has(person.id)).map(person => [person.id, person])).values()]
+  const required = new Set(requiredCities.map(cityKey));
+  return [...new Map(candidates.filter(person => {
+    const assigned = employeeCities(person);
+    return roleKey(person.role) === 'FIELD_OFFICER'
+      && !excluded.has(person.id)
+      && assigned.length > 0
+      && (!required.size || assigned.some(city => required.has(cityKey(city))));
+  }).map(person => [person.id, person])).values()]
     .sort((a, b) => personName(a).localeCompare(personName(b)));
 }

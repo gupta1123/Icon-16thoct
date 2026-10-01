@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cityKey, cityLabel, eligibleOfficers, filterTeams, teamAvps, teamCities, teamLeadLabel } from '../lib/team-settings.ts';
 import { API, transformTeamHierarchyResponse } from '../lib/api.ts';
 
-const person = (id, name, role = 'FIELD_OFFICER') => ({ id, firstName: name, lastName: '', role });
+const person = (id, name, role = 'FIELD_OFFICER', assignedCity = ['Pune']) => ({ id, firstName: name, lastName: '', role, assignedCity });
 const team = (id, lead, officers = [], cities = [], type = 'REGIONAL_MANAGER_TEAM') => ({ id, officeManager: { ...lead, assignedCity: cities }, fieldOfficers: officers, teamType: type });
 const noFilters = { search: '', manager: '', city: '', officer: '' };
 
@@ -14,6 +14,11 @@ test('hierarchy keeps distinct teams with the same manager and preserves AVP/coo
   assert.equal(teamAvps(data[0])[0].id, 5);
   assert.equal(data[0].fieldOfficers[0].id, 3);
   assert.equal(teamLeadLabel(data[2]), 'Coordinator');
+});
+test('hierarchy never promotes a residential city into assigned coverage', () => {
+  const [result] = transformTeamHierarchyResponse({ regionalManagerTeams: [{ teamId: 1, manager: { id: 2, name: 'Manager', city: 'Bengaluru' }, fieldOfficers: [{ id: 3, name: 'Officer', role: 'FIELD_OFFICER', city: 'Mysuru' }] }] });
+  assert.deepEqual(result.officeManager.assignedCity, []);
+  assert.deepEqual(result.fieldOfficers[0].assignedCity, []);
 });
 test('team search matches cities, officers, IDs and AVP names without mutating the list', () => {
   const a = team(12, person(2, 'Zed'), [person(3, 'Meera')], ['Pune']); a.avp = person(8, 'Priya', 'AVP');
@@ -44,6 +49,15 @@ test('coordinator eligibility is cross-city but cannot reuse another coordinator
   const coord = team(1, person(2, 'Coord'), [person(10, 'Current')], [], 'COORDINATOR_TEAM');
   const other = team(2, person(3, 'Other'), [person(11, 'Assigned')], [], 'COORDINATOR_TEAM');
   assert.deepEqual(eligibleOfficers([person(10, 'Current'), person(11, 'Assigned'), person(12, 'Available', 'Field Officer')], coord, [coord, other]).map(p => p.id), [12]);
+});
+test('team choices hide unassigned officers and officers outside the selected cities', () => {
+  const draft = team(-1, person(2, 'Lead', 'MANAGER'), [], ['Pune']);
+  const candidates = [
+    person(10, 'Unassigned', 'FIELD_OFFICER', []),
+    person(11, 'Mumbai Officer', 'FIELD_OFFICER', ['Mumbai']),
+    person(12, 'Pune Officer', 'FIELD_OFFICER', ['Pune', 'Surat']),
+  ];
+  assert.deepEqual(eligibleOfficers(candidates, draft, [], ['Pune']).map(person => person.id), [12]);
 });
 
 for (const [label, invoke, path, method, payload] of [

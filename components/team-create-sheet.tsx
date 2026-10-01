@@ -60,10 +60,14 @@ export function TeamCreateSheet({ teams, onCreated, request }: { teams: Settings
       const response = await request(`/employee/getFieldOfficerByCity?city=${encodeURIComponent(city)}`);
       return await response.json() as EmployeeDto[];
     })).then(results => {
-      if (version === requestVersion.current) setOfficers(eligibleOfficers(results.flat(), draft, teams));
+      if (version === requestVersion.current) {
+        const directory = new Map(employees.map(employee => [employee.id, employee]));
+        const verified = results.flat().map(employee => directory.get(employee.id) ?? employee);
+        setOfficers(eligibleOfficers(verified, draft, teams, selectedCities));
+      }
     }).catch(err => { if (version === requestVersion.current) setOfficersError(err instanceof Error ? err.message : 'Unable to load field officers.'); }).finally(() => { if (version === requestVersion.current) setOfficersLoading(false); });
     return () => { requestVersion.current++; };
-  }, [open, type, selectedCities, request, teams]);
+  }, [open, type, selectedCities, request, teams, employees]);
 
   const occupied = new Set(teams.map(team => team.officeManager?.id));
   const managers = employees.filter(person => {
