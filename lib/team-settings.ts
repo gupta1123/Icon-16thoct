@@ -30,9 +30,9 @@ export function filterTeams(teams: SettingsTeam[], filters: { search: string; ma
   }).sort((a, b) => personName(a.officeManager).localeCompare(personName(b.officeManager)) || a.id - b.id);
 }
 
-// Identity is the team ID, not the manager ID: a manager can own several teams.
+// A field officer can belong to only one active team, matching German Steel.
 export function eligibleOfficers(candidates: EmployeeDto[], team: SettingsTeam, teams: SettingsTeam[], requiredCities: string[] = []) {
-  const excluded = new Set(teams.filter(other => other.id === team.id || isCoordinator(other) === isCoordinator(team)).flatMap(other => other.fieldOfficers.map(person => person.id)));
+  const excluded = new Set(teams.flatMap(other => other.fieldOfficers.map(person => person.id)));
   const required = new Set(requiredCities.map(cityKey));
   return [...new Map(candidates.filter(person => {
     const assigned = employeeCities(person);
