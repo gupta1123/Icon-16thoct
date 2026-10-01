@@ -55,12 +55,15 @@ for (const [label, invoke, path, method, payload] of [
 ]) {
   test(`Icon ${label} API retains its existing endpoint and payload`, async t => {
     t.mock.method(console, 'log', () => {});
-    const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify(1), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    await invoke();
+    const responseBody = label === 'create' ? JSON.stringify(1) : label === 'remove officers' ? 'Field Officer Removed From Team Successfully!' : `${label} successful`;
+    const contentType = label === 'create' ? 'application/json' : 'text/plain;charset=UTF-8';
+    const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(responseBody, { status: 200, headers: { 'Content-Type': contentType } }));
+    const result = await invoke();
     const [url, options] = fetch.mock.calls[0].arguments;
     assert.equal(new URL(url).pathname + new URL(url).search, path);
     assert.equal(options.method, method);
     assert.deepEqual(options.body ? JSON.parse(options.body) : undefined, payload);
+    assert.equal(result, label === 'create' ? 1 : responseBody);
     assert.equal(fetch.mock.callCount(), 1);
   });
 }

@@ -2162,6 +2162,7 @@ export class API {
     return this.makeRequest<string>(`/employee/team/addFieldOfficer?id=${teamId}`, {
       method: 'PUT',
       body: JSON.stringify({ fieldOfficers: fieldOfficerIds }),
+      allowTextResponse: true,
     });
   }
 
@@ -2169,6 +2170,7 @@ export class API {
     return this.makeRequest<string>(`/employee/team/deleteFieldOfficer?id=${teamId}`, {
       method: 'DELETE',
       body: JSON.stringify({ fieldOfficers: fieldOfficerIds }),
+      allowTextResponse: true,
     });
   }
 
@@ -2176,6 +2178,7 @@ export class API {
     return this.makeRequest<string>(`/employee/team/editOfficeManager?id=${teamId}`, {
       method: 'PUT',
       body: JSON.stringify({ officeManager: officeManagerId }),
+      allowTextResponse: true,
     });
   }
 
@@ -2183,12 +2186,14 @@ export class API {
     return this.makeRequest<string>(`/employee/team/editAvp?id=${teamId}`, {
       method: 'PUT',
       body: JSON.stringify({ avp: avpId }),
+      allowTextResponse: true,
     });
   }
 
   async deleteTeam(teamId: number): Promise<string> {
     return this.makeRequest<string>(`/employee/team/delete?id=${teamId}`, {
       method: 'DELETE',
+      allowTextResponse: true,
     });
   }
 
