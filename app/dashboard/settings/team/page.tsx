@@ -47,6 +47,7 @@ import {
   X,
 } from "lucide-react";
 import { normalizeRoleValue } from "@/lib/role-utils";
+import { employeeAssignedCities } from "@/lib/employee-create";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn } from "@/lib/utils";
 
@@ -149,32 +150,9 @@ const formatEmployeeName = (employee: EmployeeDto | null | undefined) => {
   return full.length > 0 ? full : employee.email ?? "Unnamed";
 };
 
-const normalizeCities = (input: unknown): string[] => {
-  if (!input) return [];
-  if (Array.isArray(input)) {
-    return (input as unknown[])
-      .filter((value): value is string => typeof value === "string")
-      .map((city) => city.trim())
-      .filter(Boolean);
-  }
-  if (typeof input === "object") {
-    return Object.values(input as Record<string, unknown>)
-      .filter((value): value is string => typeof value === "string")
-      .map((city) => city.trim())
-      .filter(Boolean);
-  }
-  if (typeof input === "string") {
-    const trimmed = input.trim();
-    return trimmed ? [trimmed] : [];
-  }
-  return [];
-};
-
 const getAssignedCities = (employee?: EmployeeDto | null) => {
   if (!employee) return [];
-  return normalizeCities(
-    (employee as unknown as Record<string, unknown>)?.assignedCity
-  );
+  return employeeAssignedCities(employee as unknown as Record<string, unknown>);
 };
 
 const deriveTeamCities = (team: TeamHierarchyTransformedTeam) => {
@@ -184,9 +162,7 @@ const deriveTeamCities = (team: TeamHierarchyTransformedTeam) => {
     assigned.forEach((city) => cities.add(city));
   }
   team.fieldOfficers.forEach((officer) => {
-    if (officer.city) {
-      cities.add(officer.city);
-    }
+    getAssignedCities(officer).forEach((city) => cities.add(city));
   });
   return Array.from(cities);
 };
@@ -701,9 +677,9 @@ export default function TeamSettings() {
 
     const normalizedRole = normalizeRoleValue(manager.role);
 
-    // Coordinators can manage FOs from any city
+    // Coordinators are cross-city, but an officer still needs an operational assignment.
     if (normalizedRole === "COORDINATOR") {
-      return officers;
+      return officers.filter((officer) => includeExistingIds.includes(officer.id) || getAssignedCities(officer).length > 0);
     }
 
     // RM/MANAGER/OFFICE_MANAGER: restrict to assigned cities
@@ -715,11 +691,10 @@ export default function TeamSettings() {
       const assignedCities = new Set(
         getAssignedCities(manager).map((c) => c.trim().toLowerCase())
       );
-      if (assignedCities.size === 0) return officers;
+      if (assignedCities.size === 0) return [];
       return officers.filter((officer) => {
         if (includeExistingIds.includes(officer.id)) return true;
-        const officerCity = officer.city?.trim().toLowerCase();
-        return officerCity ? assignedCities.has(officerCity) : false;
+        return getAssignedCities(officer).some((city) => assignedCities.has(city.trim().toLowerCase()));
       });
     }
     return officers;
@@ -735,11 +710,7 @@ export default function TeamSettings() {
         : null;
 
     const assignedSet = targetCategory
-      ? new Set(
-          targetCategory === "coordinator"
-            ? assignedFieldOfficerIdsByType.coordinator
-            : assignedFieldOfficerIdsByType.regional
-        )
+      ? new Set([...assignedFieldOfficerIdsByType.coordinator, ...assignedFieldOfficerIdsByType.regional])
       : null;
 
     return filterFieldOfficersForManager(
@@ -773,11 +744,7 @@ export default function TeamSettings() {
         ? "regional"
         : null;
     const assignedSet = targetCategory
-      ? new Set(
-          targetCategory === "coordinator"
-            ? assignedFieldOfficerIdsByType.coordinator
-            : assignedFieldOfficerIdsByType.regional
-        )
+      ? new Set([...assignedFieldOfficerIdsByType.coordinator, ...assignedFieldOfficerIdsByType.regional])
       : null;
     return merged
       .filter((officer) => !editingFieldOfficerIds.includes(officer.id))

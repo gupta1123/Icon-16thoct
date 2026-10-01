@@ -38,17 +38,18 @@ test('cities normalize spaces/case and deduplicate without inventing coverage', 
   assert.deepEqual(teamCities(team(1, person(2, 'Lead'), [], ['Pune', ' pune ', '', 'Mumbai'])), ['pune', 'Mumbai']);
   assert.deepEqual(teamCities({ officeManager: null }), []);
 });
-test('eligibility uses team ID, excludes same-role team assignments and deduplicates city results', () => {
+test('eligibility excludes officers assigned to any active team and deduplicates city results', () => {
   const first = team(1, person(2, 'Same Lead'), [person(10, 'Assigned')]);
   const second = team(2, person(2, 'Same Lead'), [person(11, 'Other')]);
   const coord = team(3, person(3, 'Coord'), [person(12, 'Cross-role')], [], 'COORDINATOR_TEAM');
   const candidates = [person(10, 'Assigned'), person(11, 'Other'), person(12, 'Cross-role'), person(13, 'Free'), person(13, 'Free'), person(14, 'Manager', 'MANAGER')];
-  assert.deepEqual(eligibleOfficers(candidates, first, [first, second, coord]).map(p => p.id), [12, 13]);
+  assert.deepEqual(eligibleOfficers(candidates, first, [first, second, coord]).map(p => p.id), [13]);
 });
-test('coordinator eligibility is cross-city but cannot reuse another coordinator membership', () => {
+test('coordinator eligibility is cross-city but cannot reuse any team membership', () => {
   const coord = team(1, person(2, 'Coord'), [person(10, 'Current')], [], 'COORDINATOR_TEAM');
   const other = team(2, person(3, 'Other'), [person(11, 'Assigned')], [], 'COORDINATOR_TEAM');
-  assert.deepEqual(eligibleOfficers([person(10, 'Current'), person(11, 'Assigned'), person(12, 'Available', 'Field Officer')], coord, [coord, other]).map(p => p.id), [12]);
+  const regional = team(3, person(4, 'Regional'), [person(12, 'Regional Member')]);
+  assert.deepEqual(eligibleOfficers([person(10, 'Current'), person(11, 'Assigned'), person(12, 'Regional Member'), person(13, 'Available', 'Field Officer')], coord, [coord, other, regional]).map(p => p.id), [13]);
 });
 test('team choices hide unassigned officers and officers outside the selected cities', () => {
   const draft = team(-1, person(2, 'Lead', 'MANAGER'), [], ['Pune']);

@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Users, Building2, ArrowRight, ArrowLeft, Crown } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { normalizeRoleValue } from '@/lib/role-utils';
+import { employeeAssignedCities } from '@/lib/employee-create';
 import SearchableSelect, { type SearchableOption } from "@/components/searchable-select";
 
 const ELIGIBLE_MANAGER_ROLES = new Set([
@@ -482,15 +483,16 @@ const AddTeam = () => {
             );
 
             const fieldOfficersData = await response.json();
-            const assignedCoordinatorSet = new Set(assignedFoIds.coordinator);
+            const assignedToAnyTeam = new Set([...assignedFoIds.coordinator, ...assignedFoIds.regional]);
 
             // Filter to only show actual field officers using role normalization
             const filteredEmployees = fieldOfficersData
                 .filter((employee: Record<string, unknown>) => {
                     const isFO = normalizeRoleValue(employee.role as string) === "FIELD_OFFICER";
                     const isActive = !employee.status || String(employee.status).toLowerCase() === 'active';
-                    const notAssignedToCoordinatorTeam = !assignedCoordinatorSet.has(employee.id as number);
-                    return isFO && isActive && notAssignedToCoordinatorTeam;
+                    const hasOperationalCity = employeeAssignedCities(employee).length > 0;
+                    const notAssignedToTeam = !assignedToAnyTeam.has(employee.id as number) && employee.teamId == null;
+                    return isFO && isActive && hasOperationalCity && notAssignedToTeam;
                 })
                 .map((employee: Record<string, unknown>) => ({
                     id: employee.id as number,
@@ -506,9 +508,7 @@ const AddTeam = () => {
                     state: employee.state as string,
                     userDto: employee.userDto as Employee['userDto'],
                     status: employee.status as string,
-                    assignedCity: Array.isArray(employee.assignedCity)
-                        ? (employee.assignedCity as string[])
-                        : [],
+                    assignedCity: employeeAssignedCities(employee),
                 }));
 
             setEmployees(filteredEmployees);
@@ -529,18 +529,18 @@ const AddTeam = () => {
             );
 
             const fieldOfficersData = await response.json();
-            const assignedRegionalSet = new Set(assignedFoIds.regional);
+            const assignedToAnyTeam = new Set([...assignedFoIds.coordinator, ...assignedFoIds.regional]);
+            const selectedCityKeys = new Set(cities.map(city => city.trim().toLowerCase()));
 
             // Filter field officers from the selected cities (exclude those already in any team)
             const filteredEmployees = fieldOfficersData
                 .filter((employee: Record<string, unknown>) => {
                     const isFO = normalizeRoleValue(employee.role as string) === "FIELD_OFFICER";
-                    const inCityDirect = cities.includes(employee.city as string);
-                    const inCityAssigned = Array.isArray(employee.assignedCity) && employee.assignedCity.some((c: string) => cities.includes(c));
-                    const inCity = inCityDirect || inCityAssigned;
+                    const operationalCities = employeeAssignedCities(employee);
+                    const inCity = operationalCities.some(city => selectedCityKeys.has(city.toLowerCase()));
                     const isActive = !employee.status || String(employee.status).toLowerCase() === 'active';
-                    const notAssignedToRegionalTeam = !assignedRegionalSet.has(employee.id as number);
-                    return isFO && inCity && isActive && notAssignedToRegionalTeam;
+                    const notAssignedToTeam = !assignedToAnyTeam.has(employee.id as number) && employee.teamId == null;
+                    return isFO && inCity && isActive && notAssignedToTeam;
                 })
                 .map((employee: Record<string, unknown>) => ({
                     id: employee.id as number,
@@ -556,9 +556,7 @@ const AddTeam = () => {
                     state: employee.state as string,
                     userDto: employee.userDto as Employee['userDto'],
                     status: employee.status as string,
-                    assignedCity: Array.isArray(employee.assignedCity)
-                        ? (employee.assignedCity as string[])
-                        : [],
+                    assignedCity: employeeAssignedCities(employee),
                 }));
 
             setEmployees(filteredEmployees);
@@ -573,7 +571,7 @@ const AddTeam = () => {
             try {
                 for (const city of cities) {
                     await fetch(
-                        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${officeManager.value}&city=${city}`,
+                        `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${officeManager.value}&city=${encodeURIComponent(city)}`,
                         {
                             method: 'PUT',
                             headers: {
@@ -725,9 +723,6 @@ const AddTeam = () => {
                 });
 
                 selectedOfficerDetails.forEach((officer) => {
-                    if (officer.city) {
-                        citySet.add(officer.city.trim());
-                    }
                     officer.assignedCity?.forEach((city) => {
                         if (city) {
                             citySet.add(city.trim());
