@@ -106,6 +106,39 @@ const deriveVisitStatus = (visit: Pick<VisitDto, "checkinTime" | "checkoutTime">
   return "Assigned";
 };
 
+// Purposes the mobile app can record, so the filter doesn't depend on which rows happen to be loaded.
+const KNOWN_VISIT_PURPOSES = [
+  'Order', 'Excavation Level', 'Foundation Level', 'Plinth Level', 'Sill Level', 'Lintel Level', 'Slab Level',
+  'Follow Up', 'Enquiry', 'Monthly Visit', 'Special Meet', 'Event Purpose', 'Complaint Solving',
+  'First Visit', 'Gifts', 'Event',
+];
+
+const VISIT_PAGE_SIZE = 200;
+const VISIT_MAX_PAGES = 100;
+
+/**
+ * Loads every visit in the date range. The backend's paged endpoint reports
+ * totalElements/totalPages for the *current page only* (always 1 page), so we
+ * keep requesting pages until one comes back empty or repeats.
+ */
+async function loadAllVisits(
+  startStr: string,
+  endStr: string,
+  storeName: string | undefined,
+  isStale: () => boolean,
+): Promise<VisitDto[]> {
+  const byId = new Map<number, VisitDto>();
+  for (let page = 0; page < VISIT_MAX_PAGES; page += 1) {
+    if (isStale()) break;
+    const response = await API.getVisitsByDateSorted(startStr, endStr, page, VISIT_PAGE_SIZE, 'visitDate,desc', storeName);
+    const content = response.content || [];
+    const before = byId.size;
+    content.forEach((visit) => byId.set(visit.id, visit));
+    if (content.length === 0 || byId.size === before) break;
+  }
+  return Array.from(byId.values());
+}
+
 export default function VisitsTable() {
   const { userRole, userData } = useAuth();
   const router = useRouter();
@@ -114,6 +147,7 @@ export default function VisitsTable() {
   const filterInitialisedRef = useRef(false);
   const hasHydratedRef = useRef(false);
   const visitsRequestSequenceRef = useRef(0);
+  const visitsCacheRef = useRef<{ key: string; visits: VisitDto[] } | null>(null);
   const [isStateHydrated, setIsStateHydrated] = useState(false);
   
   // Set default date range to last 7 days
@@ -275,9 +309,9 @@ export default function VisitsTable() {
   ]);
 
   const purposes = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(KNOWN_VISIT_PURPOSES);
     rows.forEach(r => { if (r.purpose) set.add(r.purpose); });
-    return Array.from(set);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
   }, [rows]);
 
   const employeeOptions = useMemo<SearchableOption[]>(() => {
@@ -369,31 +403,20 @@ export default function VisitsTable() {
         const storeNameFilter = customerName.trim() !== '' ? customerName : undefined;
         const selectedEmployeeApiId = Number(selectedExecutive);
         const hasEmployeeFilter = selectedExecutive !== "all" && Number.isFinite(selectedEmployeeApiId);
-        const needsLocalPagination = hasEmployeeFilter || selectedPurpose !== "all";
+        const needsLocalPagination = true;
         let response: VisitResponse | null = null;
-        let visits: VisitDto[] = [];
 
-        if (hasEmployeeFilter) {
-          const employeeResponse = await API.getEmployeeStatsByDateRange(selectedEmployeeApiId, startStr, endStr);
-          visits = Array.isArray(employeeResponse.visitDto) ? employeeResponse.visitDto : [];
-        } else if (selectedPurpose !== "all") {
-          const firstPage = await API.getVisitsByDateSorted(startStr, endStr, 0, 100, 'visitDate,desc', storeNameFilter);
-          visits = [...(firstPage.content || [])];
-          for (let page = 1; page < (firstPage.totalPages || 1); page += 1) {
-            if (requestSequence !== visitsRequestSequenceRef.current) return;
-            const nextPage = await API.getVisitsByDateSorted(startStr, endStr, page, 100, 'visitDate,desc', storeNameFilter);
-            visits.push(...(nextPage.content || []));
-          }
+        const cacheKey = `${startStr}|${endStr}|${storeNameFilter ?? ''}`;
+        let visits: VisitDto[];
+        if (visitsCacheRef.current?.key === cacheKey) {
+          visits = visitsCacheRef.current.visits;
         } else {
-          response = await API.getVisitsByDateSorted(
-            startStr,
-            endStr,
-            currentPage,
-            pageSize,
-            'visitDate,desc',
-            storeNameFilter
-          );
-          visits = response.content || [];
+          visits = await loadAllVisits(startStr, endStr, storeNameFilter, () => requestSequence !== visitsRequestSequenceRef.current);
+          if (requestSequence !== visitsRequestSequenceRef.current) return;
+          visitsCacheRef.current = { key: cacheKey, visits };
+        }
+        if (hasEmployeeFilter) {
+          visits = visits.filter((visit) => visit.employeeId === selectedEmployeeApiId);
         }
 
         if (requestSequence !== visitsRequestSequenceRef.current) return;
@@ -431,13 +454,9 @@ export default function VisitsTable() {
                 return dateCompare !== 0 ? dateCompare : right.id - left.id;
               })
           : mapped;
-        const resolvedTotalElements = needsLocalPagination ? locallyFiltered.length : (response?.totalElements || 0);
-        const resolvedTotalPages = needsLocalPagination
-          ? Math.max(1, Math.ceil(resolvedTotalElements / pageSize))
-          : (response?.totalPages && response.totalPages > 0 ? response.totalPages : 1);
-        const visibleRows = needsLocalPagination
-          ? locallyFiltered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
-          : locallyFiltered;
+        const resolvedTotalElements = locallyFiltered.length;
+        const resolvedTotalPages = Math.max(1, Math.ceil(resolvedTotalElements / pageSize));
+        const visibleRows = locallyFiltered.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
 
         setRows(visibleRows);
         setTotalPages(resolvedTotalPages);
@@ -538,36 +557,14 @@ export default function VisitsTable() {
       setIsExporting(true);
       const startStr = formatDate(startDate, 'yyyy-MM-dd');
       const endStr = formatDate(endDate, 'yyyy-MM-dd');
-      let all: VisitDto[] = [];
-      let page = 0;
-      const size = 100;
-
+      let all: VisitDto[] = await loadAllVisits(
+        startStr,
+        endStr,
+        customerName.trim() !== '' ? customerName : undefined,
+        () => false,
+      );
       if (selectedExecutive !== 'all' && Number.isFinite(Number(selectedExecutive))) {
-        const employeeResponse = await API.getEmployeeStatsByDateRange(Number(selectedExecutive), startStr, endStr);
-        all = Array.isArray(employeeResponse.visitDto) ? employeeResponse.visitDto : [];
-      } else {
-        const first = await API.getVisitsByDateSorted(
-          startStr,
-          endStr,
-          0,
-          size,
-          'visitDate,desc',
-          customerName.trim() !== '' ? customerName : undefined
-        );
-        all = all.concat(first.content || []);
-        const total = first.totalPages || 1;
-
-        for (page = 1; page < total; page++) {
-          const res = await API.getVisitsByDateSorted(
-            startStr,
-            endStr,
-            page,
-            size,
-            'visitDate,desc',
-            customerName.trim() !== '' ? customerName : undefined
-          );
-          all = all.concat(res.content || []);
-        }
+        all = all.filter((visit) => visit.employeeId === Number(selectedExecutive));
       }
 
       all = Array.from(new Map(all.map((visit) => [visit.id, visit])).values());

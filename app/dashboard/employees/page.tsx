@@ -165,8 +165,13 @@ function EmployeeListContent() {
   const role = typeof window !== 'undefined' ? localStorage.getItem('role') : null;
   const employeeId = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
 
-  const { token: authToken } = useAuth();
+  const { token: authToken, userData: authUserData } = useAuth();
   const [isDataManager, setIsDataManager] = useState(false);
+  // The server only lets Admin add employees and Admin/AVP/Data Manager create teams;
+  // other roles got a 403 after pressing the buttons.
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [isAvpUser, setIsAvpUser] = useState(false);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -183,18 +188,41 @@ function EmployeeListContent() {
           const authorities = userData.authorities || [];
           const roles: string[] = authorities.map((a: { authority: string }) => a.authority);
           setIsDataManager(roles.includes('ROLE_DATA_MANAGER'));
+          setIsAdminUser(roles.includes('ROLE_ADMIN'));
+          setIsAvpUser(roles.includes('ROLE_AVP'));
         }
       } catch (error) {
         console.error('Error fetching current user:', error);
+      } finally {
+        setRolesLoaded(true);
       }
     };
     fetchCurrentUser();
   }, [token]);
 
   const fetchEmployees = useCallback(async () => {
+    if (!rolesLoaded) return;
     setIsLoading(true);
     setError(null);
     try {
+      if (isAvpUser) {
+        // WORKAROUND(BE-023): employee/getAll refuses AVPs; build the list from all of their teams
+        // (team lead + officers), de-duplicated.
+        const avpId = authUserData?.employeeId ?? employeeId;
+        const response = await fetch(`${API_BASE_URL}/employee/team/getByEmployee?id=${avpId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) throw new Error('Failed to fetch team data');
+        const teams: Array<{ officeManager?: User | null; fieldOfficers?: User[] }> = await response.json();
+        const byId = new Map<number, User>();
+        for (const team of teams ?? []) {
+          for (const member of [team.officeManager, ...(team.fieldOfficers ?? [])]) {
+            if (member && !byId.has(member.id)) byId.set(member.id, member);
+          }
+        }
+        setUsers(Array.from(byId.values()).map((user) => ({ ...user, userName: user.userDto?.username || "" })));
+        return;
+      }
       if (role === 'MANAGER' || role === 'AVP') {
         const response = await fetch(`${API_BASE_URL}/employee/team/getByEmployee?id=${employeeId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -219,7 +247,7 @@ function EmployeeListContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [token, role, employeeId]);
+  }, [token, role, employeeId, rolesLoaded, isAvpUser, authUserData?.employeeId]);
 
   const fetchArchivedEmployees = async () => {
     try {
@@ -519,7 +547,7 @@ function EmployeeListContent() {
         {/* Top Control Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {!isDataManager && (
+            {(isAdminUser || isDataManager) && (
               <Button
                 size="sm"
                 onClick={() => router.push('/dashboard/employees/add')}
@@ -529,7 +557,7 @@ function EmployeeListContent() {
                 Add Employee
               </Button>
             )}
-            {!isDataManager && <AddTeam />}
+            {(isAdminUser || isAvpUser || isDataManager) && <AddTeam />}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -800,25 +828,27 @@ function EmployeeListContent() {
                               <DropdownMenuItem onClick={() => handleViewUser(user.id)}>
                                 View employee
                               </DropdownMenuItem>
-                              {!isDataManager && (
+                              {(
                                 <DropdownMenuItem onClick={() => handleEditUser(user)}>
                                   Edit employee
                                 </DropdownMenuItem>
                               )}
-                              {!isDataManager && (
+                              {(
                                 <DropdownMenuItem onClick={() => handleEditUsername(user.id, user.userName)}>
                                   Edit Username
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
-                                Reset Password
-                              </DropdownMenuItem>
+                              {isAdminUser && (
+                                <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
+                                  Reset Password
+                                </DropdownMenuItem>
+                              )}
                               {canAssignCities && (
                                 <DropdownMenuItem onClick={() => openAssignCityModal(user)}>
                                   Assign Cities
                                 </DropdownMenuItem>
                               )}
-                              {!isDataManager && (
+                              {(isAdminUser || isDataManager) && (
                                 <>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem onClick={() => showDeleteConfirmation(user)} className="text-destructive">
@@ -871,7 +901,7 @@ function EmployeeListContent() {
                     <div><span className="text-muted-foreground">Location</span><Ellipsis value={[toSentenceCase(user.city), user.state].filter(Boolean).join(', ')} /></div>
                   </div>
                   <div className="mt-3 flex justify-end gap-1">
-                    {!isDataManager && (
+                    {(
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => handleEditUser(user)}>
                         Edit
                       </Button>
@@ -889,15 +919,17 @@ function EmployeeListContent() {
                         <DropdownMenuItem onClick={() => handleEditUsername(user.id, user.userName)}>
                           Edit Username
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
-                          Reset Password
-                        </DropdownMenuItem>
+                        {isAdminUser && (
+                          <DropdownMenuItem onClick={() => handleResetPassword(user.id)}>
+                            Reset Password
+                          </DropdownMenuItem>
+                        )}
                         {normalizeRoleValue(user.role) === 'FIELD_OFFICER' && (
                           <DropdownMenuItem onClick={() => openAssignCityModal(user)}>
                             Assign Cities
                           </DropdownMenuItem>
                         )}
-                        {!isDataManager && (
+                        {(isAdminUser || isDataManager) && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => showDeleteConfirmation(user)} className="text-destructive">
@@ -1006,7 +1038,7 @@ function EmployeeListContent() {
                       <TableCell>{employee.departmentName}</TableCell>
                       <TableCell>{employee.city}</TableCell>
                       <TableCell>
-                        {!isDataManager && (
+                        {(
                           <Button variant="outline" size="sm" onClick={() => handleUnarchive(employee.id)} className="flex items-center gap-2">
                             <ArrowLeft className="h-4 w-4" /> Unarchive
                           </Button>

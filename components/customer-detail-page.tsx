@@ -36,20 +36,22 @@ import {
     TabsTrigger,
 } from "@/components/ui/tabs";
 import { useParams } from 'next/navigation';
-import { AlertCircle, CalendarIcon, Edit, Search, Check, MessageSquare, ClipboardList, User, Mail, Phone, Store, Tag, MapPin, Building, Flag, Loader2, Cake } from 'lucide-react';
+import { AlertCircle, CalendarIcon, Edit, Search, Check, MessageSquare, ClipboardList, User, Mail, Phone, Store, Tag, MapPin, Building, Flag, Loader2, Cake, ArrowLeft, CalendarDays, StickyNote, ListChecks, LayoutDashboard, Plus, Trash2, Activity, Package, ExternalLink, Navigation, HardHat } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { SpacedCalendar } from '@/components/ui/spaced-calendar';
+import { SearchableSelect } from '@/components/ui/searchable-select2';
+import { REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS, getRequirementComplaintCategoryLabel } from '@/lib/requirement-complaint-category';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { API, API_BASE_URL, type VisitBrandPurchase } from "@/lib/api";
+import { API, API_BASE_URL, type VisitBrandPurchase, type StateDto, type DistrictDto, type SubDistrictDto, type CityDto } from "@/lib/api";
 import { useAuth } from '@/components/auth-provider';
-import BrandTab from "@/components/BrandTab";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage, getErrorMessage } from '@/lib/api-error';
 import { useGuardedRouter, useUnsavedChanges } from '@/components/unsaved-changes-provider';
 import { DateRangeError, isDateRangeInvalid } from '@/components/date-range-error';
+import { ActivityTimeline, DetailHero, FormField, FormGroup, FormSheet, SegmentedChoice, DetailShell, DetailSkeleton, EmptyState, Info, KpiCell, Pill, Section, type ActivityItem, type DetailTab, type Tone } from '@/components/detail-ui';
 
-const ITEMS_PER_PAGE = 3;
+const ITEMS_PER_PAGE = 10;
 const JOINING_YEAR_OPTIONS = Array.from(
     { length: 76 },
     (_, index) => new Date().getFullYear() - index,
@@ -83,6 +85,12 @@ interface CustomerData {
     state: string;
     country: string | null;
     gstNumber?: string;
+    secondaryContact?: number | string | null;
+    landmark?: string;
+    shopAgeYears?: number | string | null;
+    ownershipType?: string;
+    dealerType?: string;
+    dealerSubType?: string;
     otherClientType?: string;
     addressLine1?: string;
     addressLine2?: string;
@@ -137,18 +145,22 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
     const [notesData, setNotesData] = useState<Note[]>([]);
     const [visitsData, setVisitsData] = useState<Visit[]>([]);
     const [visitTotalPages, setVisitTotalPages] = useState(1);
+    const [visitTotalCount, setVisitTotalCount] = useState<number | null>(null);
+    const [lastVisitDate, setLastVisitDate] = useState<string | null>(null);
     const [isLoadingVisits, setIsLoadingVisits] = useState(true);
     const [visitsError, setVisitsError] = useState<string | null>(null);
     const visitsRequest = useRef(0);
     const [requirementsData, setRequirementsData] = useState<Task[]>([]);
     const [complaintsData, setComplaintsData] = useState<Task[]>([]);
+    const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+    const [tasksError, setTasksError] = useState<string | null>(null);
     const [employees, setEmployees] = useState<Array<Record<string, unknown>>>([]);
     const [activeInfoTab, setActiveInfoTab] = useState('leads-info');
     const [isEditCustomerModalVisible, setIsEditCustomerModalVisible] = useState(false);
     const [isUpdatingCustomer, setIsUpdatingCustomer] = useState(false);
     const [customerEditError, setCustomerEditError] = useState<string | null>(null);
     const [noteContent, setNoteContent] = useState('');
-    const [activeActivityTab, setActiveActivityTab] = useState('visits');
+    const [activeActivityTab, setActiveActivityTab] = useState('overview');
     const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState("basic-info");
     const [hasUnlockedAddressTab, setHasUnlockedAddressTab] = useState(false);
@@ -160,6 +172,13 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
         email: '',
         primaryContact: 0,
         gstNumber: '',
+        secondaryContact: '',
+        landmark: '',
+        country: '',
+        shopAgeYears: '',
+        ownershipType: '',
+        dealerType: '',
+        dealerSubType: '',
         clientType: '',
         otherClientType: '',
         addressLine1: '',
@@ -197,7 +216,7 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
         assignedToName: '',
         assignedById: 0,
         status: 'Assigned',
-        priority: 'low',
+        priority: '',
         taskType: 'requirement',
         storeId: parseInt(getStoreIdString() || '0', 10),
         category: 'Requirement',
@@ -212,7 +231,7 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
         assignedToName: '',
         assignedById: 0,
         status: 'Assigned',
-        priority: 'low',
+        priority: '',
         taskType: 'complaint',
         storeId: parseInt(getStoreIdString() || '0', 10),
         category: 'Complaint',
@@ -307,6 +326,8 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
             setVisitsData(visits);
             setFilteredVisitsData(visits);
             setVisitTotalPages(Math.max(data.totalPages || 1, 1));
+            setVisitTotalCount(typeof data.totalElements === 'number' ? data.totalElements : visits.length);
+            if (page === 1) setLastVisitDate(visits[0]?.visit_date ?? null);
         } catch (error) {
             if (request !== visitsRequest.current) return;
             setVisitsData([]);
@@ -319,23 +340,32 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
 
     const fetchTasksData = useCallback(async (id: string, start: Date, end: Date) => {
         if (isDateRangeInvalid(start, end)) return;
+        setIsLoadingTasks(true);
+        setTasksError(null);
         try {
-            const response = await fetch(`${API_BASE_URL}/task/getByStoreAndDate?storeId=${id}&start=${format(start, 'yyyy-MM-dd')}&end=${format(end, 'yyyy-MM-dd')}`, {
+            // WORKAROUND(BE-029): getByStoreAndDate only finds tasks saved directly on the store; tasks raised from a
+            // visit are only found by getByStoreAndDate1 (via the store's visits). Ask both and merge by id.
+            const query = `storeId=${id}&start=${format(start, 'yyyy-MM-dd')}&end=${format(end, 'yyyy-MM-dd')}`;
+            const responses = await Promise.all(['getByStoreAndDate', 'getByStoreAndDate1'].map((route) => fetch(`${API_BASE_URL}/task/${route}?${query}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch customer tasks (${response.status})`);
+            })));
+            const failed = responses.find((response) => !response.ok);
+            if (failed) {
+                throw new Error(`Failed to fetch customer tasks (${failed.status})`);
             }
-            const data = await response.json() as Task[];
-            const tasks = Array.isArray(data) ? data : [];
+            const lists = await Promise.all(responses.map((response) => response.json() as Promise<Task[]>));
+            const tasks = [...new Map(lists.flatMap((data) => (Array.isArray(data) ? data : [])).map((task) => [task.id, task])).values()];
             setRequirementsData(tasks.filter((task) => task.taskType === 'requirement'));
             setComplaintsData(tasks.filter((task) => task.taskType === 'complaint'));
         } catch (error) {
             console.error('Error fetching customer tasks:', error);
             setRequirementsData([]);
             setComplaintsData([]);
+            setTasksError(getErrorMessage(error, 'Unable to load tasks.'));
+        } finally {
+            setIsLoadingTasks(false);
         }
     }, [token]);
 
@@ -393,7 +423,7 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
             assignedToName: existingTask?.assignedToName || employeeNameStr || '',
             assignedById: 0,
             status: 'Assigned',
-            priority: 'low',
+            priority: '',
             taskType: 'complaint',
             storeId: getNumericStoreId(),
             category: 'Complaint',
@@ -428,7 +458,7 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
             assignedToName: existingTask?.assignedToName || employeeNameStr || '',
             assignedById: 0,
             status: 'Assigned',
-            priority: 'low',
+            priority: '',
             taskType: 'requirement',
             storeId: getNumericStoreId(),
             category: 'Requirement',
@@ -699,7 +729,7 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
                 },
                 body: JSON.stringify({
                     status,
-                    priority: "Medium",
+                    priority: [...complaintsData, ...requirementsData].find((t) => t.id === taskId)?.priority ?? undefined,
                 }),
             });
 
@@ -727,9 +757,32 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
             const dobValue = data.dob || data.dateOfBirth || '';
             const normalizedDob = dobValue ? dobValue.replace(/\//g, '-') : undefined;
 
+            const secondary = String(data.secondaryContact ?? '').replace(/\D/g, '');
+            const shopAge = String(data.shopAgeYears ?? '').trim();
+            if (secondary && secondary.length < 10) {
+                setCustomerEditError('Secondary contact must be a valid phone number.');
+                return;
+            }
+            if (shopAge && (!Number.isFinite(Number(shopAge)) || Number(shopAge) < 0)) {
+                setCustomerEditError('Shop age cannot be negative.');
+                return;
+            }
+            if (data.dealerType === 'ICON' && !data.dealerSubType) {
+                setCustomerEditError('Choose Exclusive or Non-exclusive for an Icon dealer.');
+                return;
+            }
+
             const requestData = {
                 clientFirstName,
                 clientLastName,
+                storeName: data.storeName?.trim() || null,
+                secondaryContact: secondary ? Number(secondary) : null,
+                landmark: data.landmark?.trim() || null,
+                country: 'India',
+                shopAgeYears: shopAge ? Number(shopAge) : null,
+                ownershipType: data.ownershipType || null,
+                dealerType: data.dealerType || null,
+                dealerSubType: data.dealerType ? (data.dealerSubType || null) : null,
                 email: data.email?.trim() || null,
                 clientType: data.clientType,
                 gstNumber: data.gstNumber?.trim() || null,
@@ -911,6 +964,13 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
                 email: (customerData.email as string) || '',
                 primaryContact: customerData.primaryContact as number,
                 gstNumber: (customerData.gstNumber as string) || '',
+                secondaryContact: customerData.secondaryContact != null ? String(customerData.secondaryContact) : '',
+                landmark: (customerData.landmark as string) || '',
+                country: (customerData.country as string) || '',
+                shopAgeYears: customerData.shopAgeYears != null ? String(customerData.shopAgeYears) : '',
+                ownershipType: (customerData.ownershipType as string) || '',
+                dealerType: (customerData.dealerType as string) || '',
+                dealerSubType: (customerData.dealerSubType as string) || '',
                 clientType: isStandardType ? clientType : 'others',
                 otherClientType: isStandardType ? '' : (customerData.clientType as string) || '',
                 addressLine1: (customerData.addressLine1 as string) || '',
@@ -954,647 +1014,699 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
         }
     }, [isRequirementModalOpen, employees, resetRequirementTaskState]);
 
+    // Cascading location lists for the edit panel: State -> District -> Sub-district -> City
+    const [locStates, setLocStates] = useState<StateDto[]>([]);
+    const [locDistricts, setLocDistricts] = useState<DistrictDto[]>([]);
+    const [locSubDistricts, setLocSubDistricts] = useState<SubDistrictDto[]>([]);
+    const [locCities, setLocCities] = useState<CityDto[]>([]);
+    const sameName = (a?: string | null, b?: string | null) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+
+    useEffect(() => {
+        if (!isEditCustomerModalVisible || locStates.length > 0) return;
+        let cancelled = false;
+        API.getAllStates().then((list) => { if (!cancelled) setLocStates(list); }).catch(() => { if (!cancelled) setLocStates([]); });
+        return () => { cancelled = true; };
+    }, [isEditCustomerModalVisible, locStates.length]);
+
+    useEffect(() => {
+        const match = locStates.find((st) => sameName(st.stateName, formData.state));
+        if (!isEditCustomerModalVisible || !match) { setLocDistricts([]); return; }
+        let cancelled = false;
+        API.getDistrictsByStateId(match.id).then((list) => { if (!cancelled) setLocDistricts(list); }).catch(() => { if (!cancelled) setLocDistricts([]); });
+        return () => { cancelled = true; };
+    }, [isEditCustomerModalVisible, locStates, formData.state]);
+
+    useEffect(() => {
+        const match = locDistricts.find((d) => sameName(d.districtName, formData.village));
+        if (!match) { setLocSubDistricts([]); return; }
+        let cancelled = false;
+        API.getSubDistrictsByDistrictId(match.id).then((list) => { if (!cancelled) setLocSubDistricts(list); }).catch(() => { if (!cancelled) setLocSubDistricts([]); });
+        return () => { cancelled = true; };
+    }, [locDistricts, formData.village]);
+
+    useEffect(() => {
+        const match = locSubDistricts.find((d) => sameName(d.subDistrictName, formData.taluka));
+        if (!match) { setLocCities([]); return; }
+        let cancelled = false;
+        API.getCitiesBySubDistrictId(match.id).then((list) => { if (!cancelled) setLocCities(list); }).catch(() => { if (!cancelled) setLocCities([]); });
+        return () => { cancelled = true; };
+    }, [locSubDistricts, formData.taluka]);
+
+    /** Option names for a dropdown; keeps a legacy/free-text current value selectable so it isn't lost. */
+    const locOptions = (names: string[], current?: string | null) => {
+        const cur = (current || '').trim();
+        const hit = cur ? names.find((n) => sameName(n, cur)) : undefined;
+        const sorted = [...new Set(cur && !hit ? [cur, ...names] : names)].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+        return { options: sorted, value: hit ?? (cur || undefined) };
+    };
+
     const allBrandPurchases = useMemo(() => {
         return visitsData.flatMap(v => v.brandPurchases || []);
     }, [visitsData]);
 
     if (isLoadingCustomer) {
-        return (
-            <div className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-1">
-                        <Card className="border-0 shadow-sm">
-                            <CardHeader className="pb-4">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-xl font-semibold text-foreground">Customer Details</CardTitle>
-                                        <p className="text-sm text-muted-foreground">Customer information and actions</p>
-                                    </div>
-                                    <Button variant="ghost" size="sm" onClick={handleBackClick}>
-                                        Back
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="space-y-6">
-                                <div className="flex items-start gap-4">
-                                    <Skeleton className="h-14 w-14 rounded-xl" />
-                                    <div className="flex-1 min-w-0 space-y-2">
-                                        <Skeleton className="h-6 w-32" />
-                                        <Skeleton className="h-4 w-24" />
-                                    </div>
-                                </div>
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Skeleton className="h-4 w-16" />
-                                        <Skeleton className="h-8 w-full" />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                    <div className="lg:col-span-2">
-                        <Card className="border-0 shadow-sm">
-                            <CardHeader>
-                                <CardTitle className="text-xl font-semibold text-foreground">Customer Information</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-6">
-                                <Skeleton className="h-40 w-full" />
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
-            </div>
-        );
+        return <div className="detail-page"><DetailSkeleton /></div>;
     }
+
+    const renderTaskSheet = (kind: 'complaint' | 'requirement') => {
+        const isComplaint = kind === 'complaint';
+        const task = isComplaint ? complaintTask : requirementTask;
+        const setTask = (patch: Partial<typeof complaintTask>) => (isComplaint ? setComplaintTask((prev) => ({ ...prev, ...patch })) : setRequirementTask((prev) => ({ ...prev, ...patch })));
+        const open = isComplaint ? isComplaintModalOpen : isRequirementModalOpen;
+        const noun = isComplaint ? 'complaint' : 'requirement';
+        const customerLabel = `${(customerData?.clientFirstName as string) || ''} ${(customerData?.clientLastName as string) || ''}`.trim();
+        const assigneeValue = task.assignedToId ? String(task.assignedToId) : undefined;
+        return (
+            <FormSheet
+                open={open}
+                onOpenChange={(next) => { if (!next) (isComplaint ? requestCloseComplaintModal() : requestCloseRequirementModal()); }}
+                icon={isComplaint ? MessageSquare : ClipboardList}
+                title={isComplaint ? 'Log complaint' : 'Add requirement'}
+                description={customerLabel ? `For ${customerLabel}${(customerData?.storeName as string) && customerData?.storeName !== '.' ? ` · ${customerData?.storeName as string}` : ''}` : `Create a new ${noun} for this customer.`}
+                errors={taskCreateError ? [taskCreateError] : undefined}
+                footerNote={`Assigned employees see this ${noun} in their task list.`}
+                onSubmit={isComplaint ? handleCreateComplaint : handleCreateRequirement}
+                submitLabel={isComplaint ? 'Create complaint' : 'Add requirement'}
+                submitting={isCreatingTask}
+                submitDisabled={!task.taskTitle.trim() || !REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.some((o) => o.value === String(task.priority).toLowerCase())}
+            >
+                <FormGroup title="Details">
+                    <FormField label={isComplaint ? 'Complaint Title' : 'Requirement Title'} required>
+                        <Input
+                            autoFocus
+                            value={task.taskTitle}
+                            onChange={(e) => setTask({ taskTitle: e.target.value })}
+                            placeholder="Enter title"
+                            className="h-10 text-sm"
+                        />
+                    </FormField>
+                    <FormField label={isComplaint ? 'Complaint Description' : 'Requirement Description'}>
+                        <Textarea
+                            value={task.taskDesciption}
+                            onChange={(e) => setTask({ taskDesciption: e.target.value })}
+                            placeholder="Enter description"
+                            className="min-h-[120px] resize-none text-sm leading-relaxed"
+                        />
+                    </FormField>
+                </FormGroup>
+                <FormGroup title="Type">
+                    <SegmentedChoice
+                        value={String(task.priority || '').toLowerCase() as 'high' | 'medium' | 'low'}
+                        onChange={(priority) => setTask({ priority })}
+                        options={[
+                            { value: 'high', label: 'Technical', dot: 'bg-red-500' },
+                            { value: 'medium', label: 'Commercial', dot: 'bg-amber-500' },
+                            { value: 'low', label: 'ADVT', dot: 'bg-slate-400' },
+                        ]}
+                    />
+                </FormGroup>
+                <FormGroup title="Assignment" columns={2}>
+                    <FormField label="Assign to">
+                        <SearchableSelect
+                            modal
+                            triggerId={`assign-${kind}`}
+                            options={employees
+                                .map((emp) => ({ value: String(emp.id), label: `${(emp.firstName as string) || ''} ${(emp.lastName as string) || ''}`.trim() }))
+                                .sort((l, r) => l.label.localeCompare(r.label, 'en', { sensitivity: 'base' }))}
+                            value={assigneeValue}
+                            loading={isLoadingEmployees && employees.length === 0}
+                            placeholder="Choose employee"
+                            searchPlaceholder="Search employees…"
+                            triggerClassName="h-10 w-full text-sm font-normal"
+                            contentClassName="w-[var(--radix-popover-trigger-width)]"
+                            onSelect={(option) => { if (option) setTask({ assignedToId: Number(option.value), assignedToName: option.label }); }}
+                        />
+                    </FormField>
+                    <FormField label="Due date">
+                        <Input type="date" value={(task.dueDate || '').split('T')[0]} onChange={(e) => setTask({ dueDate: e.target.value })} className="h-10 text-sm" />
+                    </FormField>
+                </FormGroup>
+            </FormSheet>
+        );
+    };
 
     const customerDob = customerData ? ((customerData.dateOfBirth as string) || (customerData.dob as string)) : null;
 
     return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1">
-                    <Card className="border-0 shadow-sm">
-                        <CardContent className="space-y-6 pt-6">
-                            <div className="flex items-start gap-4">
-                                <div className="relative h-14 w-14 rounded-xl border-2 border-dashed bg-muted flex items-center justify-center shrink-0">
-                                    <span className="text-lg font-semibold text-muted-foreground">
-                                        {customerData ? getInitials(`${customerData.clientFirstName} ${customerData.clientLastName}`) : ''}
-                                    </span>
-                                    {customerData && isBirthdayToday(customerDob) && (
-                                        <div className="absolute -top-1 -right-1 h-5 w-5 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                                            <Cake className="h-3 w-3 text-white" />
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0 space-y-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                            <h3 className="text-lg font-semibold text-foreground truncate">
-                                                {customerData ? `${customerData.clientFirstName} ${customerData.clientLastName}` : ''}
-                                            </h3>
-                                            {customerData && isBirthdayToday(customerDob) && (
-                                                <Badge className="bg-gradient-to-r from-pink-500 to-rose-500 text-white border-0 shadow-md animate-pulse text-xs">
-                                                    <Cake className="h-3 w-3 mr-1" />
-                                                    Birthday Today! <span>🎉</span>
-                                                </Badge>
-                                            )}
-                                        </div>
-                                        <Button variant="ghost" size="sm" onClick={handleBackClick} className="ml-auto shrink-0 text-xs h-8">
-                                            Back
-                                        </Button>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground truncate">
-                                        {customerData ? (customerData.storeName as string) : ''}
-                                    </p>
-                                </div>
-                            </div>
+        <div className="detail-page space-y-4 text-xs">
+            {(() => {
+                const fullName = customerData ? `${(customerData.clientFirstName as string) || ''} ${(customerData.clientLastName as string) || ''}`.trim() : '';
+                const rawStoreName = ((customerData?.storeName as string) || '').trim();
+                const storeLabel = rawStoreName && rawStoreName !== '.' ? rawStoreName : '';
+                const clientTypeLabel = ((customerData?.clientType as string) || '').trim();
+                const ct = clientTypeLabel.toLowerCase();
+                const isSiteVisit = ct === 'site visit';
+                const isDealerType = !isSiteVisit && (ct.includes('dealer') || ct.includes('shop'));
+                const isProType = !isSiteVisit && !isDealerType && ['professional', 'engineer', 'architect', 'contractor'].some((k) => ct.includes(k));
+                const kindLabel = isSiteVisit ? 'Project' : isProType ? 'Firm' : 'Store';
+                const ownerLabel = isSiteVisit ? 'Site owner' : 'Owner';
+                const cd = (customerData || {}) as Record<string, unknown>;
+                const txt = (k: string) => { const v = cd[k]; return v == null || String(v).trim() === '' || String(v).trim() === '.' ? '' : String(v).trim(); };
+                const enumLabel = (v: string) => v ? v.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()) : '';
+                const productCats = Array.isArray(cd.productCategories) ? (cd.productCategories as string[]).filter(Boolean).map(enumLabel).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })) : [];
+                const proContacts = Array.isArray(cd.professionals) ? (cd.professionals as Record<string, unknown>[]) : [];
+                const sizeRaw = cd.projectSizeSquareFeet ?? cd.projectSize;
+                const projectSize = sizeRaw != null && String(sizeRaw).trim() !== '' ? `${Number(sizeRaw).toLocaleString('en-IN')} sq ft` : '';
+                const stockRaw = cd.stock ?? cd.monthlySale;
+                const stockText = stockRaw != null && String(stockRaw).trim() !== '' ? `${stockRaw} tons` : '';
+                const phone = customerData?.primaryContact ? String(customerData.primaryContact) : '';
+                const email = ((customerData?.email as string) || '').trim();
+                const cityState = [customerData?.city as string, customerData?.state as string].filter(Boolean).join(', ');
+                const birthdayToday = !!customerData && isBirthdayToday(customerDob);
+                const formattedDob = formatDateOfBirth(customerDob);
+                const addressParts = customerData ? [
+                    customerData.addressLine1, customerData.addressLine2, customerData.village, customerData.taluka,
+                    customerData.city, customerData.district, customerData.state, customerData.pincode,
+                ].filter(Boolean).map(String) : [];
+                const openTasks = [...complaintsData, ...requirementsData].filter((task) => task.status !== 'Complete');
+                const lat = customerData?.latitude != null ? Number(customerData.latitude) : NaN;
+                const lng = customerData?.longitude != null ? Number(customerData.longitude) : NaN;
+                const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+                const mapsUrl = hasCoords
+                    ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+                    : addressParts.length
+                        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressParts.join(', '))}`
+                        : '';
+                const directionsUrl = hasCoords ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` : '';
+                const managedBy = ((customerData?.employeeName as string) || '').trim();
+                const brandsInUse = Array.isArray(customerData?.brandsInUse) ? [...(customerData!.brandsInUse as string[])].filter(Boolean).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })) : [];
+                const humanize = (v: string) => v.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
+                const stage = ((customerData?.constructionStage as string) || '').trim();
+                const isArchived = customerData?.isArchived === true;
+                const visitsThisMonth = typeof customerData?.visitThisMonth === 'number' ? (customerData.visitThisMonth as number) : null;
+                const lastOutcome = ((customerData?.outcomeLastVisit as string) || '').trim();
+                const createdOn = (customerData?.createdAt as string) || '';
+                const updatedOn = (customerData?.updatedAt as string) || '';
+                const priorityTone = (p?: string): Tone => {
+                    const v = (p || '').toLowerCase();
+                    return v === 'high' || v === 'urgent' ? 'danger' : v === 'medium' ? 'warning' : 'neutral';
+                };
+                const visitTone = (status: string): Tone => (status === 'Complete' ? 'success' : 'info');
 
-                            <div className="flex gap-2">
+                const brandRows = allBrandPurchases
+                    .map((p, i) => ({
+                        key: `${p.id ?? i}-${i}`,
+                        name: (p.brandName || p.primaryBrand || p.localBrand || '').trim() || 'Unnamed brand',
+                        category: p.category ? String(p.category).trim() : '',
+                        from: p.purchasedFrom ? String(p.purchasedFrom).trim() : '',
+                        steel: p.steelQuantity ?? p.steelQuantitySold ?? null,
+                        cement: p.cementQuantitySold ?? null,
+                    }))
+                    .filter((r) => r.name !== 'Unnamed brand' || r.category || r.from);
+                const hasQty = (v: unknown) => v != null && String(v).trim() !== '';
+
+                const upcomingItems: ActivityItem[] = openTasks
+                    .slice()
+                    .sort((l, r) => String(l.dueDate).localeCompare(String(r.dueDate)))
+                    .map((task) => ({
+                        key: `task-${task.id}`,
+                        date: task.dueDate,
+                        dateLabel: `Due ${format(new Date(task.dueDate), 'dd MMM')}`,
+                        icon: task.taskType === 'complaint' ? MessageSquare : ClipboardList,
+                        title: task.taskTitle,
+                        meta: `${task.taskType === 'complaint' ? 'Complaint' : 'Requirement'} · ${getRequirementComplaintCategoryLabel(task.priority)} · ${task.assignedToName || 'Unassigned'}`,
+                        onClick: () => setActiveActivityTab(task.taskType === 'complaint' ? 'complaints' : 'requirements'),
+                    }));
+                const recentItems: ActivityItem[] = [
+                    ...visitsData.map((v, i) => ({
+                        key: `visit-${v.id ?? i}`,
+                        date: v.visit_date,
+                        dateLabel: formatDateToUserFriendly(v.visit_date),
+                        icon: CalendarDays,
+                        title: `Visit · ${v.purpose || 'Visit'}`,
+                        meta: `${getOutcomeStatus(v).status} · ${v.employeeName}`,
+                        onClick: () => router.push(`/dashboard/visits/${v.id}`),
+                    })),
+                    ...notesData.map((n) => ({
+                        key: `note-${n.id}`,
+                        date: n.createdDate,
+                        dateLabel: formatDateToUserFriendly(n.createdDate),
+                        icon: StickyNote,
+                        title: `Note · ${n.employeeName || 'Staff'}`,
+                        meta: n.content,
+                        onClick: () => setActiveActivityTab('notes'),
+                    })),
+                ].filter((item) => item.date).sort((l, r) => String(r.date).localeCompare(String(l.date))).slice(0, 8);
+
+                const dateToolbar = (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-7 text-xs font-normal">
+                                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+                                    {startDate ? format(new Date(startDate), 'dd MMM yyyy') : <span>Start</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <SpacedCalendar
+                                    mode="single"
+                                    selected={startDate}
+                                    onSelect={(date: Date | undefined) => {
+                                        setStartDate(date || new Date());
+                                        setEndDate(addDays(date || new Date(), 5));
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        <span className="text-xs text-muted-foreground">to</span>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-7 text-xs font-normal">
+                                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+                                    {endDate ? format(new Date(endDate), 'dd MMM yyyy') : <span>End</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <SpacedCalendar
+                                    mode="single"
+                                    selected={endDate}
+                                    onSelect={(date) => setEndDate(date || new Date())}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                );
+
+                const taskPanel = (kind: 'complaint' | 'requirement') => {
+                    const isComplaints = kind === 'complaint';
+                    const label = isComplaints ? 'complaint' : 'requirement';
+                    const rows = isComplaints ? complaintsData : requirementsData;
+                    return (
+                        <div className="space-y-3">
+                            <Section
+                                description={isLoadingTasks ? `Loading ${label}s…` : `${rows.length} ${rows.length === 1 ? label : `${label}s`} due ${format(startDate, 'dd MMM')} – ${format(endDate, 'dd MMM yyyy')}`}
+                                bodyClassName="p-0"
+                                action={<>{dateToolbar}<Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => { if (isComplaints) { resetComplaintTaskState(); setIsComplaintModalOpen(true); } else { resetRequirementTaskState(); setIsRequirementModalOpen(true); } }}><Plus className="mr-1.5 h-3.5 w-3.5" />Add {label}</Button></>}
+                            >
+                                {tasksError ? (
+                                    <div role="alert" className="flex items-center justify-between gap-3 p-4 text-xs text-destructive">
+                                        <span>{tasksError}</span>
+                                        <Button variant="outline" size="sm" onClick={() => fetchTasksData(getStoreIdString(), startDate, endDate)}>Retry</Button>
+                                    </div>
+                                ) : isLoadingTasks && rows.length === 0 ? (
+                                    <div className="divide-y" aria-hidden="true">
+                                        {[0, 1, 2].map((i) => (
+                                            <div key={i} className="space-y-2 px-4 py-3">
+                                                <div className="h-3.5 w-1/3 animate-pulse rounded bg-muted" />
+                                                <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : rows.length === 0 ? (
+                                    <EmptyState compact title={`No ${label}s due in this period. Change the dates above to look elsewhere.`} />
+                                ) : (
+                                    <ul className={`divide-y transition-opacity ${isLoadingTasks ? 'opacity-60' : ''}`}>
+                                        {rows.map((task) => (
+                                            <li key={task.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 transition-colors hover:bg-muted/30">
+                                                <div className="min-w-0 flex-1 leading-tight">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="truncate text-sm font-medium">{task.taskTitle}</span>
+                                                        {task.priority && <Pill tone={priorityTone(task.priority)}>{getRequirementComplaintCategoryLabel(task.priority)}</Pill>}
+                                                    </div>
+                                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={task.taskDescription}>
+                                                        {task.taskDescription ? `${task.taskDescription} · ` : ''}Due {format(new Date(task.dueDate), 'dd MMM yyyy')} · {task.assignedToName || 'Unassigned'}
+                                                    </div>
+                                                </div>
+                                                <select
+                                                    onChange={(e) => handleChangeStatus(task.id, e.target.value)}
+                                                    value={task.status}
+                                                    aria-label="Status"
+                                                    className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                                                >
+                                                    <option value="Assigned">Assigned</option>
+                                                    <option value="Complete">Complete</option>
+                                                    <option value="On Going">On Going</option>
+                                                </select>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </Section>
+                            <DateRangeError fromDate={startDate} toDate={endDate} />
+                        </div>
+                    );
+                };
+
+                const tabs: DetailTab[] = [
+                    {
+                        value: 'overview',
+                        label: 'Overview',
+                        icon: LayoutDashboard,
+                        content: customerData ? (
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <Section icon={Activity} title="Activity" className="lg:row-span-2" bodyClassName="p-0">
+                                    <ActivityTimeline
+                                        groups={[
+                                            ...(upcomingItems.length ? [{ label: `Open items · ${upcomingItems.length}`, items: upcomingItems }] : []),
+                                            { label: 'Recent', items: recentItems, empty: 'No visits or notes recorded yet.' },
+                                        ]}
+                                    />
+                                </Section>
+                                <Section icon={User} title="Contact">
+                                    <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                                        <Info label={ownerLabel} value={fullName} />
+                                        <Info label="Phone" value={phone ? <a href={`tel:${phone}`} className="hover:underline">{phone}</a> : null} />
+                                        <Info label="Email" value={email} className="sm:col-span-2" />
+                                        <Info label={kindLabel === 'Store' ? 'Store / shop' : kindLabel === 'Firm' ? 'Firm name' : 'Project name'} value={storeLabel} />
+                                        <Info label="Client type" value={clientTypeLabel ? <span className="capitalize">{clientTypeLabel}</span> : null} />
+                                        <Info label="Managed by" value={managedBy || null} />
+                                        <Info label="Year of joining" value={customerData.yearOfJoining != null ? String(customerData.yearOfJoining) : 'Not recorded'} />
+                                        {brandsInUse.length > 0 && (
+                                            <Info
+                                                className="sm:col-span-2"
+                                                label="Brands in use"
+                                                value={<span className="flex flex-wrap gap-1.5">{brandsInUse.map((b) => <Pill key={b} tone="info">{b}</Pill>)}</span>}
+                                            />
+                                        )}
+                                        {formattedDob && <Info label="Date of birth" value={<span className={birthdayToday ? 'text-pink-600' : undefined}>{formattedDob}</span>} />}
+                                    </dl>
+                                </Section>
+                                {(isDealerType || isSiteVisit || isProType) && (
+                                    <Section icon={isSiteVisit ? HardHat : Store} title={isSiteVisit ? 'Project details' : isProType ? 'Firm details' : 'Shop details'}>
+                                        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                                            {isDealerType && <>
+                                                <Info label="Shop age" value={txt('shopAgeYears') ? `${txt('shopAgeYears')} years` : null} />
+                                                <Info label="Ownership" value={enumLabel(txt('ownershipType')) || null} />
+                                                <Info label="Dealer type" value={txt('dealerType') === 'ICON' ? 'Icon' : txt('dealerType') === 'NON_ICON' ? 'Non-Icon' : null} />
+                                                <Info label="Dealer subtype" value={enumLabel(txt('dealerSubType')).replace('Non Exclusive', 'Non-exclusive') || null} />
+                                                <Info label="Stock" value={stockText || null} />
+                                                <Info label="GST" value={txt('gstNumber') ? <span className="font-mono">{txt('gstNumber')}</span> : null} />
+                                            </>}
+                                            {isSiteVisit && <>
+                                                <Info label="Contractor" value={txt('contractorName') || null} />
+                                                <Info label="Engineer" value={txt('engineerName') || null} />
+                                                <Info label="Project type" value={enumLabel(txt('projectType')) || null} />
+                                                <Info label="Project size" value={projectSize || null} />
+                                                <Info label="Construction stage" value={enumLabel(txt('constructionStage')) || null} />
+                                                <Info label="Purchased from" value={txt('purchasedFrom') || null} />
+                                            </>}
+                                            {isProType && <>
+                                                <Info label="Industry" value={txt('industry') || null} />
+                                                <Info label="Company size" value={txt('companySize') || null} />
+                                                <Info label="Experience" value={txt('yearsOfExperience') ? `${txt('yearsOfExperience')} years` : null} />
+                                                <Info label="GST" value={txt('gstNumber') ? <span className="font-mono">{txt('gstNumber')}</span> : null} />
+                                            </>}
+                                            {productCats.length > 0 && (
+                                                <Info
+                                                    className="sm:col-span-2"
+                                                    label={isSiteVisit ? 'Consumption' : isProType ? 'Specialisation' : 'Products'}
+                                                    value={<span className="flex flex-wrap gap-1.5">{productCats.map((p) => <Pill key={p} tone="neutral">{p}</Pill>)}</span>}
+                                                />
+                                            )}
+                                        </dl>
+                                    </Section>
+                                )}
+                                {(isSiteVisit || isProType) && proContacts.length > 0 && (
+                                    <Section icon={User} title={isSiteVisit ? `Site contacts · ${proContacts.length}` : `Professionals · ${proContacts.length}`}>
+                                        <ul className="divide-y">
+                                            {proContacts.map((p, i) => {
+                                                const nm = String(p.name || p.professionalName || 'Unnamed contact');
+                                                const ph = String(p.contact || p.primaryContact || p.contactNumber || p.phone || '');
+                                                const sub = [p.role, p.firmName, p.experience, p.dateOfBirth && `DOB ${p.dateOfBirth}`].filter(Boolean).join(' · ');
+                                                return (
+                                                    <li key={String(p.id ?? i)} className="flex items-center justify-between gap-3 py-2">
+                                                        <div className="min-w-0">
+                                                            <div className="truncate text-sm font-medium">{nm}</div>
+                                                            {sub && <div className="truncate text-[11px] text-muted-foreground">{sub}</div>}
+                                                        </div>
+                                                        {ph && <a href={`tel:${ph}`} className="shrink-0 text-xs tabular-nums hover:underline">{ph}</a>}
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </Section>
+                                )}
+                                <Section
+                                    icon={MapPin}
+                                    title="Address"
+                                    action={mapsUrl ? (
+                                        <>
+                                            {directionsUrl && (
+                                                <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                                                    <a href={directionsUrl} target="_blank" rel="noopener noreferrer"><Navigation className="mr-1.5 h-3.5 w-3.5" />Directions</a>
+                                                </Button>
+                                            )}
+                                            <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
+                                                <a href={mapsUrl} target="_blank" rel="noopener noreferrer"><MapPin className="mr-1.5 h-3.5 w-3.5" />Open in Maps</a>
+                                            </Button>
+                                        </>
+                                    ) : undefined}
+                                >
+                                    <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                                        <Info label="Address" value={addressParts.length ? addressParts.join(', ') : null} className="sm:col-span-2" />
+                                        <Info label="District" value={(customerData.district as string) || null} />
+                                        <Info label="Sub-district / Taluka" value={(customerData.subDistrict as string) || null} />
+                                        <Info label="City" value={(customerData.city as string) || null} />
+                                        <Info label="State" value={(customerData.state as string) || null} />
+                                        <Info label="Country" value={(customerData.country as string) || null} />
+                                        <Info
+                                            label="Pin location"
+                                            value={hasCoords ? (
+                                                <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 tabular-nums hover:underline">
+                                                    {lat.toFixed(5)}, {lng.toFixed(5)}<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </a>
+                                            ) : <span className="font-normal text-muted-foreground">Not captured yet</span>}
+                                        />
+                                    </dl>
+                                </Section>
+                                {(createdOn || updatedOn) && (
+                                    <p className="px-1 text-[11px] text-muted-foreground lg:col-span-2">
+                                        {createdOn && <>Customer since {formatDateToUserFriendly(createdOn)}</>}
+                                        {createdOn && updatedOn && ' · '}
+                                        {updatedOn && <>Last updated {formatDateToUserFriendly(updatedOn)}</>}
+                                    </p>
+                                )}
+                            </div>
+                        ) : null,
+                    },
+                    {
+                        value: 'visits',
+                        label: 'Visits',
+                        icon: CalendarDays,
+                        count: visitTotalCount ?? undefined,
+                        content: (
+                            <Section
+                                description={`${visitTotalCount ?? filteredVisitsData.length} ${(visitTotalCount ?? filteredVisitsData.length) === 1 ? 'visit' : 'visits'} · newest first`}
+                                bodyClassName="p-0"
+                                action={
+                                    <select
+                                        onChange={(e) => handleStatusChange(e.target.value)}
+                                        aria-label="Filter by status"
+                                        className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                                    >
+                                        <option value="All Statuses">All statuses</option>
+                                        <option value="Assigned">Assigned</option>
+                                        <option value="Complete">Complete</option>
+                                    </select>
+                                }
+                            >
+                                {isLoadingVisits ? (
+                                    <div role="status" className="py-8 text-center text-xs text-muted-foreground">Loading visits…</div>
+                                ) : visitsError ? (
+                                    <div role="alert" className="flex items-center justify-between gap-3 p-4 text-xs text-destructive">
+                                        <span>{visitsError}</span>
+                                        <Button variant="outline" size="sm" onClick={() => fetchVisitsData(getStoreIdString(), currentPage.visits)}>Retry</Button>
+                                    </div>
+                                ) : filteredVisitsData.length === 0 ? (
+                                    <EmptyState compact title="No visits found." />
+                                ) : (
+                                    <ul className="divide-y">
+                                        {filteredVisitsData.map((visit, index) => {
+                                            const { status } = getOutcomeStatus(visit);
+                                            return (
+                                                <li key={visit.id ?? index}>
+                                                    <button type="button" onClick={() => router.push(`/dashboard/visits/${visit.id}`)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none">
+                                                        <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                        <span className="min-w-0 flex-1 leading-tight">
+                                                            <span className="block truncate text-sm font-medium">{visit.purpose || 'Visit'}</span>
+                                                            <span className="block truncate text-[11px] text-muted-foreground">{visit.employeeName}</span>
+                                                        </span>
+                                                        <Pill tone={visitTone(status)}>{status}</Pill>
+                                                        <span className="w-24 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{formatDateToUserFriendly(visit.visit_date)}</span>
+                                                    </button>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                                {!visitsError && visitTotalPages > 1 && (
+                                    <nav aria-label="Customer visit pages" className="flex items-center justify-between gap-2 border-t bg-muted/30 px-4 py-2">
+                                        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isLoadingVisits || currentPage.visits <= 1} onClick={() => handlePageChange('visits', currentPage.visits - 1)}>Previous</Button>
+                                        <span className="text-xs text-muted-foreground">Page {currentPage.visits} of {visitTotalPages}</span>
+                                        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isLoadingVisits || currentPage.visits >= visitTotalPages} onClick={() => handlePageChange('visits', currentPage.visits + 1)}>Next</Button>
+                                    </nav>
+                                )}
+                            </Section>
+                        ),
+                    },
+                    {
+                        value: 'brands',
+                        label: 'Brands',
+                        icon: Tag,
+                        count: brandRows.length,
+                        content: (
+                            <Section description={`${brandRows.length} brand ${brandRows.length === 1 ? 'record' : 'records'} from visits`} bodyClassName="p-0">
+                                {brandRows.length === 0 ? (
+                                    <EmptyState compact title="No brand or material details recorded yet." />
+                                ) : (
+                                    <ul className="divide-y">
+                                        {brandRows.map((r) => (
+                                            <li key={r.key} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 transition-colors hover:bg-muted/30">
+                                                <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                <div className="min-w-0 flex-1 leading-tight">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="truncate text-sm font-medium">{r.name}</span>
+                                                        {r.category && <Pill tone="info" className="uppercase">{r.category}</Pill>}
+                                                    </div>
+                                                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">Purchased from {r.from || '—'}</div>
+                                                </div>
+                                                <div className="flex shrink-0 items-center gap-4 text-[11px] text-muted-foreground">
+                                                    <span>Steel <span className="ml-1 text-xs font-semibold tabular-nums text-foreground">{hasQty(r.steel) ? `${String(r.steel).trim()} t` : '—'}</span></span>
+                                                    <span>Cement <span className="ml-1 text-xs font-semibold tabular-nums text-foreground">{hasQty(r.cement) ? String(r.cement).trim() : '—'}</span></span>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </Section>
+                        ),
+                    },
+                    {
+                        value: 'notes',
+                        label: 'Notes',
+                        icon: StickyNote,
+                        count: notesData.length,
+                        content: (
+                            <div className="space-y-3">
+                                <Section
+                                    description={`${notesData.length} ${notesData.length === 1 ? 'note' : 'notes'} · shared with the team`}
+                                    bodyClassName="p-0"
+                                    action={<Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => { setIsEditMode(false); setNoteContent(''); setEditingNoteId(null); setIsModalVisible(true); }}><Plus className="mr-1.5 h-3.5 w-3.5" />Add note</Button>}
+                                >
+                                    {notesData.length === 0 && <EmptyState compact title="No notes yet. Add one to share context with the team." />}
+                                </Section>
+                                {notesData.length > 0 && (
+                                    <div className="grid items-start gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                                        {notesData.map((note) => (
+                                            <article key={note.id} className="group flex min-w-0 flex-col rounded-lg bg-muted/50 px-3 py-2.5 transition-colors hover:bg-muted/80">
+                                                <p className="line-clamp-5 whitespace-pre-wrap break-words text-sm leading-relaxed">{note.content}</p>
+                                                <footer className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                                    <span className="min-w-0 truncate"><span className="font-medium text-foreground/80">{note.employeeName || 'Staff'}</span> · {formatDateToUserFriendly(note.createdDate)}</span>
+                                                    <span className="flex shrink-0 items-center gap-2 md:opacity-0 md:transition-opacity md:focus-within:opacity-100 md:group-hover:opacity-100">
+                                                        <button type="button" onClick={() => handleEditNote(note)} className="font-medium hover:text-foreground">Edit</button>
+                                                        <button type="button" onClick={() => setNotePendingDelete(note)} className="font-medium hover:text-destructive">Delete</button>
+                                                    </span>
+                                                </footer>
+                                            </article>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ),
+                    },
+                    { value: 'complaints', label: 'Complaints', icon: MessageSquare, count: complaintsData.length, content: taskPanel('complaint') },
+                    { value: 'requirements', label: 'Requirements', icon: ClipboardList, count: requirementsData.length, content: taskPanel('requirement') },
+                ];
+
+                return (
+                    <>
+                        <DetailHero
+                            name={fullName || 'Customer'}
+                            onBack={handleBackClick}
+                            backLabel="Back to customers"
+                            avatarExtra={birthdayToday ? (
+                                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-pink-500 shadow"><Cake className="h-3 w-3 text-white" /></span>
+                            ) : undefined}
+                            badges={<>
+                                {clientTypeLabel && <Pill tone="info" className="capitalize">{clientTypeLabel}</Pill>}
+                                {birthdayToday && <Pill tone="warning"><Cake className="h-3 w-3" />Birthday today</Pill>}
+                                {stage && <Pill tone={stage.toUpperCase() === 'COMPLETING' ? 'success' : 'warning'}><HardHat className="h-3 w-3" />{humanize(stage)}</Pill>}
+                                {isArchived && <Pill tone="danger">Archived</Pill>}
+                            </>}
+                            meta={[
+                                ...(storeLabel ? [{ icon: Store, label: storeLabel, title: kindLabel }] : []),
+                                ...(phone ? [{ icon: Phone, label: phone, href: `tel:${phone}` }] : []),
+                                ...(email ? [{ icon: Mail, label: email, href: `mailto:${email}` }] : []),
+                                ...(cityState ? [{ icon: MapPin, label: cityState, ...(mapsUrl ? { href: mapsUrl, title: 'Open in Google Maps' } : {}) }] : []),
+                                ...(managedBy ? [{ icon: User, label: managedBy, title: 'Assigned employee' }] : []),
+                            ]}
+                            actions={<>
                                 <Button
                                     variant="outline"
-                                    size="icon"
-                                    title="Edit Customer"
+                                    size="sm"
+                                    className="h-8"
                                     onClick={() => {
                                         setActiveTab('basic-info');
                                         setHasUnlockedAddressTab(false);
                                         setIsEditCustomerModalVisible(true);
                                     }}
-                                    className="h-10 w-10"
                                 >
-                                    <Edit className="h-4 w-4" />
+                                    <Edit className="mr-1.5 h-3.5 w-3.5" />Edit
                                 </Button>
-
                                 <Button
                                     variant="outline"
-                                    size="icon"
-                                    title="Log Complaint"
+                                    size="sm"
+                                    className="h-8"
                                     onClick={() => {
                                         resetComplaintTaskState();
                                         setIsComplaintModalOpen(true);
                                     }}
-                                    className="h-10 w-10"
                                 >
-                                    <MessageSquare className="h-4 w-4" />
+                                    <MessageSquare className="mr-1.5 h-3.5 w-3.5" />Complaint
                                 </Button>
-
                                 <Button
-                                    variant="outline"
-                                    size="icon"
-                                    title="Add Requirement"
+                                    size="sm"
+                                    className="h-8"
                                     onClick={() => {
                                         resetRequirementTaskState();
                                         setIsRequirementModalOpen(true);
                                     }}
-                                    className="h-10 w-10"
                                 >
-                                    <ClipboardList className="h-4 w-4" />
+                                    <ClipboardList className="mr-1.5 h-3.5 w-3.5" />Requirement
                                 </Button>
-                            </div>
+                            </>}
+                            kpis={<>
+                                <KpiCell icon={CalendarDays} label="Visits" value={visitTotalCount ?? '—'} hint={visitTotalCount === 0 ? 'None yet' : visitsThisMonth != null ? `${visitsThisMonth} in last 30 days` : undefined} />
+                                <KpiCell icon={CalendarIcon} label="Last visit" value={lastVisitDate ? formatDateToUserFriendly(lastVisitDate) : '—'} hint={lastOutcome ? `${humanize(lastOutcome)}${visitsData[0]?.employeeName ? ` · ${visitsData[0].employeeName}` : ''}` : visitsData[0]?.employeeName} />
+                                <KpiCell icon={StickyNote} label="Notes" value={notesData.length} hint={notesData[0] ? `Latest ${formatDateToUserFriendly(notesData[0].createdDate)}` : 'None yet'} />
+                                <KpiCell icon={ListChecks} label="Open items" value={openTasks.length} tone={openTasks.length ? 'warning' : undefined} hint={openTasks.length ? 'Complaints & requirements' : 'Nothing pending'} />
+                            </>}
+                            nextStep={openTasks.length > 0
+                                ? { done: false, text: `${openTasks.length} open ${openTasks.length === 1 ? 'item needs' : 'items need'} attention in the selected dates.`, action: <Button size="sm" variant="outline" onClick={() => setActiveActivityTab(openTasks[0].taskType === 'complaint' ? 'complaints' : 'requirements')}>Review</Button> }
+                                : { done: true, text: 'No open complaints or requirements in the selected dates.' }}
+                        />
+                        <DetailShell tabs={tabs} value={activeActivityTab} onValueChange={setActiveActivityTab} />
+                    </>
+                );
+            })()}
 
-                            <div className="space-y-4">
-                                <div className="flex border-b">
-                                    <button
-                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeInfoTab === 'leads-info'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveInfoTab('leads-info')}
-                                    >
-                                        Leads Info
-                                    </button>
-                                    <button
-                                        className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${activeInfoTab === 'address-info'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveInfoTab('address-info')}
-                                    >
-                                        Address Info
-                                    </button>
-                                </div>
-
-                                {activeInfoTab === 'leads-info' && customerData && (
-                                    <div className="space-y-3">
-                                        <div className="flex items-start gap-3">
-                                            <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-medium text-muted-foreground">Customer Name</p>
-                                                <p className="text-sm text-foreground">{(customerData.clientFirstName as string)} {(customerData.clientLastName as string)}</p>
-                                            </div>
-                                        </div>
-                                        {(customerData.email as string) && (
-                                            <div className="flex items-start gap-3">
-                                                <Mail className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-medium text-muted-foreground">Email</p>
-                                                    <p className="text-sm text-foreground">{customerData.email as string}</p>
-                                                </div>
-                                            </div>
-                                        )}
-                                        <div className="flex items-start gap-3">
-                                            <Phone className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-medium text-muted-foreground">Phone</p>
-                                                <p className="text-sm text-foreground">{customerData.primaryContact as number}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                            <Store className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-medium text-muted-foreground">Store Name</p>
-                                                <p className="text-sm text-foreground">{customerData.storeName as string}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                            <CalendarIcon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-medium text-muted-foreground">Year of Joining</p>
-                                                <p className="text-sm text-foreground">
-                                                    {customerData.yearOfJoining != null
-                                                        ? String(customerData.yearOfJoining)
-                                                        : 'Not recorded'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        {(customerData.clientType as string) && (
-                                            <div className="flex items-start gap-3">
-                                                <Tag className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-medium text-muted-foreground">Client Type</p>
-                                                    <p className="text-sm text-foreground capitalize">{customerData.clientType as string}</p>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {(() => {
-                                            const dob = (customerData.dateOfBirth as string) || (customerData.dob as string);
-                                            const formattedDob = formatDateOfBirth(dob);
-                                            const isBirthday = isBirthdayToday(dob);
-                                            
-                                            if (!formattedDob) return null;
-                                            
-                                            return (
-                                                <div className="flex items-start gap-3">
-                                                    <CalendarIcon className={`h-4 w-4 mt-0.5 shrink-0 ${isBirthday ? 'text-pink-500' : 'text-muted-foreground'}`} />
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-xs font-medium text-muted-foreground">Date of Birth</p>
-                                                            {isBirthday && (
-                                                                <Badge variant="outline" className="bg-pink-50 text-pink-600 border-pink-200 text-xs">
-                                                                    <Cake className="h-3 w-3 mr-1" />
-                                                                    Birthday!
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                        <p className={`text-sm ${isBirthday ? 'font-semibold text-pink-600' : 'text-foreground'}`}>
-                                                            {formattedDob}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-
-                                {activeInfoTab === 'address-info' && customerData && (
-                                    <div className="space-y-3">
-                                        {(() => {
-                                            const addressParts = [];
-                                            if (customerData.addressLine1) addressParts.push(customerData.addressLine1);
-                                            if (customerData.addressLine2) addressParts.push(customerData.addressLine2);
-                                            if (customerData.village) addressParts.push(customerData.village);
-                                            if (customerData.taluka) addressParts.push(customerData.taluka);
-                                            if (customerData.city) addressParts.push(customerData.city);
-                                            if (customerData.district) addressParts.push(customerData.district);
-                                            if (customerData.state) addressParts.push(customerData.state);
-                                            if (customerData.pincode) addressParts.push(customerData.pincode);
-
-                                            return addressParts.length > 0 ? (
-                                                <div className="flex items-start gap-3">
-                                                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-medium text-muted-foreground">Address</p>
-                                                        <p className="text-sm text-foreground">{addressParts.join(', ')}</p>
-                                                    </div>
-                                                </div>
-                                            ) : null;
-                                        })()}
-                                        {(customerData.city as string) && (
-                                            <div className="flex items-start gap-3">
-                                                <Building className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-medium text-muted-foreground">City</p>
-                                                    <p className="text-sm text-foreground">{customerData.city as string}</p>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {(customerData.state as string) && (
-                                            <div className="flex items-start gap-3">
-                                                <Flag className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-medium text-muted-foreground">State</p>
-                                                    <p className="text-sm text-foreground">{customerData.state as string}</p>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <div className="lg:col-span-2">
-                    <Card className="border-0 shadow-sm">
-                        <CardHeader className="pb-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle className="text-xl font-semibold text-foreground">Customer Activity</CardTitle>
-                                    <p className="text-xs text-muted-foreground">View visits, notes, complaints, and requirements</p>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-6">
-                                <div className="flex border-b overflow-x-auto">
-                                    <button
-                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'visits'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveActivityTab('visits')}
-                                    >
-                                        Visits
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'brands'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                                }`}
-                                        onClick={() => setActiveActivityTab('brands')}
-                                    >
-                                        Brands
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'notes'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveActivityTab('notes')}
-                                    >
-                                        Notes
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'complaints'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveActivityTab('complaints')}
-                                    >
-                                        Complaints
-                                    </button>
-                                    <button
-                                        className={`px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeActivityTab === 'requirements'
-                                                ? 'border-primary text-primary'
-                                                : 'border-transparent text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        onClick={() => setActiveActivityTab('requirements')}
-                                    >
-                                        Requirements
-                                    </button>
-                                </div>
-
-                                {activeActivityTab === 'visits' && (
-                                    <div className="space-y-4">
-                                        <div className="flex items-center gap-4">
-                                            <select
-                                                onChange={(e) => handleStatusChange(e.target.value)}
-                                                className="px-3 py-1.5 border border-input bg-background rounded-md text-xs"
-                                            >
-                                                <option value="All Statuses">All Statuses</option>
-                                                <option value="Assigned">Assigned</option>
-                                                <option value="Complete">Complete</option>
-                                            </select>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {isLoadingVisits ? (
-                                                <div role="status" className="py-8 text-center text-xs text-muted-foreground">Loading visits…</div>
-                                            ) : visitsError ? (
-                                                <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-4 text-xs">
-                                                    <span>{visitsError}</span>
-                                                    <Button variant="outline" size="sm" onClick={() => fetchVisitsData(getStoreIdString(), currentPage.visits)}>Retry</Button>
-                                                </div>
-                                            ) : filteredVisitsData.length === 0 ? (
-                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No visits found.</div>
-                                            ) : (
-                                                filteredVisitsData.map((visit, index) => {
-                                                    const { emoji, status, color } = getOutcomeStatus(visit);
-                                                    return (
-                                                        <div key={index} className="rounded-lg border bg-card p-4 space-y-3">
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="text-xs font-medium text-foreground">Visit scheduled by {visit.employeeName}</span>
-                                                                <span className="text-xs text-muted-foreground">{formatDateToUserFriendly(visit.visit_date)}</span>
-                                                            </div>
-                                                            <p className="text-xs text-muted-foreground">{visit.purpose}</p>
-                                                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
-                                                                <div className="flex items-center gap-3">
-                                                                    <Badge variant="secondary" className={color}>{emoji} {status}</Badge>
-                                                                    <span className="text-xs text-muted-foreground">Purpose: <span className="text-foreground">{visit.purpose}</span></span>
-                                                                </div>
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => router.push(`/dashboard/visits/${visit.id}`)}
-                                                                    className="text-xs h-7 px-2"
-                                                                >
-                                                                    View Visit
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeActivityTab === 'visits' && !visitsError && visitTotalPages > 1 && (
-                                    <nav aria-label="Customer visit pages" className="flex items-center justify-between gap-2 border-t pt-3">
-                                        <Button variant="outline" size="sm" disabled={isLoadingVisits || currentPage.visits <= 1} onClick={() => handlePageChange('visits', currentPage.visits - 1)}>Previous</Button>
-                                        <span className="text-xs text-muted-foreground">Page {currentPage.visits} of {visitTotalPages}</span>
-                                        <Button variant="outline" size="sm" disabled={isLoadingVisits || currentPage.visits >= visitTotalPages} onClick={() => handlePageChange('visits', currentPage.visits + 1)}>Next</Button>
-                                    </nav>
-                                )}
-
-                                {activeActivityTab === 'brands' && (
-                                    <BrandTab brandPurchases={allBrandPurchases} />
-                                )}
-
-                                {activeActivityTab === 'notes' && (
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="text-sm font-semibold text-foreground">Notes</h4>
-                                            <Button size="sm" onClick={() => { setIsEditMode(false); setNoteContent(''); setEditingNoteId(null); setIsModalVisible(true); }} className="h-8 text-xs">
-                                                Add Note
-                                            </Button>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {notesData.length === 0 ? (
-                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No notes recorded yet.</div>
-                                            ) : (
-                                                paginate(notesData, currentPage.notes).map((note) => (
-                                                    <div key={note.id} className="rounded-lg border bg-card p-4 space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-semibold text-foreground">{note.employeeName || 'Staff'}</span>
-                                                            <span className="text-xs text-muted-foreground">{formatDateToUserFriendly(note.createdDate)}</span>
-                                                        </div>
-                                                        <p className="text-xs text-foreground whitespace-pre-wrap">{note.content}</p>
-                                                        <div className="flex justify-end gap-2 pt-2 border-t">
-                                                            <Button variant="ghost" size="sm" onClick={() => handleEditNote(note)} className="h-7 text-xs px-2">Edit</Button>
-                                                            <Button variant="ghost" size="sm" onClick={() => setNotePendingDelete(note)} className="h-7 text-xs px-2 text-destructive">Delete</Button>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeActivityTab === 'complaints' && (
-                                    <div className="space-y-4">
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
-                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <SpacedCalendar
-                                                        mode="single"
-                                                        selected={startDate}
-                                                        onSelect={(date: Date | undefined) => {
-                                                            setStartDate(date || new Date());
-                                                            setEndDate(addDays(date || new Date(), 5));
-                                                        }}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
-                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <SpacedCalendar
-                                                        mode="single"
-                                                        selected={endDate}
-                                                        onSelect={(date) => setEndDate(date || new Date())}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                        </div>
-                                        <DateRangeError fromDate={startDate} toDate={endDate} />
-                                        <div className="space-y-3">
-                                            {complaintsData.length === 0 ? (
-                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No complaints found.</div>
-                                            ) : (
-                                                paginate(complaintsData, currentPage.complaints).map((complaint) => (
-                                                    <div key={complaint.id} className="rounded-lg border bg-card p-4 space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-semibold text-foreground">{complaint.taskTitle}</span>
-                                                            <span className="text-xs text-muted-foreground">Due: {format(new Date(complaint.dueDate), 'MMM dd, yyyy')}</span>
-                                                        </div>
-                                                        <p className="text-xs text-foreground">{complaint.taskDescription}</p>
-                                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs text-muted-foreground">Status:</span>
-                                                                <select
-                                                                    onChange={(e) => handleChangeStatus(complaint.id, e.target.value)}
-                                                                    value={complaint.status}
-                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
-                                                                >
-                                                                    <option value="Assigned">Assigned</option>
-                                                                    <option value="On Going">On Going</option>
-                                                                    <option value="Complete">Complete</option>
-                                                                </select>
-                                                                <Badge variant="outline" className="text-xs">{complaint.priority}</Badge>
-                                                            </div>
-                                                            <span className="text-xs text-muted-foreground">Assigned to: {complaint.assignedToName}</span>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeActivityTab === 'requirements' && (
-                                    <div className="space-y-4">
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
-                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                                                        {startDate ? format(new Date(startDate), 'MMM dd, yyyy') : <span>Start Date</span>}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <SpacedCalendar
-                                                        mode="single"
-                                                        selected={startDate}
-                                                        onSelect={(date: Date | undefined) => {
-                                                            setStartDate(date || new Date());
-                                                            setEndDate(addDays(date || new Date(), 5));
-                                                        }}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
-                                                        <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                                                        {endDate ? format(new Date(endDate), 'MMM dd, yyyy') : <span>End Date</span>}
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0">
-                                                    <SpacedCalendar
-                                                        mode="single"
-                                                        selected={endDate}
-                                                        onSelect={(date) => setEndDate(date || new Date())}
-                                                        initialFocus
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
-                                        </div>
-                                        <DateRangeError fromDate={startDate} toDate={endDate} />
-                                        <div className="space-y-3">
-                                            {requirementsData.length === 0 ? (
-                                                <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg">No requirements found.</div>
-                                            ) : (
-                                                paginate(requirementsData, currentPage.requirements).map((requirement) => (
-                                                    <div key={requirement.id} className="rounded-lg border bg-card p-4 space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-semibold text-foreground">{requirement.taskTitle}</span>
-                                                            <span className="text-xs text-muted-foreground">Due: {format(new Date(requirement.dueDate), 'MMM dd, yyyy')}</span>
-                                                        </div>
-                                                        <p className="text-xs text-foreground">{requirement.taskDescription}</p>
-                                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs text-muted-foreground">Status:</span>
-                                                                <select
-                                                                    onChange={(e) => handleChangeStatus(requirement.id, e.target.value)}
-                                                                    value={requirement.status}
-                                                                    className="px-2 py-1 border border-input bg-background rounded text-xs"
-                                                                >
-                                                                    <option value="Assigned">Assigned</option>
-                                                                    <option value="On Going">On Going</option>
-                                                                    <option value="Complete">Complete</option>
-                                                                </select>
-                                                                <Badge variant="outline" className="text-xs">{requirement.priority}</Badge>
-                                                            </div>
-                                                            <span className="text-xs text-muted-foreground">Assigned to: {requirement.assignedToName}</span>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
-
-            {/* Modals */}
-            <Dialog
+            {/* Side panels */}
+            <FormSheet
                 open={isModalVisible}
-                onOpenChange={(open) => {
-                    if (!open) {
-                        requestCloseNoteModal();
-                    }
-                }}
+                onOpenChange={(open) => { if (!open) requestCloseNoteModal(); }}
+                icon={StickyNote}
+                title={isEditMode ? 'Edit note' : 'Add note'}
+                description="Quick context so everyone stays aligned on this customer."
+                footerNote="Notes are visible to the whole team."
+                onSubmit={isEditMode ? handleSaveEditNote : handleAddNote}
+                submitLabel={isNoteSaving ? (isEditMode ? 'Updating…' : 'Adding…') : (isEditMode ? 'Update note' : 'Add note')}
+                submitting={isNoteSaving}
+                submitDisabled={!noteContent.trim()}
             >
-                <DialogContent className="max-w-md border-0 shadow-lg">
-                    <DialogHeader className="gap-1">
-                        <DialogTitle>{isEditMode ? "Edit Note" : "Add Note"}</DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Add quick context so everyone stays aligned on this customer.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <Textarea
-                        placeholder="Write a note that teammates can follow up on..."
-                        value={noteContent}
-                        onChange={(e) => setNoteContent(e.target.value)}
-                        className="min-h-[140px] text-xs"
-                    />
-                    <DialogFooter>
-                        <Button variant="outline" size="sm" onClick={requestCloseNoteModal}>
-                            Cancel
-                        </Button>
-                        <Button
-                            size="sm"
-                            onClick={isEditMode ? handleSaveEditNote : handleAddNote}
-                            disabled={isNoteSaving || !noteContent.trim()}
-                        >
-                            {isNoteSaving ? (
-                                <>
-                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                    {isEditMode ? "Updating..." : "Adding..."}
-                                </>
-                            ) : (
-                                isEditMode ? "Update Note" : "Add Note"
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                <FormGroup title="Note">
+                    <FormField label="What happened?" required hint={`${noteContent.length} characters`}>
+                        <Textarea
+                            autoFocus
+                            placeholder="Write a note that teammates can follow up on…"
+                            value={noteContent}
+                            onChange={(e) => setNoteContent(e.target.value)}
+                            className="min-h-[180px] resize-none text-sm leading-relaxed"
+                        />
+                    </FormField>
+                </FormGroup>
+            </FormSheet>
 
             <Dialog
                 open={notePendingDelete != null}
@@ -1622,222 +1734,185 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
                 </DialogContent>
             </Dialog>
 
-            <Dialog
+            <FormSheet
+                wide
                 open={isEditCustomerModalVisible}
-                onOpenChange={(open) => {
-                    if (!open) {
-                        requestCloseEditCustomerModal();
-                    }
-                }}
+                onOpenChange={(open) => { if (!open) requestCloseEditCustomerModal(); }}
+                icon={Edit}
+                title="Edit customer"
+                description="Update contact, business and address details."
+                errors={customerEditError ? [customerEditError] : undefined}
+                footerNote="Primary phone is the customer's identity and can't be changed here."
+                onSubmit={handleSubmit}
+                submitLabel="Save changes"
+                submitting={isUpdatingCustomer}
+                submitDisabled={!customerFormIsDirty}
             >
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader className="gap-1">
-                        <DialogTitle>Edit Customer</DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Update customer contact or address details.
-                        </DialogDescription>
-                    </DialogHeader>
-                    {customerEditError && (
-                        <div
-                            role="alert"
-                            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                        >
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span>{customerEditError}</span>
-                        </div>
-                    )}
-                    <Tabs value={activeTab} onValueChange={handleCustomerTabChange} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 mb-4">
-                            <TabsTrigger value="basic-info" className="text-xs">Basic Info</TabsTrigger>
-                            <TabsTrigger
-                                value="address-info"
-                                className="text-xs"
-                                disabled={!hasUnlockedAddressTab && activeTab !== "address-info"}
-                            >
-                                Address Info
-                            </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="basic-info">
-                            <div className="space-y-4 py-2">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="clientFirstName" className="text-xs font-medium">First Name *</Label>
-                                        <Input
-                                            id="clientFirstName"
-                                            name="clientFirstName"
-                                            value={formData.clientFirstName}
-                                            onChange={handleInputChange}
-                                            className="h-9 text-xs"
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="clientLastName" className="text-xs font-medium">Last Name *</Label>
-                                        <Input
-                                            id="clientLastName"
-                                            name="clientLastName"
-                                            value={formData.clientLastName}
-                                            onChange={handleInputChange}
-                                            className="h-9 text-xs"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="email" className="text-xs font-medium">Email</Label>
-                                        <Input
-                                            id="email"
-                                            name="email"
-                                            type="email"
-                                            value={formData.email || ""}
-                                            onChange={handleInputChange}
-                                            className="h-9 text-xs"
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="primaryContact" className="text-xs font-medium">Phone</Label>
-                                        <Input
-                                            id="primaryContact"
-                                            name="primaryContact"
-                                            value={formData.primaryContact}
-                                            disabled
-                                            className="h-9 text-xs bg-muted cursor-not-allowed"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between pt-4 border-t">
-                                    <Button variant="ghost" size="sm" onClick={requestCloseEditCustomerModal}>
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        onClick={() => {
-                                            setHasUnlockedAddressTab(true);
-                                            setActiveTab("address-info");
-                                        }}
-                                    >
-                                        Continue
-                                    </Button>
-                                </div>
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="address-info">
-                            <div className="space-y-4 py-2">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="city" className="text-xs font-medium">City</Label>
-                                        <Input
-                                            id="city"
-                                            name="city"
-                                            value={formData.city}
-                                            onChange={handleInputChange}
-                                            className="h-9 text-xs"
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="state" className="text-xs font-medium">State</Label>
-                                        <Input
-                                            id="state"
-                                            name="state"
-                                            value={formData.state}
-                                            onChange={handleInputChange}
-                                            className="h-9 text-xs"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between pt-4 border-t">
-                                    <Button variant="outline" size="sm" onClick={() => setActiveTab("basic-info")}>
-                                        Back
-                                    </Button>
-                                    <Button size="sm" onClick={handleSubmit} disabled={isUpdatingCustomer}>
-                                        {isUpdatingCustomer && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                                        Save Changes
-                                    </Button>
-                                </div>
-                            </div>
-                        </TabsContent>
-                    </Tabs>
-                </DialogContent>
-            </Dialog>
+                <FormGroup title={String(customerData?.clientType || '').toLowerCase() === 'site visit' ? 'Site owner' : 'Owner'} columns={2}>
+                    <FormField label="First name" required>
+                        <Input name="clientFirstName" value={formData.clientFirstName || ''} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Last name" required>
+                        <Input name="clientLastName" value={formData.clientLastName || ''} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Primary phone" hint="Locked: used to identify the customer.">
+                        <Input value={String(formData.primaryContact ?? '')} disabled className="h-10 cursor-not-allowed bg-muted text-sm" />
+                    </FormField>
+                    <FormField label="Secondary phone">
+                        <Input name="secondaryContact" inputMode="numeric" value={String(formData.secondaryContact ?? '')} onChange={handleInputChange} placeholder="Optional" className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Email" className="sm:col-span-2">
+                        <Input name="email" type="email" value={formData.email || ''} onChange={handleInputChange} placeholder="name@example.com" className="h-10 text-sm" />
+                    </FormField>
+                </FormGroup>
 
-            {/* Log Complaint Modal */}
-            <Dialog open={isComplaintModalOpen} onOpenChange={(open) => { if (!open) requestCloseComplaintModal(); }}>
-                <DialogContent className="max-w-md border-0 shadow-lg">
-                    <DialogHeader>
-                        <DialogTitle>Log Complaint</DialogTitle>
-                        <DialogDescription className="text-xs">Create a new complaint for this customer.</DialogDescription>
-                    </DialogHeader>
-                    {taskCreateError && (
-                        <div className="p-2 text-xs text-destructive bg-destructive/10 rounded border border-destructive/20">{taskCreateError}</div>
+                <FormGroup title="Business" columns={2}>
+                    <FormField label={(() => { const t = String(customerData?.clientType || '').toLowerCase(); return t === 'site visit' ? 'Project name' : ['professional', 'engineer', 'architect', 'contractor'].some((k) => t.includes(k)) ? 'Firm name' : 'Store name'; })()}>
+                        <Input name="storeName" value={formData.storeName && formData.storeName !== '.' ? formData.storeName : ''} onChange={handleInputChange} placeholder="Shop or firm name" className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="GST number">
+                        <Input name="gstNumber" value={formData.gstNumber || ''} onChange={(e) => handleInputChange({ ...e, target: { ...e.target, name: 'gstNumber', value: e.target.value.toUpperCase() } } as React.ChangeEvent<HTMLInputElement>)} maxLength={15} placeholder="15-character GSTIN" className="h-10 font-mono text-sm uppercase" />
+                    </FormField>
+                    {(['shop', 'dealer', 'dealer/shop'].includes(String(customerData?.clientType || '').toLowerCase()) || formData.dealerType || formData.ownershipType) && (
+                        <>
+                            <FormField label="Ownership">
+                                <Select value={formData.ownershipType || undefined} onValueChange={(v) => { setCustomerEditError(null); setFormData((prev) => ({ ...prev, ownershipType: v })); }}>
+                                    <SelectTrigger className="h-10 w-full text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="OWNED">Owned</SelectItem>
+                                        <SelectItem value="RENTED">Rented</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </FormField>
+                            <FormField label="Shop age (years)">
+                                <Input name="shopAgeYears" type="number" min={0} value={String(formData.shopAgeYears ?? '')} onChange={handleInputChange} className="h-10 text-sm" />
+                            </FormField>
+                            <FormField label="Dealer type">
+                                <Select
+                                    value={formData.dealerType || undefined}
+                                    onValueChange={(v) => { setCustomerEditError(null); setFormData((prev) => ({ ...prev, dealerType: v, dealerSubType: v === 'NON_ICON' ? 'NON_EXCLUSIVE' : prev.dealerSubType })); }}
+                                >
+                                    <SelectTrigger className="h-10 w-full text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="ICON">Icon</SelectItem>
+                                        <SelectItem value="NON_ICON">Non-Icon</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </FormField>
+                            <FormField label="Dealer subtype" hint={formData.dealerType === 'NON_ICON' ? 'Non-Icon dealers are always non-exclusive.' : undefined}>
+                                <Select
+                                    value={formData.dealerSubType || undefined}
+                                    onValueChange={(v) => { setCustomerEditError(null); setFormData((prev) => ({ ...prev, dealerSubType: v })); }}
+                                    disabled={formData.dealerType !== 'ICON'}
+                                >
+                                    <SelectTrigger className="h-10 w-full text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="EXCLUSIVE">Exclusive</SelectItem>
+                                        <SelectItem value="NON_EXCLUSIVE">Non-exclusive</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </FormField>
+                        </>
                     )}
-                    <div className="space-y-3">
-                        <div className="space-y-1">
-                            <Label className="text-xs">Title</Label>
-                            <Input
-                                value={complaintTask.taskTitle}
-                                onChange={(e) => setComplaintTask(prev => ({ ...prev, taskTitle: e.target.value }))}
-                                placeholder="Complaint title"
-                                className="h-9 text-xs"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Description</Label>
-                            <Textarea
-                                value={complaintTask.taskDesciption}
-                                onChange={(e) => setComplaintTask(prev => ({ ...prev, taskDesciption: e.target.value }))}
-                                placeholder="Complaint description"
-                                className="min-h-[90px] text-xs"
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" size="sm" onClick={requestCloseComplaintModal}>Cancel</Button>
-                        <Button size="sm" onClick={handleCreateComplaint} disabled={isCreatingTask || !complaintTask.taskTitle.trim()}>
-                            {isCreatingTask && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                            Create Complaint
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                </FormGroup>
 
-            {/* Add Requirement Modal */}
-            <Dialog open={isRequirementModalOpen} onOpenChange={(open) => { if (!open) requestCloseRequirementModal(); }}>
-                <DialogContent className="max-w-md border-0 shadow-lg">
-                    <DialogHeader>
-                        <DialogTitle>Add Requirement</DialogTitle>
-                        <DialogDescription className="text-xs">Add a new requirement for this customer.</DialogDescription>
-                    </DialogHeader>
-                    {taskCreateError && (
-                        <div className="p-2 text-xs text-destructive bg-destructive/10 rounded border border-destructive/20">{taskCreateError}</div>
-                    )}
-                    <div className="space-y-3">
-                        <div className="space-y-1">
-                            <Label className="text-xs">Title</Label>
-                            <Input
-                                value={requirementTask.taskTitle}
-                                onChange={(e) => setRequirementTask(prev => ({ ...prev, taskTitle: e.target.value }))}
-                                placeholder="Requirement title"
-                                className="h-9 text-xs"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <Label className="text-xs">Description</Label>
-                            <Textarea
-                                value={requirementTask.taskDesciption}
-                                onChange={(e) => setRequirementTask(prev => ({ ...prev, taskDesciption: e.target.value }))}
-                                placeholder="Requirement description"
-                                className="min-h-[90px] text-xs"
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" size="sm" onClick={requestCloseRequirementModal}>Cancel</Button>
-                        <Button size="sm" onClick={handleCreateRequirement} disabled={isCreatingTask || !requirementTask.taskTitle.trim()}>
-                            {isCreatingTask && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                            Add Requirement
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                <FormGroup title="Address" description="Pick from the list so names match the territory records. Changes are checked against the owner's assigned territory." columns={2}>
+                    <FormField label="Address line 1" className="sm:col-span-2">
+                        <Input name="addressLine1" value={formData.addressLine1 || ''} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Address line 2" className="sm:col-span-2">
+                        <Input name="addressLine2" value={formData.addressLine2 || ''} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Landmark" className="sm:col-span-2">
+                        <Input name="landmark" value={formData.landmark || ''} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="State">
+                        {(() => {
+                            const o = locOptions(locStates.map((st) => st.stateName), formData.state);
+                            return (
+                                <SearchableSelect
+                                    modal
+                                    triggerId="edit-state"
+                                    options={o.options.map((n) => ({ value: n, label: n }))}
+                                    value={o.value}
+                                    disabled={false}
+                                    placeholder={locStates.length ? 'Select state' : 'Loading…'}
+                                    searchPlaceholder="Search state…"
+                                    triggerClassName="h-10 w-full text-sm font-normal"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                    onSelect={(option) => { if (!option) return; setCustomerEditError(null); setFormData((prev) => ({ ...prev, state: option.value, village: '', taluka: '', city: '' })); }}
+                                />
+                            );
+                        })()}
+                    </FormField>
+                    <FormField label="District">
+                        {(() => {
+                            const o = locOptions(locDistricts.map((d) => d.districtName), formData.village);
+                            return (
+                                <SearchableSelect
+                                    modal
+                                    triggerId="edit-district"
+                                    options={o.options.map((n) => ({ value: n, label: n }))}
+                                    value={o.value}
+                                    disabled={!formData.state}
+                                    placeholder={formData.state ? 'Select district' : 'Choose state first'}
+                                    searchPlaceholder="Search district…"
+                                    triggerClassName="h-10 w-full text-sm font-normal"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                    onSelect={(option) => { if (!option) return; setCustomerEditError(null); setFormData((prev) => ({ ...prev, village: option.value, taluka: '', city: '' })); }}
+                                />
+                            );
+                        })()}
+                    </FormField>
+                    <FormField label="Sub-district / Taluka">
+                        {(() => {
+                            const o = locOptions(locSubDistricts.map((d) => d.subDistrictName), formData.taluka);
+                            return (
+                                <SearchableSelect
+                                    modal
+                                    triggerId="edit-subdistrict"
+                                    options={o.options.map((n) => ({ value: n, label: n }))}
+                                    value={o.value}
+                                    disabled={!formData.village}
+                                    placeholder={formData.village ? 'Select sub-district' : 'Choose district first'}
+                                    searchPlaceholder="Search sub-district / taluka…"
+                                    triggerClassName="h-10 w-full text-sm font-normal"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                    onSelect={(option) => { if (!option) return; setCustomerEditError(null); setFormData((prev) => ({ ...prev, taluka: option.value, city: '' })); }}
+                                />
+                            );
+                        })()}
+                    </FormField>
+                    <FormField label="City">
+                        {(() => {
+                            const o = locOptions(locCities.map((c) => c.cityName), formData.city);
+                            return (
+                                <SearchableSelect
+                                    modal
+                                    triggerId="edit-city"
+                                    options={o.options.map((n) => ({ value: n, label: n }))}
+                                    value={o.value}
+                                    disabled={!formData.taluka}
+                                    placeholder={formData.taluka ? 'Select city' : 'Choose sub-district first'}
+                                    searchPlaceholder="Search city…"
+                                    triggerClassName="h-10 w-full text-sm font-normal"
+                                    contentClassName="w-[var(--radix-popover-trigger-width)]"
+                                    onSelect={(option) => { if (!option) return; setCustomerEditError(null); setFormData((prev) => ({ ...prev, city: option.value })); }}
+                                />
+                            );
+                        })()}
+                    </FormField>
+                    <FormField label="Pincode">
+                        <Input name="pincode" inputMode="numeric" maxLength={6} value={String(formData.pincode ?? '')} onChange={handleInputChange} className="h-10 text-sm" />
+                    </FormField>
+                    <FormField label="Country">
+                        <Input value="India" disabled className="h-10 cursor-not-allowed bg-muted text-sm" />
+                    </FormField>
+                </FormGroup>
+            </FormSheet>
+
+            {renderTaskSheet('complaint')}
+            {renderTaskSheet('requirement')}
         </div>
     );
 }

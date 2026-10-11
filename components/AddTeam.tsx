@@ -230,6 +230,14 @@ const AddTeam = () => {
                 }
             );
 
+            for (const [label, res] of [['employees', allEmployeesResponse], ['teams', teamsResponse]] as const) {
+                if (!res.ok) {
+                    const detail = (await res.text()).trim();
+                    setError(`Could not load the list of ${label} (${res.status})${detail ? `: ${detail}` : '.'}`);
+                    return;
+                }
+            }
+
             const allEmployeesData = await allEmployeesResponse.json();
             const teamsData = await teamsResponse.json();
 
@@ -373,6 +381,7 @@ const AddTeam = () => {
     }, [token]);
    
     const handleOfficeManagerSelect = (option: SearchableOption<OfficeManager> | null) => {
+        setError(null);
         if (!option) {
             setOfficeManager(null);
             setIsCoordinator(false);
@@ -709,6 +718,7 @@ const AddTeam = () => {
         try {
             setIsCreatingTeam(true);
 
+            setError(null);
             if (teamType === 'regional' && !isCoordinator) {
                 const selectedOfficerDetails = employees.filter((employee) =>
                     selectedEmployees.includes(employee.id)
@@ -771,9 +781,13 @@ const AddTeam = () => {
                 resetForm();
                 // Optionally refresh the page or notify parent component
                 window.location.reload();
+            } else {
+                const body = (await response.text().catch(() => '')).replace(/^Error Creating Team:\s*/i, '').trim();
+                setError(body || `The server rejected the team (${response.status}).`);
             }
         } catch (error: unknown) {
             console.error("Error creating team:", error);
+            setError(error instanceof Error ? error.message : "Could not create the team.");
         } finally {
             setIsCreatingTeam(false);
         }
@@ -815,6 +829,15 @@ const AddTeam = () => {
         });
         setError(null); // Clear error when selection changes
     };
+
+    // WORKAROUND(BE-007/BE-013): the server matches an officer's HOME city against the team's cities; this greys out officers it would reject.
+    const coveredCityKeys = useMemo(() => {
+        const manager = officeManagers.find((m) => m.id === officeManager?.value) as { assignedCity?: string[] } | undefined;
+        return new Set([
+            ...selectedCities.map((city) => city.value),
+            ...(manager?.assignedCity ?? []),
+        ].map((city) => String(city ?? '').trim().toLowerCase()).filter(Boolean));
+    }, [officeManagers, officeManager, selectedCities]);
 
     const handleEmployeeToggle = (employeeId: number) => {
         setSelectedEmployees(prev => 
@@ -987,11 +1010,15 @@ const AddTeam = () => {
                                                         No field officers available in the selected cities.
                                                     </p>
                                                 ) : (
-                                                    employees.map((employee) => (
-                                                        <div key={employee.id} className="flex items-center space-x-3 p-2 rounded-md mb-1 hover:bg-muted">
+                                                    employees.map((employee) => {
+                                                        // The server only accepts officers whose own (home) city is one of the manager's cities.
+                                                        const homeCityOk = isCoordinator || coveredCityKeys.has(String(employee.city ?? '').trim().toLowerCase());
+                                                        return (
+                                                        <div key={employee.id} className={`flex items-center space-x-3 p-2 rounded-md mb-1 ${homeCityOk ? 'hover:bg-muted' : 'opacity-60'}`}>
                                                             <Checkbox
                                                                 id={`employee-${employee.id}`}
                                                                 checked={selectedEmployees.includes(employee.id)}
+                                                                disabled={!homeCityOk}
                                                                 onCheckedChange={() => handleEmployeeToggle(employee.id)}
                                                             />
                                                             <div className="flex-1 min-w-0">
@@ -1001,9 +1028,15 @@ const AddTeam = () => {
                                                                 <div className="text-xs text-muted-foreground truncate">
                                                                     {employee.city}, {employee.state}
                                                                 </div>
+                                                                {!homeCityOk && (
+                                                                    <div className="text-[11px] text-amber-600">
+                                                                        Home city &ldquo;{employee.city || 'not set'}&rdquo; isn&apos;t one of the selected cities, so the server will reject this officer.
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
-                                                    ))
+                                                        );
+                                                    })
                                                 )}
                                             </div>
                                         </div>
@@ -1080,6 +1113,12 @@ const AddTeam = () => {
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+                    {error && teamType !== 'avp' && (
+                        <div role="alert" className="mt-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                            <p className="font-medium">Could not create the team</p>
+                            <p>{error}</p>
                         </div>
                     )}
                     <div className="flex justify-between mt-4">

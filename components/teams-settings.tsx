@@ -69,7 +69,10 @@ export default function TeamsSettings() {
   const request = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     if (!token) throw new Error('Please sign in to manage teams.');
     const response = await fetch(`${API_BASE_URL}${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    if (!response.ok) throw new Error(`Team request failed (${response.status}). Please try again or check your permissions.`);
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 200);
+      throw new Error(`Team request failed (${response.status})${detail ? `: ${detail}` : '. Please try again or check your permissions.'}`);
+    }
     return response;
   }, [token]);
 
@@ -137,6 +140,8 @@ export default function TeamsSettings() {
       setOfficers([]);
     } catch (err) {
       setPanelError(message(err));
+      // A multi-officer add can partly succeed; show what the server actually saved.
+      try { await fetchTeams(); setOfficers([]); } catch { /* keep the error above */ }
     } finally { setSaving(false); }
   };
   // Refresh the active panel after a successful mutation/refetch.
@@ -248,11 +253,11 @@ export default function TeamsSettings() {
                 {filteredManagers.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 hover:bg-muted/40"><input type="radio" name="team-lead" className="h-4 w-4 accent-current dark:[color-scheme:dark]" checked={(managerId ?? panelTeam.officeManager?.id) === person.id} onChange={() => setManagerId(person.id)} disabled={saving} /><div className="min-w-0"><p className="truncate text-sm font-medium">{personName(person)}</p><p className="text-xs text-muted-foreground">{teamLeadLabel(panelTeam)}</p></div></label>)}
                 {!panelLoading && !panelError && !filteredManagers.length && <p className="p-6 text-center text-sm text-muted-foreground">No regional managers available</p>}
               </div>
-              <div className="sticky bottom-0 flex items-center justify-between border-t bg-background py-3"><span className="text-xs text-muted-foreground">1 selected</span><Button disabled={saving || panelLoading || !managerId || managerId === panelTeam.officeManager?.id} onClick={() => { if (managerId) void save(() => API.updateTeamLead(panelTeam.id, managerId)); }}>{saving ? 'Saving...' : 'Save team lead'}</Button></div>
+              <div className="sticky bottom-0 flex items-center justify-between border-t bg-background py-3"><span className="text-xs text-muted-foreground">1 selected</span><Button disabled={saving || panelLoading || !managerId || managerId === panelTeam.officeManager?.id} onClick={() => { if (managerId) void save(async () => { await API.updateTeamLead(panelTeam.id, managerId); /* WORKAROUND(BE-025): the server answers success without changing the lead, so read it back */ const mine = await API.getTeamByEmployee(managerId); if (!mine.some(team => team.id === panelTeam.id && team.officeManager?.id === managerId)) throw new Error('The server accepted the request but the team lead was not changed (backend issue BE-025).'); }); }}>{saving ? 'Saving...' : 'Save team lead'}</Button></div>
             </>}
             {section === 'cities' && panelTeam && <>
               <div><h3 className="text-sm font-semibold">City coverage</h3><p className="mt-1 text-xs text-muted-foreground">Cities are assigned to the selected {teamLeadLabel(panelTeam).toLowerCase()}.</p></div>
-              <div className="space-y-2"><Label className="text-xs">Assigned cities</Label><div className="flex flex-wrap gap-2">{teamCities(panelTeam).map(city => <Badge key={city} variant="secondary" className="gap-1.5 py-1.5 pl-2 pr-1"><Building2 className="h-3.5 w-3.5" />{cityLabel(city)}<Button variant="ghost" size="icon" className="h-5 w-5 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${cityLabel(city)}`} disabled={saving} onClick={() => setConfirmation({ title: 'Remove city?', description: `Remove ${cityLabel(city)} from ${personName(panelTeam.officeManager)}'s coverage?`, action: async () => { await save(() => request(`/employee/removeCity?id=${panelTeam.officeManager?.id}&city=${encodeURIComponent(city)}`, 'PUT')); } })}><X className="h-3 w-3" /></Button></Badge>)}{!teamCities(panelTeam).length && <p className="w-full rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No cities assigned</p>}</div></div>
+              <div className="space-y-2"><Label className="text-xs">Assigned cities</Label><div className="flex flex-wrap gap-2">{teamCities(panelTeam).map(city => <Badge key={city} variant="secondary" className="gap-1.5 py-1.5 pl-2 pr-1"><Building2 className="h-3.5 w-3.5" />{cityLabel(city)}<Button variant="ghost" size="icon" className="h-5 w-5 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${cityLabel(city)}`} disabled={saving} onClick={() => setConfirmation({ title: 'Remove city?', description: `Remove ${cityLabel(city)} from ${personName(panelTeam.officeManager)}'s coverage?`, action: async () => { await save(() => request(`/employee/removeAssignedCity?employeeId=${panelTeam.officeManager?.id}&city=${encodeURIComponent(city)}`, 'DELETE')); } })}><X className="h-3 w-3" /></Button></Badge>)}{!teamCities(panelTeam).length && <p className="w-full rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No cities assigned</p>}</div></div>
               <div className="space-y-2 border-t pt-4"><Label>Add cities</Label><TeamCityPicker cities={cities.filter(city => !teamCities(panelTeam).some(assigned => cityKey(assigned) === cityKey(city)))} selected={selectedCities} onChange={setSelectedCities} disabled={panelLoading || saving} />
                 {selectedCities.length > 0 && <div className="flex flex-wrap gap-2">{selectedCities.map(city => <Badge key={city} variant="outline">{cityLabel(city)}<Button variant="ghost" size="icon" className="ml-1 h-5 w-5" aria-label={`Unselect ${cityLabel(city)}`} onClick={() => setSelectedCities(current => current.filter(item => item !== city))}><X className="h-3 w-3" /></Button></Badge>)}</div>}
                 <Button className="w-full" disabled={!selectedCities.length || saving || !panelTeam.officeManager} onClick={() => void save(async () => { for (const city of selectedCities) { await request(`/employee/assignCity?id=${panelTeam.officeManager?.id}&city=${encodeURIComponent(city)}`, 'PUT'); setSelectedCities(current => current.filter(item => item !== city)); } })}>{saving ? 'Assigning...' : 'Assign selected cities'}</Button>

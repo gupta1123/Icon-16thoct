@@ -1,5 +1,6 @@
 'use client';
 
+import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays, differenceInDays } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
@@ -14,10 +15,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import TaskCreateSheet from '@/components/task-create-sheet';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
+import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext, PaginationEllipsis } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, FileText, Target, Trash2, Calendar as CalendarIcon2, X, ChevronLeft, ChevronRight, Image as ImageIcon, Check, ChevronsUpDown } from 'lucide-react';
@@ -79,7 +81,7 @@ const Complaints = () => {
         assignedToName: '',
         assignedById: 86,
         status: 'Assigned',
-        priority: 'low',
+        priority: '',
         category: 'Complaint',
         storeId: 0,
         storeName: '',
@@ -154,7 +156,7 @@ const Complaints = () => {
                 assignedToName: '',
                 assignedById: current.assignedById,
                 status: 'Assigned',
-                priority: 'low',
+                priority: '',
                 category: 'Complaint',
                 storeId: 0,
                 storeName: '',
@@ -184,13 +186,13 @@ const Complaints = () => {
     useEffect(() => {
         const checkUserRole = () => {
             // Check both userRole and currentUser authorities
+            // WORKAROUND(BE-019/BE-023): only the legacy Manager role uses the first-team endpoint. AVPs (several
+            // teams) and Regional Managers use the scoped date query, which also finds
+            // visit-linked tasks that getByTeamAndDate returns nothing for.
             const isManagerRole =
                 userRole === 'MANAGER' ||
-                userRole === 'AVP' ||
                 currentUser?.authorities?.some(
-                    (auth) =>
-                        auth.authority === 'ROLE_MANAGER' ||
-                        auth.authority === 'ROLE_AVP'
+                    (auth) => auth.authority === 'ROLE_MANAGER'
                 );
             
             setIsManager(!!isManagerRole);
@@ -548,7 +550,9 @@ const Complaints = () => {
 
         // Basic validation
         const missing: string[] = [];
+        if (!newTask.taskTitle?.trim()) missing.push('Title');
         if (!newTask.taskDescription?.trim()) missing.push('Description');
+        if (!newTask.priority) missing.push('Type');
         if (!newTask.dueDate) missing.push('Due Date');
         if (!newTask.assignedToId) missing.push('Assigned To');
         if (!newTask.storeId) missing.push('Store');
@@ -576,7 +580,7 @@ const Complaints = () => {
                 storeId: Number(newTask.storeId),
                 taskType: 'complaint',
                 status: newTask.status || 'Assigned',
-                priority: newTask.priority || 'low',
+                priority: newTask.priority,
             };
 
             const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
@@ -608,7 +612,7 @@ const Complaints = () => {
                 assignedToName: '',
                 assignedById: assignedById,
                 status: 'Assigned',
-                priority: 'low',
+                priority: '',
                 category: 'Complaint',
                 storeId: 0,
                 storeName: '',
@@ -1151,237 +1155,26 @@ const Complaints = () => {
                 </SheetContent>
             </Sheet>
 
-            <Dialog
+            <TaskCreateSheet
+                kind="complaint"
                 open={isModalOpen}
-                onOpenChange={(open) => {
-                    if (open) setIsModalOpen(true);
-                    else closeComplaintCreator();
+                onClose={closeComplaintCreator}
+                value={newTask}
+                onChange={(patch) => {
+                    setNewTask((prev) => ({ ...prev, ...patch }));
+                    if (patch.assignedToId !== undefined && patch.assignedToId !== newTask.assignedToId) setStores([]);
                 }}
-            >
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Create New Complaint</DialogTitle>
-                        <DialogDescription>Fill in the details to create a new complaint.</DialogDescription>
-                    </DialogHeader>
-                    <Tabs value={activeTab} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="general" disabled={activeTab === 'details'}>General</TabsTrigger>
-                            <TabsTrigger value="details" disabled={activeTab === 'general'}>Details</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="general">
-                            <div className="grid gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="taskTitle">Complaint Title</Label>
-                                    <Input
-                                        id="taskTitle"
-                                        placeholder="Enter complaint title"
-                                        value={newTask.taskTitle}
-                                        onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="taskDescription">Complaint Description</Label>
-                                    <Input
-                                        id="taskDescription"
-                                        placeholder="Enter complaint description"
-                                        value={newTask.taskDescription}
-                                        onChange={(e) => setNewTask({ ...newTask, taskDescription: e.target.value })}
-                                    />
-          </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="category">Category</Label>
-                                    <Select value={newTask.category} onValueChange={(value) => setNewTask({ ...newTask, category: value })}>
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder="Select a category" />
-              </SelectTrigger>
-              <SelectContent>
-                                            <SelectItem value="Complaint">Complaint</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-                                <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={closeComplaintCreator}>Cancel</Button>
-                                    <Button onClick={handleNext} disabled={isTabLoading}>
-                                        {isTabLoading ? (
-                                            <>
-                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
-                                                Loading...
-                                            </>
-                                        ) : (
-                                            'Next'
-                                        )}
-                                    </Button>
-                                </div>
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="details">
-                            <div className="grid gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="dueDate">Due Date</Label>
-                                    <Popover open={isDueDatePickerOpen} onOpenChange={setIsDueDatePickerOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                className={`w-[280px] justify-start text-left font-normal ${!newTask.dueDate && 'text-muted-foreground'}`}
-                                            >
-                                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                                {newTask.dueDate ? format(new Date(newTask.dueDate + 'T00:00:00'), 'PPP') : <span>Pick a date</span>}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0">
-                                            <Calendar
-                                                mode="single"
-                                                selected={newTask.dueDate ? new Date(newTask.dueDate + 'T00:00:00') : undefined}
-                                                onSelect={(date) => {
-                                                    if (date) {
-                                                        const year = date.getFullYear();
-                                                        const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                        const day = String(date.getDate()).padStart(2, '0');
-                                                        setNewTask({ ...newTask, dueDate: `${year}-${month}-${day}` });
-                                                        setIsDueDatePickerOpen(false);
-                                                    } else {
-                                                        setNewTask({ ...newTask, dueDate: '' });
-                                                    }
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="assignedToId">
-                                        Assigned To {isManager && teamMembers.length > 0 && <span className="text-xs text-muted-foreground">(Team Members Only)</span>}
-                                    </Label>
-                                    <SearchableSelect<Employee>
-                                        options={assignmentEmployees.map((employee) => ({
-                                            value: employee.id.toString(),
-                                            label: `${employee.firstName} ${employee.lastName}`.trim(),
-                                            data: employee,
-                                        }))}
-                                        value={newTask.assignedToId ? newTask.assignedToId.toString() : undefined}
-                                        onSelect={(option) => {
-                                            if (!option) {
-                                                setNewTask({
-                                                    ...newTask,
-                                                    assignedToId: 0,
-                                                    assignedToName: '',
-                                                    storeId: 0,
-                                                    storeName: ''
-                                                });
-                                                setStores([]);
-                                                return;
-                                            }
-
-                                            const selectedEmployee = option.data ?? assignmentEmployees.find(emp => emp.id === parseInt(option.value, 10));
-                                            if (!selectedEmployee) {
-                                                return;
-                                            }
-
-                                            setNewTask({
-                                                ...newTask,
-                                                assignedToId: parseInt(option.value, 10),
-                                                assignedToName: `${selectedEmployee.firstName} ${selectedEmployee.lastName}`.trim(),
-                                                storeId: 0,
-                                                storeName: ''
-                                            });
-                                            setStores([]);
-                                        }}
-                                        placeholder={
-                                            assignmentEmployees.length === 0
-                                                ? (isManager ? "No team members available" : "No employees available")
-                                                : "Select an employee"
-                                        }
-                                        emptyMessage={isManager ? "No team members available" : "No employees available"}
-                                        noResultsMessage="No employees match your search"
-                                        searchPlaceholder="Search employees..."
-                                        disabled={assignmentEmployees.length === 0}
-                                        allowClear={newTask.assignedToId > 0}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="priority">Category</Label>
-                                    <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value })}>
-                                        <SelectTrigger className="w-[280px]">
-                                            <SelectValue placeholder="Select a category" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
-                                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="storeId">Store</Label>
-                                    <SearchableSelect<Store>
-                                        options={stores.map((store) => ({
-                                            value: store.id.toString(),
-                                            label: (store.storeCity || store.city)
-                                                ? `${store.storeName} (${store.storeCity || store.city})`
-                                                : store.storeName,
-                                            data: store,
-                                        }))}
-                                        value={newTask.storeId ? newTask.storeId.toString() : undefined}
-                                        onSelect={(option) => {
-                                            if (!option) {
-                                                setNewTask({
-                                                    ...newTask,
-                                                    storeId: 0,
-                                                    storeName: ''
-                                                });
-                                                return;
-                                            }
-
-                                            const selectedStore = option.data ?? stores.find(store => store.id === parseInt(option.value, 10));
-                                            if (!selectedStore) {
-                                                return;
-                                            }
-
-                                            setNewTask({
-                                                ...newTask,
-                                                storeId: parseInt(option.value, 10),
-                                                storeName: selectedStore.storeName
-                                            });
-                                        }}
-                                        placeholder={
-                                            !newTask.assignedToId
-                                                ? "Select employee first"
-                                                : stores.length === 0
-                                                ? "Search stores..."
-                                                : "Select a store"
-                                        }
-                                        emptyMessage="No stores available for this employee"
-                                        noResultsMessage="No stores match your search"
-                                        searchPlaceholder="Search stores..."
-                                        disabled={!newTask.assignedToId}
-                                        allowClear={newTask.storeId > 0}
-                                        loading={isStoresLoading}
-                                        loadingMessage="Loading stores..."
-                                        onOpenChange={(open) => {
-                                            if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) {
-                                                fetchStores(newTask.assignedToId);
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex justify-between mt-4">
-                                    <Button variant="outline" onClick={handleBack}>Back</Button>
-                                    <Button onClick={createTask} disabled={isCreating}>
-                                        {isCreating ? (
-                                            <>
-                                                <Loader className="w-4 h-4 mr-2 animate-spin" />
-                                                Creating...
-                                            </>
-                                        ) : (
-                                            'Create Complaint'
-                                        )}
-                                    </Button>
-                                </div>
-                            </div>
-                        </TabsContent>
-                    </Tabs>
-                </DialogContent>
-            </Dialog>
+                employees={assignmentEmployees}
+                stores={stores}
+                isStoresLoading={isStoresLoading}
+                employeeHint={isManager && teamMembers.length > 0 ? '(team members only)' : undefined}
+                onStoreOpenChange={(open) => {
+                    if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) fetchStores(newTask.assignedToId);
+                }}
+                isSubmitting={isCreating}
+                error={errorMessage}
+                onSubmit={createTask}
+            />
 
             {isLoading ? (
                 <div className="flex justify-center items-center h-64">
@@ -1533,7 +1326,9 @@ const Complaints = () => {
                                         className={currentPage === 1 ? "pointer-events-none opacity-40" : "cursor-pointer"}
                                     />
                                 </PaginationItem>
-                                {Array.from({ length: Math.ceil(filteredTasks.length / 10) }, (_, i) => i + 1).map((page) => (
+                                {pageWindow(currentPage, Math.ceil(filteredTasks.length / 10)).map((page, idx) => page === 'gap' ? (
+                                    <PaginationItem key={`gap-${idx}`}><PaginationEllipsis /></PaginationItem>
+                                  ) : (
                                     <PaginationItem key={page}>
                                         <PaginationLink
                                             isActive={page === currentPage}

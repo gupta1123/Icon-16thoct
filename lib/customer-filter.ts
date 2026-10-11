@@ -26,6 +26,10 @@ export interface CustomerFilterRecord {
   state?: string | null;
 }
 
+/** Filter value meaning "Engineer, Architect, Contractor or the combined/legacy Professional label". */
+export const PROFESSIONALS_FILTER = "Professionals";
+export const PROFESSIONAL_TYPE_QUERIES = ["Engineer", "Architect", "Contractor", "Professional"] as const;
+
 const normalize = (value: unknown): string => String(value ?? "").trim().toLowerCase();
 
 const includesFilter = (value: unknown, filter: string): boolean => {
@@ -45,8 +49,10 @@ export const filterCustomers = <T extends CustomerFilterRecord>(
     && includesFilter(ownerName, filters.ownerName)
     && includesFilter(customer.city, filters.city)
     && includesFilter(customer.state, filters.state)
-    && includesFilter(customer.clientType, filters.clientType)
-    && includesFilter(customer.dealerSubType, filters.dealerSubType)
+    && (filters.clientType === PROFESSIONALS_FILTER
+      ? PROFESSIONAL_TYPE_QUERIES.some((t) => includesFilter(customer.clientType, t))
+      : includesFilter(customer.clientType, filters.clientType))
+    && (normalize(filters.dealerSubType) === "" || normalize(customer.dealerSubType) === normalize(filters.dealerSubType))
     && includesFilter(customer.employeeName, filters.employeeName)
     && (phoneFilter === "" || phone.includes(phoneFilter));
 });

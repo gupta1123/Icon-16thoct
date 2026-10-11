@@ -47,11 +47,14 @@ import {
   MapPin as MapMarker,
   LogIn,
   LogOut,
+  Hash,
   ChevronLeft,
   ChevronRight,
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DetailHero, DetailShell, EmptyState, FormField, FormSheet, Info, KpiCell, Pill, Section, type DetailTab, type HeroNextStep, type Tone } from "@/components/detail-ui";
+import TaskCreateSheet from "@/components/task-create-sheet";
 import { format, parseISO } from "date-fns";
 import { Heading, Text } from "@/components/ui/typography";
 import {
@@ -561,7 +564,7 @@ export default function VisitDetailPage({
     visitId: Number(visitId),
     visitDate: '',
     status: 'Assigned',
-    priority: 'low',
+    priority: '' as Priority,
     taskType: 'requirement',
     attachment: [],
     attachmentResponse: [],
@@ -585,7 +588,7 @@ export default function VisitDetailPage({
     visitId: Number(visitId),
     visitDate: '',
     status: 'Assigned',
-    priority: 'low',
+    priority: '' as Priority,
     taskType: 'complaint',
     attachment: [],
     attachmentResponse: [],
@@ -618,10 +621,10 @@ export default function VisitDetailPage({
     : '';
   const noteDraftIsDirty = isNoteModalVisible && noteContent !== originalNoteContent;
   const requirementDraftIsDirty = isRequirementModalOpen && Boolean(
-    newTask.taskTitle.trim() || newTask.taskDesciption.trim() || newTask.dueDate || newTask.priority !== 'low'
+    newTask.taskTitle.trim() || newTask.taskDesciption.trim() || newTask.dueDate || newTask.priority
   );
   const complaintDraftIsDirty = isComplaintModalOpen && Boolean(
-    complaintTask.taskTitle.trim() || complaintTask.taskDesciption.trim() || complaintTask.dueDate || complaintTask.priority !== 'low'
+    complaintTask.taskTitle.trim() || complaintTask.taskDesciption.trim() || complaintTask.dueDate || complaintTask.priority
   );
   const visitDraftIsDirty = noteDraftIsDirty || requirementDraftIsDirty || complaintDraftIsDirty;
   const { markSaved: markVisitDraftSaved, requestDiscard: requestVisitDraftDiscard } = useUnsavedChanges(visitDraftIsDirty);
@@ -644,7 +647,7 @@ export default function VisitDetailPage({
       setIsRequirementModalOpen(false);
       setActiveRequirementTab('general');
       setTaskCreateError(null);
-      setNewTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: 'low' }));
+      setNewTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: '' as Priority }));
     }, requirementDraftIsDirty);
   }, [isTaskSaving, requestVisitDraftDiscard, requirementDraftIsDirty]);
 
@@ -654,7 +657,7 @@ export default function VisitDetailPage({
       setIsComplaintModalOpen(false);
       setActiveComplaintTab('general');
       setTaskCreateError(null);
-      setComplaintTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: 'low' }));
+      setComplaintTask((current) => ({ ...current, taskTitle: '', taskDesciption: '', dueDate: '', priority: '' as Priority }));
     }, complaintDraftIsDirty);
   }, [complaintDraftIsDirty, isTaskSaving, requestVisitDraftDiscard]);
 
@@ -1312,8 +1315,8 @@ export default function VisitDetailPage({
     { value: 'visits', label: 'Visits', mobileLabel: 'Recent Visits', icon: Calendar },
     ...(isSiteVisitClient ? [{ value: 'site', label: 'Site Details', icon: ClipboardList }] : []),
     isProfessionalClient ? { value: 'discussion', label: 'Discussion', icon: MessageSquare } : { value: 'brands', label: 'Brands', icon: Building },
-    { value: 'requirements', label: 'Requirements', icon: FileText },
-    { value: 'complaints', label: 'Complaints', icon: AlertCircle },
+    { value: 'requirements', label: 'Requirements', count: requirements.length, icon: FileText },
+    { value: 'complaints', label: 'Complaints', count: complaints.length, icon: AlertCircle },
   ];
   const displayMetrics = [
     { label: "Total Visits", value: storeVisits.length },
@@ -1518,7 +1521,9 @@ export default function VisitDetailPage({
       const currentTask = taskType === 'requirement' ? newTask : complaintTask;
       // Basic validation
       const missing: string[] = [];
+      if (!currentTask.taskTitle?.trim()) missing.push('Title');
       if (!currentTask.taskDesciption?.trim()) missing.push('Description');
+      if (!currentTask.priority) missing.push('Type');
       if (!currentTask.dueDate) missing.push('Due Date');
       if (missing.length) {
         setTaskCreateError(`Please provide: ${missing.join(', ')}`);
@@ -1544,10 +1549,10 @@ export default function VisitDetailPage({
         storeId: Number(visitDetail?.storeId ?? currentTask.storeId ?? 0),
         taskType,
         status: currentTask.status || 'Assigned',
-        priority: currentTask.priority || 'low',
+        priority: currentTask.priority,
         visitId: Number(visitId),
       };
-      if (taskType === 'requirement' && currentTask.taskTitle?.trim()) {
+      if (currentTask.taskTitle?.trim()) {
         apiPayload.taskTitle = currentTask.taskTitle.trim();
       }
 
@@ -1611,7 +1616,7 @@ export default function VisitDetailPage({
           visitId: Number(visitId),
           visitDate: '',
           status: 'Assigned',
-          priority: 'low',
+          priority: '' as Priority,
           taskType: 'requirement',
           attachment: [],
           attachmentResponse: [],
@@ -1641,7 +1646,7 @@ export default function VisitDetailPage({
           visitId: Number(visitId),
           visitDate: '',
           status: 'Assigned',
-          priority: 'low',
+          priority: '' as Priority,
           taskType: 'complaint',
           attachment: [],
           attachmentResponse: [],
@@ -1694,489 +1699,178 @@ export default function VisitDetailPage({
     );
   }
 
-  return (
-    <div className="icon-visit-details mx-auto w-full max-w-[1600px]">
-      <div className="visit-details grid grid-cols-1 items-start gap-3 lg:grid-cols-[216px_minmax(0,1fr)_216px] xl:grid-cols-[232px_minmax(0,1fr)_232px]">
-        {/* Record context rail */}
-        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
-          <div className="back-button-container flex items-start justify-between gap-2">
-            <button className="back-button inline-flex h-9 items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={handleBack}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
+  const fmtTime = (time?: string | null) => {
+    if (!time) return '';
+    const parsed = parseISO(`1970-01-01T${time}`);
+    return Number.isNaN(parsed.getTime()) ? time : format(parsed, 'h:mm a');
+  };
+  const fmtDay = (date?: string | null) => {
+    if (!date) return '—';
+    const parsed = new Date(date);
+    return Number.isNaN(parsed.getTime()) ? date : format(parsed, 'MMM dd, yyyy');
+  };
+  const statusTone: Tone = visitStatus.status === 'Completed' ? 'success' : visitStatus.status === 'On Going' ? 'info' : visitStatus.status === 'Checked Out' ? 'warning' : 'neutral';
+  const statusLabel = visitStatus.status === 'On Going' ? 'In progress' : visitStatus.status === 'Assigned' ? 'Scheduled' : visitStatus.status;
+  const hasLocation = Boolean(visitDetail?.checkinLatitude && visitDetail?.checkinLongitude);
+  const timeWindow = visitDetail?.checkinTime ? `${fmtTime(visitDetail.checkinTime)} → ${visitDetail.checkoutTime ? fmtTime(visitDetail.checkoutTime) : 'now'}` : 'Not checked in';
+  const durationValue = (() => {
+    if (!visitDetail?.checkinDate || !visitDetail?.checkinTime || !visitDetail?.checkoutDate || !visitDetail?.checkoutTime) return '';
+    const ms = new Date(`${visitDetail.checkoutDate}T${visitDetail.checkoutTime}`).getTime() - new Date(`${visitDetail.checkinDate}T${visitDetail.checkinTime}`).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    const mins = Math.round(ms / 60000);
+    return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+  })();
+  const heroNextStep: HeroNextStep | null = visitStatus.status === 'Completed'
+    ? { done: true, text: visitDetail?.outcome ? `Visit completed. Outcome: ${visitDetail.outcome}.` : 'Visit completed.' }
+    : visitStatus.status === 'On Going'
+      ? { done: false, text: `In progress since ${fmtTime(visitDetail?.checkinTime)}. Waiting for check-out.` }
+      : visitStatus.status === 'Assigned'
+        ? { done: false, text: 'Not checked in yet. The field employee checks in from the mobile app.' }
+        : null;
+  const photos = [
+    ...checkinImages.map((src, index) => ({ src, label: `Check-in ${index + 1}` })),
+    ...(giftImageUrl ? [{ src: giftImageUrl, label: 'Gift' }] : []),
+  ];
+  const timelineDot = (tone: 'muted' | 'success' | 'primary' | 'warning' | 'danger', Icon: typeof Calendar) => (
+    <span className={cn('relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card',
+      tone === 'success' && 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950',
+      tone === 'primary' && 'border-primary/20 bg-primary/5',
+      tone === 'warning' && 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950',
+      tone === 'danger' && 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950')}>
+      <Icon className={cn('h-3 w-3', tone === 'success' ? 'text-emerald-600 dark:text-emerald-400' : tone === 'primary' ? 'text-primary' : tone === 'warning' ? 'text-amber-600 dark:text-amber-400' : tone === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')} />
+    </span>
+  );
+  const taskEvents = [
+    ...requirements.map((task) => ({ kind: 'requirement' as const, task })),
+    ...complaints.map((task) => ({ kind: 'complaint' as const, task })),
+  ];
+  const openCreate = (kind: 'requirement' | 'complaint') => {
+    setTaskCreateError(null);
+    if (kind === 'requirement') setIsRequirementModalOpen(true); else setIsComplaintModalOpen(true);
+  };
+
+  const overviewContent = (
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
+      <Section icon={ListTodo} title="Activity" bodyClassName="px-4 pb-3 pt-1" action={<Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={addNote}><Plus className="mr-1 h-3.5 w-3.5" />Note</Button>}>
+        <ol className="relative before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-border">
+          <li className="relative flex gap-2.5 pb-3">
+            {timelineDot('muted', Calendar)}
+            <div className="min-w-0 pt-0.5"><p className="text-xs font-semibold">Visit scheduled</p><p className="text-[11px] text-muted-foreground">{fmtDay(visitDetail?.visit_date)}{visitDetail?.purpose ? ` · ${visitDetail.purpose}` : ''}</p></div>
+          </li>
+          {visitDetail?.checkinDate && visitDetail?.checkinTime && (
+            <li className="relative flex gap-2.5 pb-3">
+              {timelineDot('success', LogIn)}
+              <div className="min-w-0 pt-0.5"><p className="text-xs font-semibold">Checked in</p><p className="text-[11px] text-muted-foreground">{fmtDay(visitDetail.checkinDate)} at {fmtTime(visitDetail.checkinTime)}{hasLocation && <> · <button type="button" onClick={handleOpenLocation} className="text-foreground hover:underline">location</button></>}</p></div>
+            </li>
+          )}
+          {notes.map((note) => (
+            <li key={`activity-note-${note.id}`} className="group relative flex gap-2.5 pb-3">
+              {timelineDot('primary', MessageSquare)}
+              <div className="min-w-0 flex-1 pt-0.5">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 whitespace-pre-wrap break-words text-xs leading-5">{note.content}</p>
+                  <div className="flex shrink-0 items-center md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                    <Button variant="ghost" size="icon" onClick={() => editNote(note)} className="h-6 w-6 text-muted-foreground hover:text-foreground" aria-label="Edit note"><Edit className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => setNotePendingDelete(note)} className="h-6 w-6 text-muted-foreground hover:text-destructive" aria-label="Delete note"><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">{['Note', fmtDay(note.createdDate), note.employeeName].filter(Boolean).join(' · ')}</p>
+              </div>
+            </li>
+          ))}
+          {taskEvents.map(({ kind, task }) => (
+            <li key={`activity-${kind}-${task.id}`} className="relative pb-3">
+              <button type="button" onClick={() => setActiveTab(kind === 'requirement' ? 'requirements' : 'complaints')} className="flex w-full gap-2.5 text-left">
+                {timelineDot(kind === 'complaint' ? 'danger' : 'warning', kind === 'complaint' ? AlertCircle : ClipboardList)}
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <p className="text-xs font-semibold">{kind === 'complaint' ? 'Complaint logged' : 'Requirement logged'}</p>
+                  <p className="break-words text-xs leading-5">{task.title || 'Untitled'}</p>
+                  <p className="text-[11px] text-muted-foreground">{[task.priority ? getRequirementComplaintCategoryLabel(task.priority) : '', task.status, task.dueDate ? `Due ${fmtDay(task.dueDate)}` : ''].filter(Boolean).join(' · ')}</p>
+                </div>
+              </button>
+            </li>
+          ))}
+          {visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
+            <li className="relative flex gap-2.5">
+              {timelineDot('success', CheckCircle)}
+              <div className="min-w-0 pt-0.5">
+                <p className="text-xs font-semibold">Visit completed</p>
+                <p className="text-[11px] text-muted-foreground">{fmtDay(visitDetail.checkoutDate)} at {fmtTime(visitDetail.checkoutTime)}{durationValue ? ` · ${durationValue}` : ''}</p>
+                {visitDetail.outcome && <p className="mt-0.5 text-xs leading-5"><span className="font-medium">Outcome:</span> <span className="text-muted-foreground">{visitDetail.outcome}</span></p>}
+              </div>
+            </li>
+          ) : (
+            <li className="relative flex gap-2.5">
+              {timelineDot('muted', Clock)}
+              <div className="min-w-0 pt-0.5"><p className="text-xs font-semibold">{visitDetail?.checkinTime ? 'Visit in progress' : 'Awaiting check-in'}</p><p className="text-[11px] text-muted-foreground">{visitDetail?.checkinTime ? 'Waiting for check-out' : 'Not started yet'}</p></div>
+            </li>
+          )}
+        </ol>
+      </Section>
+
+      </div>
+
+      <div className="space-y-4">
+      <Section icon={ClipboardList} title="Visit details">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Info label="Purpose" value={visitDetail?.purpose || 'Not recorded'} />
+          <Info label="Outcome" value={visitDetail?.outcome || 'Not recorded'} />
+          <Info label="Check-in" value={visitDetail?.checkinDate && visitDetail?.checkinTime ? `${fmtDay(visitDetail.checkinDate)}, ${fmtTime(visitDetail.checkinTime)}` : 'Not checked in'} />
+          <Info label="Check-out" value={visitDetail?.checkoutDate && visitDetail?.checkoutTime ? `${fmtDay(visitDetail.checkoutDate)}, ${fmtTime(visitDetail.checkoutTime)}` : 'Not checked out'} />
+          <Info label="Location" value={hasLocation ? <button type="button" onClick={handleOpenLocation} className="inline-flex items-center gap-1 hover:underline">View on map<ExternalLink className="h-3 w-3 text-muted-foreground" /></button> : 'Not recorded'} />
+          {isProfessionalClient && <Info label="Upcoming sites" value={upcomingSitesCount ?? '—'} />}
+        </dl>
+      </Section>
+
+      <Section icon={Store} title="Store" action={visitDetail?.storeId ? <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={isNavigatingToStore} onClick={handleViewStore}>Open<ChevronRight className="ml-0.5 h-3.5 w-3.5" /></Button> : undefined}>
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          {ownerCustomerName && <Info label="Owner" value={ownerCustomerName} />}
+          <Info label="Contact" value={storeDetails?.contactNumber ? <a href={`tel:${storeDetails.contactNumber}`} className="hover:underline">{storeDetails.contactNumber}</a> : 'Not recorded'} />
+          {storeEmail && <Info label="Email" value={storeEmail} />}
+          <Info label="City" value={storeDetails?.city || 'Not recorded'} />
+          <Info className="sm:col-span-2" label="Address" value={storeDetails?.address ? <span>{storeDetails.address} <button type="button" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${visitDetail?.storeName} ${storeDetails?.address}`)}`, '_blank')} className="ml-1 inline-flex items-center gap-1 font-normal text-muted-foreground hover:text-foreground hover:underline">Map<ExternalLink className="h-3 w-3" /></button></span> : 'Not recorded'} />
+        </dl>
+      </Section>
+
+
+      </div>
+    </div>
+  );
+
+  const hasStock = [visitDetail?.steelStockAvailable, visitDetail?.steelStockRequired, visitDetail?.cementStockAvailable, visitDetail?.cementStockRequired].some((v) => v !== null && v !== undefined);
+  const stockContent = (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Section icon={Package} title="Stock">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Info label="Steel available" value={formatStockValue(visitDetail?.steelStockAvailable, 'tons')} />
+          <Info label="Steel required" value={formatStockValue(visitDetail?.steelStockRequired, 'tons')} />
+          <Info label="Cement available" value={formatStockValue(visitDetail?.cementStockAvailable, 'bags')} />
+          <Info label="Cement required" value={formatStockValue(visitDetail?.cementStockRequired, 'bags')} />
+        </dl>
+      </Section>
+    </div>
+  );
+  const photosContent = (
+    <Section icon={ImageIcon} title="Check-in & gift photos" bodyClassName={photos.length ? 'p-3' : 'p-0'}>
+      {photos.length === 0 ? <EmptyState compact title="No check-in or gift photos uploaded." /> : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {photos.map((photo) => (
+            <button key={photo.src} type="button" onClick={() => handleImageClick(photo.src)} className="group relative aspect-[4/3] overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={`${photo.label} · view full size`}>
+              <NextImage src={photo.src} alt={photo.label} width={320} height={240} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-4 text-left text-[10px] font-medium text-white">{photo.label}</span>
             </button>
-            <div className="flex flex-col items-end gap-1.5">
-              <Badge className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium">
-                {getStatusIcon(visitStatus.status as 'Assigned' | 'On Going' | 'Checked Out' | 'Completed')}
-                <span>{visitStatus.status}</span>
-              </Badge>
-              {userRole && (
-                <Badge variant={isManager ? "secondary" : "default"} className="px-2 py-0.5 text-[11px] leading-5">
-                  {`${getDisplayRole} View`}
-                </Badge>
-              )}
-            </div>
-          </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
 
-          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-            <CardContent className="flex flex-col gap-3 p-3">
-              <div className="profile flex min-w-0 items-center gap-3">
-                <div className="avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <span className="text-sm font-semibold">
-                    {getInitials(storeProjectName)}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium leading-5 text-muted-foreground">Store</p>
-                  <h2 className="break-words text-sm font-semibold leading-5 text-foreground">
-                    {storeProjectName}
-                  </h2>
-                  <p className="mt-0.5 break-words text-xs leading-4 text-muted-foreground">
-                    {visitDetail?.employeeName || 'Unknown employee'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
-                <div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-start px-2.5 text-xs"
-                    disabled={isNavigatingToStore || !visitDetail?.storeId}
-                    onClick={handleViewStore}
-                  >
-                    <Store className="mr-1.5 h-3.5 w-3.5" />
-                    Store
-                  </Button>
-                </div>
-                <div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-start px-2.5 text-xs"
-                    onClick={() => {
-                      setTaskCreateError(null);
-                      setIsRequirementModalOpen(true);
-                    }}
-                  >
-                    <FileText className="mr-1.5 h-3.5 w-3.5" />
-                    Requirement
-                  </Button>
-                </div>
-                <div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-start px-2.5 text-xs"
-                    onClick={() => {
-                      setTaskCreateError(null);
-                      setIsComplaintModalOpen(true);
-                    }}
-                  >
-                    <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
-                    Complaint
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Visit Information Card */}
-          <Card className="w-full gap-0 overflow-hidden rounded-lg border-border/80 bg-card py-0 shadow-none">
-            <header className="border-b px-3 py-2.5">
-              <CardTitle className="text-sm font-semibold text-foreground">
-                Visit information
-              </CardTitle>
-            </header>
-            <CardContent className="p-0">
-              {/* Tabs Navigation */}
-              <div className="flex border-b border-border bg-muted/20">
-                <button
-                  className={`flex-1 px-2 py-2 text-xs font-medium border-b-2 transition-colors ${activeInfoTab === 'visit-info'
-                      ? 'border-primary text-foreground bg-background'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                    }`}
-                  onClick={() => setActiveInfoTab('visit-info')}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <ClipboardList className="h-4 w-4" />
-                    <span>Visit</span>
-                  </div>
-                </button>
-                <button
-                  className={`flex-1 px-2 py-2 text-xs font-medium border-b-2 transition-colors ${activeInfoTab === 'store-info'
-                      ? 'border-primary text-foreground bg-background'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                    }`}
-                  onClick={() => setActiveInfoTab('store-info')}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <Store className="h-4 w-4" />
-                    <span>Store</span>
-                  </div>
-                </button>
-              </div>
-
-              {/* Tab Content */}
-              <div className="p-3">
-                {activeInfoTab === 'visit-info' && (
-                  <dl className="grid grid-cols-2 gap-3 lg:grid-cols-1">
-                    {[
-                      { label: 'Purpose', icon: ListTodo, value: visitDetail?.purpose || 'Not recorded' },
-                      {
-                        label: 'Location', icon: MapMarker, value: visitDetail?.checkinLatitude && visitDetail?.checkinLongitude ? (
-                          <button onClick={handleOpenLocation} className="inline-flex items-center gap-1 text-primary hover:underline">
-                            View location <ExternalLink className="h-3 w-3" />
-                          </button>
-                        ) : 'Not recorded'
-                      },
-                      {
-                        label: 'Check-in', icon: LogIn, value: visitDetail?.checkinDate && visitDetail?.checkinTime ? (
-                          <><span className="block">{format(new Date(visitDetail.checkinDate), "MMM dd, yyyy")}</span><span className="text-[11px] text-muted-foreground">{format(parseISO(`1970-01-01T${visitDetail.checkinTime}`), 'h:mm a')}</span></>
-                        ) : 'Not checked in'
-                      },
-                      {
-                        label: 'Check-out', icon: LogOut, value: visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
-                          <><span className="block">{format(new Date(visitDetail.checkoutDate), "MMM dd, yyyy")}</span><span className="text-[11px] text-muted-foreground">{format(parseISO(`1970-01-01T${visitDetail.checkoutTime}`), 'h:mm a')}</span></>
-                        ) : 'Not checked out'
-                      },
-                    ].map(({ label, icon: Icon, value }) => (
-                      <div key={label} className="flex min-w-0 items-start gap-2">
-                        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <dt className="text-[11px] leading-4 text-muted-foreground">{label}</dt>
-                          <dd className="mt-0.5 break-words text-xs leading-4 text-foreground">{value}</dd>
-                        </div>
-                      </div>
-                    ))}
-                  </dl>
-                )}
-
-                {activeInfoTab === 'store-info' && (
-                  <dl className="space-y-3">
-                    {ownerCustomerName && <div className="flex items-start gap-2"><User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" /><div className="min-w-0"><dt className="text-[11px] text-muted-foreground">Owner/Customer</dt><dd className="mt-0.5 break-words text-xs leading-4">{ownerCustomerName}</dd></div></div>}
-                    {storeEmail && <div className="flex items-start gap-2"><Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" /><div className="min-w-0"><dt className="text-[11px] text-muted-foreground">Email</dt><dd className="mt-0.5 break-all text-xs leading-4"><a href={`mailto:${storeEmail}`} className="hover:underline">{storeEmail}</a></dd></div></div>}
-                    <div className="flex items-start gap-2">
-                      <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <dt className="text-[11px] text-muted-foreground">Contact</dt>
-                        <dd className="mt-0.5 break-words text-xs leading-4">
-                          {storeDetails?.contactNumber ? <a href={`tel:${storeDetails.contactNumber}`} className="hover:underline">{storeDetails.contactNumber}</a> : 'Not recorded'}
-                        </dd>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <MapMarker className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <dt className="text-[11px] text-muted-foreground">Address</dt>
-                        <dd className="mt-0.5 break-words text-xs leading-5">
-                          {storeDetails?.address || 'Not recorded'}
-                          {storeDetails?.city && <span className="block text-muted-foreground">{storeDetails.city}</span>}
-                          {storeDetails?.city && (
-                            <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${visitDetail?.storeName} ${storeDetails?.address}`)}`, "_blank")} className="mt-1 inline-flex items-center gap-1 text-primary hover:underline">
-                              View map <ExternalLink className="h-3 w-3" />
-                            </button>
-                          )}
-                        </dd>
-                      </div>
-                    </div>
-                  </dl>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
-
-        {/* Main Content */}
-        <section className="min-w-0">
-          <div className="mb-4 rounded-lg border bg-card p-1 shadow-sm">
-            <div className="md:hidden mb-3">
-              <Select value={activeTab} onValueChange={setActiveTab}>
-                <SelectTrigger aria-label="Visit section" className="w-full"><SelectValue placeholder="Select section" /></SelectTrigger>
-                <SelectContent>{visitSections.map(section => <SelectItem key={section.value} value={section.value}>{section.mobileLabel || section.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <nav aria-label="Visit sections" className={cn("hidden min-w-0 gap-1 md:grid", isSiteVisitClient ? "grid-cols-6" : "grid-cols-5")}>
-              {visitSections.map(({ value, label, icon: Icon }) => <button key={value} type="button" aria-current={activeTab === value ? 'page' : undefined} onClick={() => setActiveTab(value)} className={cn("inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md px-1 py-2 text-xs font-medium transition-colors xl:px-2", activeTab === value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted")}><Icon className="hidden h-4 w-4 2xl:inline" /><span>{label}</span></button>)}
-            </nav>
-          </div>
-
-          {/* Tab Content */}
-          <div className="tab-content">
-            {isSiteVisitClient && activeTab === "site" && (
-              <div>
-                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                  <CardHeader className="border-b px-3 py-2.5">
-                    <CardTitle className="text-sm font-medium text-foreground">Site Visit Details</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4 p-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-foreground mb-1">Brands used</p>
-                        {Array.isArray(visitDetail?.brandsInUse) && visitDetail!.brandsInUse.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {visitDetail!.brandsInUse.map((b) => (
-                              <Badge key={b} variant="secondary" className="font-normal">
-                                {b}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">—</p>
-                        )}
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-foreground mb-1">Purchased from</p>
-                        <p className="text-sm text-foreground">{visitDetail?.purchasedFrom || '—'}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
-                        <p className="text-xs font-medium text-foreground mb-1">Construction stage</p>
-                        <p className="text-sm text-foreground">{visitDetail?.constructionStage || '—'}</p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Notes are available in the Activity section.
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {isProfessionalClient && activeTab === "discussion" && (
-              <div>
-                {/* Discussion card is rendered in-place of the usual tabs for professional client types */}
-                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                  <CardHeader className="border-b px-3 py-2.5">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-sm font-medium text-foreground">Discussion</CardTitle>
-                      <Button onClick={addNote} size="sm" className="text-xs">
-                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Message
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-3">
-                    <div className="notes-list space-y-2">
-                      {notes.length === 0 ? (
-                        <div className="text-center py-6">
-                          <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                          <p className="text-sm text-muted-foreground">No discussion yet</p>
-                        </div>
-                      ) : (
-                        notes.map((note, index) => {
-                          const hasValidId = note.id != null && (
-                            (typeof note.id === 'number' && !isNaN(note.id)) ||
-                            (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
-                          );
-                          return (
-                            <div key={note.id ?? `note-${index}`} className="rounded-lg border bg-card p-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs text-muted-foreground">
-                                  {note.createdDate ? format(new Date(note.createdDate), "MMM d, yyyy") : 'Unknown date'}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  {hasValidId && (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => editNote(note)}
-                                      >
-                                        <Edit className="h-3 w-3 mr-1" />
-                                        Edit
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs"
-                                        onClick={() => {
-                                          const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
-                                          if (!isNaN(idToDelete)) {
-                                            setNotePendingDelete(note);
-                                          }
-                                        }}
-                                      >
-                                        <Trash2 className="h-3 w-3 mr-1" />
-                                        Delete
-                                      </Button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="text-xs text-foreground">{note.content || 'No content'}</div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-
-            {activeTab === 'metrics' && (
-              <div className="space-y-4">
-                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                  <header className="border-b px-3 py-2.5">
-                    <div>
-                      <CardTitle className="text-sm font-semibold">Visit overview</CardTitle>
-                    </div>
-                  </header>
-                  <CardContent className="p-3">
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                      {displayMetrics.map((metric, index) => (
-                        <div key={index} className="rounded-md bg-muted/45 px-3 py-2.5">
-                          <Text size="sm" tone="muted" weight="medium" className="mb-1 text-xs">
-                            {metric.label}
-                          </Text>
-                          <Heading size="lg" weight="semibold" className="break-words text-base text-foreground">
-                            {metric.value}
-                          </Heading>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                  <header className="border-b px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <CardTitle className="text-sm font-semibold">Visit activity</CardTitle>
-                      </div>
-                      <Button onClick={addNote} size="sm" className="h-8 shrink-0 text-xs">
-                        <Plus className="mr-1.5 h-3.5 w-3.5" />
-                        Add note
-                      </Button>
-                    </div>
-                  </header>
-                  <CardContent className="p-3">
-                    <div className="relative space-y-0 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-px before:bg-border">
-                      <div className="relative flex gap-3 pb-5">
-                        <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background">
-                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0 pt-0.5">
-                          <p className="text-sm font-medium text-foreground">Visit scheduled</p>
-                          <p className="text-xs text-muted-foreground">
-                            {visitDetail?.visit_date ? format(new Date(visitDetail.visit_date), "MMM dd, yyyy") : 'Date unavailable'}
-                            {visitDetail?.purpose ? ` · ${visitDetail.purpose}` : ''}
-                          </p>
-                        </div>
-                      </div>
-
-                      {visitDetail?.checkinDate && visitDetail?.checkinTime && (
-                        <div className="relative flex gap-3 pb-5">
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950">
-                            <LogIn className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                          </div>
-                          <div className="min-w-0 pt-0.5">
-                            <p className="text-sm font-medium text-foreground">Checked in</p>
-                            <p className="text-xs text-muted-foreground">
-                              {format(new Date(visitDetail.checkinDate), "MMM dd, yyyy")} at {format(parseISO(`1970-01-01T${visitDetail.checkinTime}`), 'h:mm a')}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {notes.map((note) => (
-                        <div key={`activity-note-${note.id}`} className="relative flex gap-3 pb-5">
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
-                            <MessageSquare className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div className="min-w-0 flex-1 pt-0.5">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium text-foreground">Note added</p>
-                                <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-muted-foreground">{note.content}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {format(new Date(note.createdDate), "MMM dd, yyyy")}{note.employeeName ? ` · ${note.employeeName}` : ''}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-0.5">
-                                <Button variant="ghost" size="icon" onClick={() => editNote(note)} className="h-7 w-7 text-muted-foreground hover:text-foreground" aria-label="Edit note">
-                                  <Edit className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon" onClick={() => setNotePendingDelete(note)} className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="Delete note">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {visitDetail?.checkoutDate && visitDetail?.checkoutTime ? (
-                        <div className="relative flex gap-3">
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
-                            <CheckCircle className="h-3.5 w-3.5 text-primary" />
-                          </div>
-                          <div className="min-w-0 pt-0.5">
-                            <p className="text-sm font-medium text-foreground">Visit completed</p>
-                            <p className="text-xs text-muted-foreground">
-                              {format(new Date(visitDetail.checkoutDate), "MMM dd, yyyy")} at {format(parseISO(`1970-01-01T${visitDetail.checkoutTime}`), 'h:mm a')}
-                            </p>
-                            {(visitDetail.outcome) && (
-                              <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                                <span className="font-medium text-foreground">Outcome:</span> {visitDetail.outcome}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="relative flex gap-3">
-                          <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background">
-                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                          </div>
-                          <div className="min-w-0 pt-0.5">
-                            <p className="text-sm font-medium text-foreground">{visitDetail?.checkinTime ? 'Visit in progress' : 'Visit assigned'}</p>
-                            <p className="text-xs text-muted-foreground">{visitDetail?.checkinTime ? 'Waiting for check-out' : 'Waiting for check-in'}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                  <CardHeader className="border-b px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-sm font-medium text-foreground">Stock</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-3">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">Steel Available</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {formatStockValue(visitDetail?.steelStockAvailable, 'tons')}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">Steel Required</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {formatStockValue(visitDetail?.steelStockRequired, 'tons')}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">Cement Available</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {formatStockValue(visitDetail?.cementStockAvailable, 'bags')}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-muted-foreground">Cement Required</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {formatStockValue(visitDetail?.cementStockRequired, 'bags')}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
+  const visitTabs: DetailTab[] = [
+    { value: 'metrics', label: 'Overview', icon: TrendingUp, content: overviewContent },
+    { value: 'photos', label: 'Photos', icon: ImageIcon, count: photos.length, content: photosContent },
+    ...(hasStock ? [{ value: 'stock', label: 'Stock', icon: Package, content: stockContent }] : []),
+    { value: 'visits', label: 'Store visits', icon: Calendar, count: storeVisits.length, content: (<div className="space-y-4">
             {activeTab === 'visits' && (
               <section className="space-y-3" aria-labelledby="visit-history-heading">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2346,421 +2040,249 @@ export default function VisitDetailPage({
                 )}
               </section>
             )}
-
+    </div>) },
+    ...(isSiteVisitClient ? [{ value: 'site', label: 'Site details', icon: ClipboardList, content: (<div className="space-y-4">
+            {isSiteVisitClient && activeTab === "site" && (
+              <div>
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <CardHeader className="border-b px-3 py-2.5">
+                    <CardTitle className="text-sm font-medium text-foreground">Site Visit Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-foreground mb-1">Brands used</p>
+                        {Array.isArray(visitDetail?.brandsInUse) && visitDetail!.brandsInUse.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {visitDetail!.brandsInUse.map((b) => (
+                              <Badge key={b} variant="secondary" className="font-normal">
+                                {b}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">—</p>
+                        )}
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-foreground mb-1">Purchased from</p>
+                        <p className="text-sm text-foreground">{visitDetail?.purchasedFrom || '—'}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 p-3 sm:col-span-2">
+                        <p className="text-xs font-medium text-foreground mb-1">Construction stage</p>
+                        <p className="text-sm text-foreground">{visitDetail?.constructionStage || '—'}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Notes are available in the Activity section.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+    </div>) }] : []),
+    isProfessionalClient
+      ? { value: 'discussion', label: 'Discussion', icon: MessageSquare, count: notes.length, content: (<div className="space-y-4">
+            {isProfessionalClient && activeTab === "discussion" && (
+              <div>
+                {/* Discussion card is rendered in-place of the usual tabs for professional client types */}
+                <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
+                  <CardHeader className="border-b px-3 py-2.5">
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-sm font-medium text-foreground">Discussion</CardTitle>
+                      <Button onClick={addNote} size="sm" className="text-xs">
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Message
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-3">
+                    <div className="notes-list space-y-2">
+                      {notes.length === 0 ? (
+                        <div className="text-center py-6">
+                          <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                          <p className="text-sm text-muted-foreground">No discussion yet</p>
+                        </div>
+                      ) : (
+                        notes.map((note, index) => {
+                          const hasValidId = note.id != null && (
+                            (typeof note.id === 'number' && !isNaN(note.id)) ||
+                            (typeof note.id !== 'number' && String(note.id).trim() !== '' && !isNaN(Number(note.id)))
+                          );
+                          return (
+                            <div key={note.id ?? `note-${index}`} className="rounded-lg border bg-card p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {note.createdDate ? format(new Date(note.createdDate), "MMM d, yyyy") : 'Unknown date'}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  {hasValidId && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => editNote(note)}
+                                      >
+                                        <Edit className="h-3 w-3 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => {
+                                          const idToDelete = typeof note.id === 'number' ? note.id : Number(note.id);
+                                          if (!isNaN(idToDelete)) {
+                                            setNotePendingDelete(note);
+                                          }
+                                        }}
+                                      >
+                                        <Trash2 className="h-3 w-3 mr-1" />
+                                        Delete
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-xs text-foreground">{note.content || 'No content'}</div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+    </div>) }
+      : { value: 'brands', label: 'Brands', icon: Building, count: visitDetail?.brandPurchases?.length ?? 0, content: (<div className="space-y-4">
             {activeTab === 'brands' && !isProfessionalClient && <BrandTab compact brandPurchases={visitDetail?.brandPurchases ?? []} />}
-
+    </div>) },
+    { value: 'requirements', label: 'Requirements', icon: FileText, count: requirements.length, content: (<div className="space-y-4">
             {activeTab === 'requirements' && (
               <VisitTasksTab tasks={requirements} type="requirement" priority={priorityFilter} onPriorityChange={handlePriorityChange} loading={tasksLoading} error={taskErrors.requirement} />
             )}
-
+    </div>) },
+    { value: 'complaints', label: 'Complaints', icon: AlertCircle, count: complaints.length, content: (<div className="space-y-4">
             {activeTab === 'complaints' && (
               <VisitTasksTab tasks={complaints} type="complaint" priority={priorityFilter} onPriorityChange={handlePriorityChange} loading={tasksLoading} error={taskErrors.complaint} />
             )}
-          </div>
+    </div>) },
+  ];
 
-        </section>
+  return (
+    <div className="icon-visit-details mx-auto w-full max-w-[1600px] space-y-4">
+      <DetailHero
+        name={storeProjectName}
+        onBack={handleBack}
+        backLabel="Back"
+        badges={<>
+          <Pill tone={statusTone}>{statusLabel}</Pill>
+          {userRole && <Pill>{`${getDisplayRole} View`}</Pill>}
+        </>}
+        meta={[
+          { icon: Calendar, label: fmtDay(visitDetail?.visit_date), title: 'Visit date' },
+          { icon: Clock, label: timeWindow, title: 'Check-in → check-out' },
+          { icon: User, label: visitDetail?.employeeName || 'Unknown employee', title: 'Visited by' },
+          ...(storeDetails?.city ? [{ icon: MapPin, label: storeDetails.city }] : []),
+          { icon: Hash, label: visitDetail?.id ?? visitId },
+        ]}
+        actions={<>
+          <Button variant="outline" size="sm" className="h-8" onClick={addNote}><MessageSquare className="mr-1.5 h-3.5 w-3.5" />Add note</Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => openCreate('requirement')}><FileText className="mr-1.5 h-3.5 w-3.5" />Requirement</Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => openCreate('complaint')}><AlertCircle className="mr-1.5 h-3.5 w-3.5" />Complaint</Button>
+          {visitDetail?.storeId ? <Button variant="outline" size="sm" className="h-8" disabled={isNavigatingToStore} onClick={handleViewStore}><Store className="mr-1.5 h-3.5 w-3.5" />Store</Button> : null}
+        </>}
+        kpis={<>
+          <KpiCell icon={Clock} label="Duration" value={durationValue || '—'} hint={visitStatus.status === 'On Going' ? 'still in progress' : undefined} />
+          <KpiCell icon={TrendingUp} label="Priority" value={visitDetail?.priority || 'N/A'} />
+          <KpiCell icon={CheckCircle} label="Rating" value={typeof visitDetail?.rating === 'number' ? `${visitDetail.rating}/5` : 'N/A'} />
+          <KpiCell icon={Calendar} label="Store visits" value={storeVisits.length} hint="all visits to this account" />
+        </>}
+        nextStep={heroNextStep}
+      />
 
-        {/* Right Panel */}
-        <aside className="min-w-0 space-y-3 lg:sticky lg:top-3">
-          {isProfessionalClient && (
-            <>
-              <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                <CardHeader className="border-b px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-sm font-medium text-foreground">Upcoming Sites</CardTitle>
-                    <Badge variant="secondary">{upcomingSitesCount ?? '—'}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">
-                    Total upcoming sites (as per customer record).
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-                <CardHeader className="border-b px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-sm font-medium text-foreground">Gift Image</CardTitle>
-                    <Badge variant={giftImageUrl ? "secondary" : "destructive"}>
-                      {giftImageUrl ? "Available" : "Missing"}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-3">
-                  {giftImageUrl ? (
-                    <div className="rounded-lg border overflow-hidden">
-                      <div className="relative w-full h-40 bg-muted">
-                        <NextImage
-                          src={giftImageUrl}
-                          alt="Gift image"
-                          width={420}
-                          height={280}
-                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => handleImageClick(giftImageUrl)}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6">
-                      <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                      <p className="text-xs text-muted-foreground">No gift image available for this visit</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-
-          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-            <header className="border-b px-3 py-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold leading-5">Check-in images</h3>
-                {visitDetail?.checkinLatitude && visitDetail?.checkinLongitude && (
-                  <button type="button" onClick={handleOpenLocation} aria-label="View check-in location" title="View check-in location" className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                    <MapPin className="h-3.5 w-3.5" /> Map
-                  </button>
-                )}
-              </div>
-            </header>
-            <CardContent className="space-y-2.5 p-3">
-              {/* Check-in Images */}
-              {checkinImages.length > 0 ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                  {checkinImages.map((image, index) => (
-                    <div key={index} className="min-w-0">
-                      <div className="relative aspect-video w-full overflow-hidden rounded-md bg-muted">
-                        <NextImage
-                          src={image}
-                          alt={`Check-in image ${index + 1}`}
-                          width={300}
-                          height={200}
-                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => handleImageClick(image)}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <Heading as="h4" size="sm" weight="medium" className="text-xs">
-                          Image {index + 1}
-                        </Heading>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-1 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => handleImageClick(image)}
-                        >
-                          View full size
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-md bg-muted/25 px-2 py-4 text-center">
-                  <ImageIcon className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground/60" />
-                  <Text tone="muted" className="text-xs">No check-in images</Text>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="gap-0 overflow-hidden rounded-lg border-border/80 py-0 shadow-none">
-            <header className="border-b px-3 py-2.5">
-              <Heading as="h3" size="sm" weight="semibold" className="text-sm leading-5">
-                Related records
-              </Heading>
-            </header>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                <button type="button" onClick={() => setActiveTab('requirements')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
-                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Requirements</span>
-                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{requirements.length}</Badge>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
-                <button type="button" onClick={() => setActiveTab('complaints')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
-                  <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Complaints</span>
-                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{complaints.length}</Badge>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
-                <button type="button" onClick={() => setActiveTab(isProfessionalClient ? 'discussion' : 'brands')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
-                  <Building className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{isProfessionalClient ? "Discussion" : "Brands"}</span>
-                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{isProfessionalClient ? notes.length : (visitDetail?.brandPurchases.length ?? 0)}</Badge>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
-                <button type="button" onClick={() => setActiveTab('visits')} className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
-                  <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs font-medium text-foreground">Previous visits</span>
-                  <Badge variant="secondary" className="min-w-6 justify-center px-1.5 text-[11px] leading-5">{storeVisits.length}</Badge>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
+      <DetailShell value={activeTab} onValueChange={setActiveTab} tabs={visitTabs} />
 
       {/* Modals */}
       {/* Notes Modal */}
-      <Dialog open={isNoteModalVisible} onOpenChange={open => { if (open) setIsNoteModalVisible(true); else closeNoteEditor(); }}>
-        <DialogContent className="icon-visit-details sm:max-w-md">
-          <DialogHeader><DialogTitle>{isNoteEditMode ? 'Edit Note' : 'Add Note'}</DialogTitle><DialogDescription>{isNoteEditMode ? 'Update the existing note.' : 'Add a quick note for this visit.'}</DialogDescription></DialogHeader>
-          <div className="space-y-4">
-            <textarea aria-label="Note content" placeholder="Enter note content" value={noteContent} onChange={e => setNoteContent(e.target.value)} rows={4} className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent" />
-            {noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}
-            <div className="flex flex-col sm:flex-row justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={closeNoteEditor}>Cancel</Button><Button disabled={isNoteSaving || !noteContent.trim()} onClick={saveNote}>{isNoteSaving ? 'Saving…' : isNoteEditMode ? 'Update' : 'Add'}</Button></div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FormSheet
+        open={isNoteModalVisible}
+        onOpenChange={(open) => { if (!open) closeNoteEditor(); }}
+        icon={MessageSquare}
+        title={isNoteEditMode ? 'Edit note' : 'Add note'}
+        description={`${visitDetail?.storeName || 'Visit'}${visitDetail?.visit_date ? ` · ${fmtDay(visitDetail.visit_date)}` : ''}`}
+        errors={noteError ? [noteError] : undefined}
+        footerNote={isNoteEditMode ? 'Updates the existing note on this visit.' : 'Saved to this visit under your account.'}
+        onSubmit={() => void saveNote()}
+        submitLabel={isNoteEditMode ? 'Update note' : 'Add note'}
+        submitting={isNoteSaving}
+        submitDisabled={!noteContent.trim()}
+      >
+        <FormField label="Note" required>
+          <textarea aria-label="Note content" autoFocus rows={8} value={noteContent} onChange={(e) => setNoteContent(e.target.value)} placeholder="What happened on this visit…" className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring" />
+        </FormField>
+      </FormSheet>
       <Dialog open={!!notePendingDelete} onOpenChange={open => { if (!open && !isNoteSaving) { setNotePendingDelete(null); setNoteError(null); } }}>
         <DialogContent className="icon-visit-details sm:max-w-md"><DialogHeader><DialogTitle>Delete note?</DialogTitle><DialogDescription>This will permanently delete this note from the visit.</DialogDescription></DialogHeader>{noteError && <p role="alert" className="text-sm text-destructive">{noteError}</p>}<div className="flex justify-end gap-2"><Button variant="outline" disabled={isNoteSaving} onClick={() => setNotePendingDelete(null)}>Cancel</Button><Button variant="destructive" disabled={isNoteSaving} onClick={() => notePendingDelete && deleteNote(notePendingDelete.id)}>{isNoteSaving ? 'Deleting…' : 'Delete'}</Button></div></DialogContent>
       </Dialog>
 
-      {/* Requirement Modal */}
-      <Dialog open={isRequirementModalOpen} onOpenChange={open => { if (open) setIsRequirementModalOpen(true); else closeRequirementCreator(); }}>
-        <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-          <Card className="gap-0 border-0 py-0 shadow-none">
-            <CardHeader className="px-0 pb-4">
-              <DialogTitle className="text-lg font-semibold">Create Requirement</DialogTitle>
-              <DialogDescription>Fill in the requirement details</DialogDescription>
-            </CardHeader>
-            <CardContent className="px-0">{taskCreateError && <p role="alert" className="mb-3 text-sm text-destructive">{taskCreateError}</p>}
-              <Tabs value={activeRequirementTab} onValueChange={setActiveRequirementTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="general">General</TabsTrigger>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="general">
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementTitle">Requirement Title</Label>
-                      <Input
-                        id="requirementTitle"
-                        placeholder="Enter requirement title"
-                        value={newTask.taskTitle}
-                        onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementDescription">Requirement Description</Label>
-                      <Input
-                        id="requirementDescription"
-                        placeholder="Enter requirement description"
-                        value={newTask.taskDesciption}
-                        onChange={(e) => setNewTask({ ...newTask, taskDesciption: e.target.value })}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementCategory">Category</Label>
-                      <Select value="requirement" disabled>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Requirement" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="requirement">Requirement</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementStoreName">Store</Label>
-                      <Input
-                        id="requirementStoreName"
-                        value={visitDetail ? `${visitDetail.storeName}` : 'Loading...'}
-                        disabled
-                        className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={closeRequirementCreator}>Cancel</Button>
-                      <Button onClick={() => setActiveRequirementTab('details')}>Next</Button>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="details">
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementDueDate">Due Date</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className={`w-full justify-start text-left font-normal ${!newTask.dueDate && 'text-muted-foreground'}`}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {newTask.dueDate ? format(new Date(newTask.dueDate), 'PPP') : <span>Pick a date</span>}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <CalendarComponent
-                            mode="single"
-                            selected={newTask.dueDate ? new Date(newTask.dueDate) : undefined}
-                            onSelect={(date) => setNewTask({ ...newTask, dueDate: date ? date.toISOString().split('T')[0] : '' })}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementAssignedTo">Assigned To</Label>
-                      <Input
-                        id="requirementAssignedTo"
-                        value={visitDetail ? `${visitDetail.employeeName}` : ''}
-                        disabled
-                        className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="requirementPriority">Category</Label>
-                      <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value as Priority })}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={() => setActiveRequirementTab('general')}>Back</Button>
-                      <Button disabled={isTaskSaving} onClick={() => createTask('requirement')}>Create Requirement</Button>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </DialogContent>
-      </Dialog>
-
-      {/* Complaint Modal */}
-      <Dialog open={isComplaintModalOpen} onOpenChange={open => { if (open) setIsComplaintModalOpen(true); else closeComplaintCreator(); }}>
-        <DialogContent className="icon-visit-details max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-          <Card className="gap-0 border-0 py-0 shadow-none">
-            <CardHeader className="px-0 pb-4">
-              <DialogTitle className="text-lg font-semibold">Create Complaint</DialogTitle>
-              <DialogDescription>Fill in the complaint details</DialogDescription>
-            </CardHeader>
-            <CardContent className="px-0">{taskCreateError && <p role="alert" className="mb-3 text-sm text-destructive">{taskCreateError}</p>}
-              <Tabs value={activeComplaintTab} onValueChange={setActiveComplaintTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="general">General</TabsTrigger>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="general">
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintTitle">Complaint Title</Label>
-                      <Input
-                        id="complaintTitle"
-                        placeholder="Enter complaint title"
-                        value={complaintTask.taskTitle}
-                        onChange={(e) => setComplaintTask({ ...complaintTask, taskTitle: e.target.value })}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintDescription">Complaint Description</Label>
-                      <Input
-                        id="complaintDescription"
-                        placeholder="Enter complaint description"
-                        value={complaintTask.taskDesciption}
-                        onChange={(e) => setComplaintTask({ ...complaintTask, taskDesciption: e.target.value })}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintCategory">Category</Label>
-                      <Select value="complaint" disabled>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Complaint" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="complaint">Complaint</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintStoreName">Store</Label>
-                      <Input
-                        id="complaintStoreName"
-                        value={visitDetail ? `${visitDetail.storeName}` : 'Loading...'}
-                        disabled
-                        className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={closeComplaintCreator}>Cancel</Button>
-                      <Button onClick={() => setActiveComplaintTab('details')}>Next</Button>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="details">
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintDueDate">Due Date</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className={`w-full justify-start text-left font-normal ${!complaintTask.dueDate && 'text-muted-foreground'}`}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {complaintTask.dueDate ? format(new Date(complaintTask.dueDate), 'PPP') : <span>Pick a date</span>}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <CalendarComponent
-                            mode="single"
-                            selected={complaintTask.dueDate ? new Date(complaintTask.dueDate) : undefined}
-                            onSelect={(date) => setComplaintTask({ ...complaintTask, dueDate: date ? date.toISOString().split('T')[0] : '' })}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintAssignedTo">Assigned To</Label>
-                      <Input
-                        id="complaintAssignedTo"
-                        value={visitDetail ? `${visitDetail.employeeName}` : ''}
-                        disabled
-                        className="w-full bg-gray-100 text-foreground font-medium cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="complaintPriority">Category</Label>
-                      <Select value={complaintTask.priority} onValueChange={(value) => setComplaintTask({ ...complaintTask, priority: value as Priority })}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REQUIREMENT_COMPLAINT_CATEGORY_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex justify-between mt-4">
-                      <Button variant="outline" onClick={() => setActiveComplaintTab('general')}>Back</Button>
-                      <Button disabled={isTaskSaving} onClick={() => createTask('complaint')}>Create Complaint</Button>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </DialogContent>
-      </Dialog>
+      <TaskCreateSheet
+        kind="requirement"
+        open={isRequirementModalOpen}
+        onClose={closeRequirementCreator}
+        value={{
+          taskTitle: newTask.taskTitle,
+          taskDescription: newTask.taskDesciption,
+          dueDate: newTask.dueDate,
+          assignedToId: Number(visitDetail?.employeeId ?? 0),
+          assignedToName: visitDetail?.employeeName ?? '',
+          priority: newTask.priority,
+          storeId: Number(visitDetail?.storeId ?? 0),
+          storeName: visitDetail?.storeName ?? '',
+        }}
+        onChange={(patch) => setNewTask((prev) => ({
+          ...prev,
+          ...(patch.taskTitle !== undefined ? { taskTitle: patch.taskTitle } : {}),
+          ...(patch.taskDescription !== undefined ? { taskDesciption: patch.taskDescription } : {}),
+          ...(patch.dueDate !== undefined ? { dueDate: patch.dueDate } : {}),
+          ...(patch.priority !== undefined ? { priority: patch.priority as Priority } : {}),
+        }))}
+        employees={[]}
+        stores={[]}
+        locked={{ employee: visitDetail?.employeeName || 'Visit employee', store: visitDetail?.storeName || 'Visit store' }}
+        isSubmitting={isTaskSaving}
+        error={taskCreateError}
+        onSubmit={() => void createTask('requirement')}
+      />
+      <TaskCreateSheet
+        kind="complaint"
+        open={isComplaintModalOpen}
+        onClose={closeComplaintCreator}
+        value={{
+          taskTitle: complaintTask.taskTitle,
+          taskDescription: complaintTask.taskDesciption,
+          dueDate: complaintTask.dueDate,
+          assignedToId: Number(visitDetail?.employeeId ?? 0),
+          assignedToName: visitDetail?.employeeName ?? '',
+          priority: complaintTask.priority,
+          storeId: Number(visitDetail?.storeId ?? 0),
+          storeName: visitDetail?.storeName ?? '',
+        }}
+        onChange={(patch) => setComplaintTask((prev) => ({
+          ...prev,
+          ...(patch.taskTitle !== undefined ? { taskTitle: patch.taskTitle } : {}),
+          ...(patch.taskDescription !== undefined ? { taskDesciption: patch.taskDescription } : {}),
+          ...(patch.dueDate !== undefined ? { dueDate: patch.dueDate } : {}),
+          ...(patch.priority !== undefined ? { priority: patch.priority as Priority } : {}),
+        }))}
+        employees={[]}
+        stores={[]}
+        locked={{ employee: visitDetail?.employeeName || 'Visit employee', store: visitDetail?.storeName || 'Visit store' }}
+        isSubmitting={isTaskSaving}
+        error={taskCreateError}
+        onSubmit={() => void createTask('complaint')}
+      />
 
       {/* Task Image Preview Dialog */}
       {isImagePreviewOpen && (

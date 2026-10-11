@@ -80,6 +80,17 @@ const getTeamLeadComparableName = (team: Team) => (`${team.officeManager?.firstN
     .trim()
     .toLowerCase();
 
+const readApiError = async (response: Response, fallback: string): Promise<string> => {
+    const body = (await response.text().catch(() => '')).trim();
+    if (!body) return `${fallback} (${response.status})`;
+    try {
+        const parsed = JSON.parse(body) as { message?: string; error?: string };
+        return parsed.message || parsed.error || fallback;
+    } catch {
+        return body.length > 300 ? fallback : body;
+    }
+};
+
 const sortTeamsByLeadName = (a: Team, b: Team) => {
     const nameA = getTeamLeadComparableName(a);
     const nameB = getTeamLeadComparableName(b);
@@ -630,7 +641,7 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to delete team');
+                throw new Error(await readApiError(response, 'Failed to delete team'));
             }
 
             await fetchTeams();
@@ -644,6 +655,8 @@ const Teams: React.FC = () => {
     };
 
     const showEditModal = (team: Team) => {
+        setError(null);
+        setSelectedFieldOfficers([]);
         setSelectedTeamId(team.id);
         setSelectedOfficeManagerId(team.officeManager.id);
         setAssignedCities(team.officeManager.assignedCity);
@@ -674,9 +687,9 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(
-                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/removeCity?id=${selectedOfficeManagerId}&city=${cityToRemove}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/removeAssignedCity?employeeId=${selectedOfficeManagerId}&city=${encodeURIComponent(cityToRemove)}`,
                 {
-                    method: 'PUT',
+                    method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json',
@@ -685,11 +698,14 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                throw new Error('Failed to remove city');
+                throw new Error(await readApiError(response, 'Failed to remove city'));
             }
 
             setAssignedCities(prev => prev.filter(c => c !== cityToRemove));
             setIsCityRemoveModalVisible(false);
+            // The server also removes officers based in this city (and the team if it ends up empty).
+            await fetchTeams();
+            if (!isCoordinatorTeam) setIsEditModalVisible(false);
             setCityToRemove(null);
         } catch (error) {
             console.error('Error removing city:', error);
@@ -719,7 +735,7 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                throw new Error('Failed to add field officers');
+                throw new Error(await readApiError(response, 'Failed to add field officers'));
             }
 
             await fetchTeams();
@@ -755,7 +771,7 @@ const Teams: React.FC = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to remove field officer');
+                throw new Error(await readApiError(response, 'Failed to remove field officer'));
             }
 
             await fetchTeams();
@@ -775,7 +791,7 @@ const Teams: React.FC = () => {
         setIsSaving(true);
         try {
             const response = await fetch(
-                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${selectedOfficeManagerId}&city=${newCity}`,
+                `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/employee/assignCity?id=${selectedOfficeManagerId}&city=${encodeURIComponent(newCity)}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -786,7 +802,7 @@ const Teams: React.FC = () => {
             );
 
             if (!response.ok) {
-                throw new Error('Failed to assign city');
+                throw new Error(await readApiError(response, 'Failed to assign city'));
             }
 
             await fetchFieldOfficersByCities([...assignedCities, newCity], selectedOfficeManagerId);
@@ -1358,6 +1374,9 @@ const Teams: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                    {error && (
+                        <div role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+                    )}
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditModalVisible(false)}>
                             Cancel
@@ -1436,6 +1455,7 @@ const Teams: React.FC = () => {
                         <DialogTitle>Remove City</DialogTitle>
                     </DialogHeader>
                     <p className="text-muted-foreground">Are you sure you want to remove {cityToRemove} from this team?</p>
+                    <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Officers based in {cityToRemove} will also be removed from this team, and the team is deleted if no officers remain.</p>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsCityRemoveModalVisible(false)}>
                             Cancel

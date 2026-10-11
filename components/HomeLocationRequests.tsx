@@ -321,6 +321,9 @@ const HomeLocationRequests = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error("Your role does not have access to home location change requests. Only Admin and Data Manager can review them.");
+        }
         const message = await readResponseMessage(response);
         throw new Error(message || "Failed to fetch location change requests.");
       }
@@ -416,7 +419,7 @@ const HomeLocationRequests = () => {
           "PUT"
         );
 
-        const succMsg = message || (approve ? "Location change request approved." : "Location change request rejected.");
+        const succMsg = (message && message !== "Unexpected response from server." ? message : "") || (approve ? "Location change request approved." : "Location change request rejected.");
         setActionFeedback({ type: "success", message: succMsg });
         toast.success(succMsg);
 

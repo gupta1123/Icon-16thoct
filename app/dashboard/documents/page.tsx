@@ -22,13 +22,13 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -375,62 +375,109 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <Dialog
+      <Sheet
         open={isUploadOpen}
         onOpenChange={(open) => {
           if (open) setIsUploadOpen(true);
           else closeUploadDialog();
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Upload PDF Document</DialogTitle>
-            <DialogDescription>
-              Add a PDF document for users to view and download.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleUpload} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="document-title">Title</Label>
-              <Input
-                id="document-title"
-                value={form.title}
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                required
-              />
+        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="space-y-0 border-b px-6 py-5 pr-14 text-left">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <FileText className="h-5 w-5 text-foreground" />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <SheetTitle className="text-lg font-semibold leading-tight tracking-tight">
+                  Upload PDF document
+                </SheetTitle>
+                <SheetDescription className="text-sm leading-snug">
+                  Add a PDF that users can view and download.
+                </SheetDescription>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="document-category">Category</Label>
-              <Input
-                id="document-category"
-                value={form.category}
-                onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
-                required
-              />
+          </SheetHeader>
+          <form onSubmit={handleUpload} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+              <div className="space-y-2">
+                <Label htmlFor="document-title" className="text-sm font-medium">
+                  Title <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="document-title"
+                  className="h-10"
+                  placeholder="e.g. Product brochure 2026"
+                  value={form.title}
+                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="document-category" className="text-sm font-medium">
+                  Category <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="document-category"
+                  className="h-10"
+                  placeholder="e.g. Brochure, Leaflet, Price list"
+                  value={form.category}
+                  onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">Shown in the Category column of the documents list.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="document-description" className="text-sm font-medium">
+                  Description <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Textarea
+                  id="document-description"
+                  placeholder="A short note about what this document contains"
+                  value={form.description}
+                  onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+                  rows={4}
+                  className="resize-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="document-file" className="text-sm font-medium">
+                  PDF file <span className="text-destructive">*</span>
+                </Label>
+                <label
+                  htmlFor="document-file"
+                  className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center transition-colors hover:bg-muted/60 focus-within:ring-2 focus-within:ring-ring"
+                >
+                  {form.file ? (
+                    <>
+                      <FileText className="h-6 w-6 text-foreground" />
+                      <span className="max-w-full truncate text-sm font-medium">{form.file.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {(form.file.size / 1024 / 1024).toFixed(2)} MB · Click to replace
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-6 w-6 text-muted-foreground" />
+                      <span className="text-sm font-medium">Click to choose a PDF</span>
+                      <span className="text-xs text-muted-foreground">PDF files only</span>
+                    </>
+                  )}
+                  <input
+                    id="document-file"
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setForm((prev) => ({ ...prev, file }));
+                    }}
+                    required
+                  />
+                </label>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="document-description">Description</Label>
-              <Textarea
-                id="document-description"
-                value={form.description}
-                onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                rows={3}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="document-file">PDF File</Label>
-              <Input
-                id="document-file"
-                type="file"
-                accept="application/pdf,.pdf"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  setForm((prev) => ({ ...prev, file }));
-                }}
-                required
-              />
-            </div>
-            <DialogFooter>
+            <SheetFooter className="gap-2 border-t bg-background px-6 py-4 sm:space-x-0">
               <Button
                 type="button"
                 variant="outline"
@@ -447,10 +494,10 @@ export default function DocumentsPage() {
                 )}
                 Upload
               </Button>
-            </DialogFooter>
+            </SheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       <ConfirmationDialog
         open={Boolean(deleteTarget)}

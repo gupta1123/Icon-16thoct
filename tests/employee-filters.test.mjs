@@ -27,7 +27,7 @@ test('visit and approval lists apply employee filters at the server-backed datas
   const visits = readFileSync(new URL('../components/visits-table.tsx', import.meta.url), 'utf8');
   const approvals = readFileSync(new URL('../app/dashboard/approvals/page.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(visits, /getVisitsByEmployeeAndDateRange/);
-  assert.match(visits, /getEmployeeStatsByDateRange/);
+  assert.match(visits, /getVisitsByDateSorted/);
   assert.match(visits, /needsLocalPagination/);
   assert.match(visits, /visitsRequestSequenceRef/);
   assert.doesNotMatch(approvals, /String\(req\.employeeId\) === selectedEmployeeId/);

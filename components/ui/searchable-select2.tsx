@@ -32,6 +32,8 @@ interface SearchableSelectProps<T = unknown> {
   loadingMessage?: string;
   onOpenChange?: (open: boolean) => void;
   required?: boolean;
+  /** Use inside dialogs/sheets so the list stays scrollable and clickable. */
+  modal?: boolean;
 }
 
 export function SearchableSelect<T = unknown>({
@@ -51,6 +53,7 @@ export function SearchableSelect<T = unknown>({
   loadingMessage = "Loading...",
   onOpenChange,
   required = false,
+  modal = false,
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -96,7 +99,7 @@ export function SearchableSelect<T = unknown>({
     : Math.min(filteredOptions.length * 36, 256);
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal={modal}>
       <PopoverTrigger asChild>
         <Button
           id={triggerId}

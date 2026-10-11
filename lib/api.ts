@@ -697,6 +697,8 @@ export interface TeamDataDto {
     firstName: string;
     lastName: string;
   };
+  // The server sends the lead as `officeManager` (the older `office` field is not always present).
+  officeManager?: { id: number; firstName?: string; lastName?: string } | null;
   fieldOfficers: EmployeeUserDto[];
 }
 
@@ -1438,6 +1440,15 @@ export class API {
 
   static async getCities(): Promise<string[]> {
     return apiService.getCities();
+  }
+
+  /** Controlled district list (MH, GJ, MP, KA) for assigning cities; see BE-030 / FE-036. */
+  static async getAssignableCities(): Promise<string[]> {
+    return apiService.getAssignableCities();
+  }
+
+  static async getKeyStateDistricts(): Promise<Array<{ state: string; district: string }>> {
+    return apiService.getKeyStateDistricts();
   }
 
   static async getAllInactiveEmployees(): Promise<EmployeeUserDto[]> {
@@ -2197,6 +2208,28 @@ export class API {
     return this.makeRequest<string[]>('/employee/getCities');
   }
 
+  async getKeyStateDistricts(): Promise<Array<{ state: string; district: string }>> {
+    // WORKAROUND(BE-030): no light district-name endpoint; this payload embeds every village (~13 MB), so cache state/district pairs for the session.
+    const cacheKey = 'keyStateDistricts.v1';
+    try {
+      const cached = typeof window !== 'undefined' ? window.sessionStorage.getItem(cacheKey) : null;
+      if (cached) return JSON.parse(cached) as Array<{ state: string; district: string }>;
+    } catch { /* storage unavailable */ }
+    const districts = await this.makeRequest<Array<{ districtName?: string; stateName?: string }>>('/location/districts/keyStates');
+    const seen = new Set<string>();
+    const pairs = (districts || [])
+      .map(d => ({ state: (d.stateName || '').trim(), district: (d.districtName || '').trim() }))
+      .filter(d => d.state && d.district && !seen.has(`${d.state}|${d.district}`.toLowerCase()) && seen.add(`${d.state}|${d.district}`.toLowerCase()))
+      .sort((x, y) => x.state.localeCompare(y.state) || x.district.localeCompare(y.district));
+    try { if (typeof window !== 'undefined') window.sessionStorage.setItem(cacheKey, JSON.stringify(pairs)); } catch { /* ignore */ }
+    return pairs;
+  }
+
+  async getAssignableCities(): Promise<string[]> {
+    const pairs = await this.getKeyStateDistricts();
+    return [...new Set(pairs.map(p => p.district))].sort((a, b) => a.localeCompare(b));
+  }
+
   async getAllInactiveEmployees(): Promise<EmployeeUserDto[]> {
     return this.makeRequest<EmployeeUserDto[]>('/employee/getAllInactive');
   }
@@ -2213,6 +2246,7 @@ export class API {
     return this.makeRequest<unknown>(`/employee/edit?empId=${empId}`, {
       method: 'PUT',
       body: JSON.stringify(employeeData),
+      allowTextResponse: true, // backend answers 'Employee updated!' as text/plain
     });
   }
 

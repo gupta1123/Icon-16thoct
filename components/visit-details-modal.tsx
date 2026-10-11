@@ -152,7 +152,7 @@ const shouldShowOwnerCustomer = (visit: VisitDetail) => {
 const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, visitData, selectedDate, employeeName, hideViewAction = false, customerVisitDetails = [], activities = [] }) => {
     const [selectedVisit, setSelectedVisit] = useState<VisitDetail | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
-    const visitsPerPage = 7;
+    const visitsPerPage = 10;
     const router = useRouter();
     
     // Determine initial tab based on available data
@@ -225,9 +225,10 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogPortal>
                 {/* Backdrop with blur effect */}
-                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
                 <DialogPrimitive.Content
-                    className="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 w-[90vw] sm:w-[85vw] lg:w-[75vw] max-w-[1200px] h-[80vh] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border shadow-lg duration-200 flex flex-col"
+                    aria-describedby={undefined}
+                    className="bg-background fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col gap-0 border-l shadow-xl sm:w-[85vw] lg:w-[70vw] max-w-[1100px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-300 data-[state=open]:duration-500"
                 >
                     <DialogHeader className="sr-only">
                         <DialogTitle>
@@ -235,255 +236,143 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                         </DialogTitle>
                     </DialogHeader>
                   
-                    <div className="flex-shrink-0 px-6 pt-6">
-                        <div className="rounded-md bg-black text-white px-4 py-3">
-                            <div className="flex items-center space-x-3">
-                            <div className="flex-shrink-0">
-                                <div className="w-10 h-10 bg-blue-900/60 rounded-lg flex items-center justify-center">
-                                    <FontAwesomeIcon icon={faCalendarAlt} className="text-blue-300" />
-                                </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h2 className="text-xl font-semibold text-white truncate">
-                                    Visits for {employeeName}
-                                </h2>
-                                <p className="text-sm text-gray-300">
-                                    {new Date(selectedDate).toLocaleDateString('en-US', {
-                                        weekday: 'long',
-                                        year: 'numeric',
-                                        month: 'long',
-                                        day: 'numeric'
-                                    })}
-                                </p>
-                            </div>
-                            <div className="flex-shrink-0 flex items-center space-x-3">
-                                <div className="flex items-center space-x-4">
-                                <p className="text-sm font-medium text-blue-400">
-                                        {allVisitItems.length} {allVisitItems.length === 1 ? 'visit' : 'visits'}
-                                    </p>
-                                    {activities.length > 0 && (
-                                        <p className="text-sm font-medium text-cyan-400">
-                                            {activities.length} {activities.length === 1 ? 'activity' : 'activities'}
-                                        </p>
-                                    )}
-                                </div>
-                                <Button 
-                                    onClick={onClose} 
-                                    variant="ghost" 
-                                    size="sm"
-                                    className="h-8 w-8 p-0 text-white/80 hover:bg-white/10"
-                                >
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                    <span className="sr-only">Close</span>
-                                </Button>
-                            </div>
-                            </div>
+                    <div className="flex flex-shrink-0 items-center gap-3 border-b px-5 py-3.5">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                            {(employeeName || '?').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')}
                         </div>
+                        <div className="min-w-0 flex-1">
+                            <h2 className="truncate text-base font-semibold leading-tight text-foreground">{employeeName}</h2>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                {new Date(selectedDate).toLocaleDateString('en-US', {
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                })}
+                            </p>
+                        </div>
+                        <Button
+                            onClick={onClose}
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                        >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span className="sr-only">Close</span>
+                        </Button>
                     </div>
-                    
-                    <div className="flex-1 overflow-hidden px-4 py-4">
-                        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'visits' | 'activities')} className="h-full flex flex-col">
-                            <TabsList className="grid w-full grid-cols-2 mb-4">
-                                <TabsTrigger value="visits">Visits ({allVisitItems.length})</TabsTrigger>
-                                <TabsTrigger value="activities">Activities ({activities.length})</TabsTrigger>
+
+                    <div className="flex-1 overflow-hidden">
+                        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'visits' | 'activities')} className="flex h-full flex-col">
+                            <TabsList className="h-auto w-full flex-shrink-0 justify-start gap-5 rounded-none border-b bg-transparent px-5 py-0">
+                                <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent bg-transparent px-0.5 py-2.5 text-[13px] font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">
+                                    Visits <span className="ml-1.5 text-xs text-muted-foreground">{allVisitItems.length}</span>
+                                </TabsTrigger>
+                                <TabsTrigger value="activities" className="rounded-none border-b-2 border-transparent bg-transparent px-0.5 py-2.5 text-[13px] font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none">
+                                    Activities <span className="ml-1.5 text-xs text-muted-foreground">{activities.length}</span>
+                                </TabsTrigger>
                             </TabsList>
-                            
-                            <TabsContent value="visits" className="flex-1 overflow-hidden mt-0">
-                                <div className="h-[65vh] w-full overflow-x-auto overflow-y-auto border rounded-lg bg-background">
-                                    <div className="min-w-full">
-                                        {currentVisits.length > 0 ? (
-                                            <>
-                                                <Table className="w-full min-w-[1200px] table-fixed">
-                                                    <TableHeader>
-                                                        <TableRow className="bg-muted hover:bg-muted/80">
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[20%]">Store/Project</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Executive</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[10%]">Date</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[12%]">Status</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[12%]">Purpose</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Visit Start</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[15%]">Visit End</TableHead>
-                                                            {!hideViewAction && (
-                                                              <TableHead className="font-semibold text-center px-3 py-4 text-sm w-[10%]">Actions</TableHead>
+
+                            <TabsContent value="visits" className="mt-0 flex-1 overflow-auto">
+                                {currentVisits.length > 0 ? (
+                                    <Table className="w-full table-fixed text-[13px]">
+                                        <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+                                            <TableRow className="hover:bg-transparent">
+                                                <TableHead className="h-9 w-[30%] px-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Store / Project</TableHead>
+                                                <TableHead className="h-9 w-[15%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</TableHead>
+                                                <TableHead className="h-9 w-[22%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Purpose</TableHead>
+                                                <TableHead className="h-9 w-[11%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start</TableHead>
+                                                <TableHead className="h-9 w-[11%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">End</TableHead>
+                                                {!hideViewAction && <TableHead className="h-9 w-[11%] px-5" />}
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {currentVisits.map((v: ExtendedVisitItem, rowIdx: number) => {
+                                                const isSummary = !!v.isCustomerSummary;
+                                                const { status, color } = getOutcomeStatus(v);
+                                                const timeOnly = (d?: string, t?: string) => (formatDateTime(d || '', t || '') || '').replace(/^.*?'\d{2}\s*/, '');
+                                                const startText = timeOnly(v.checkinDate, v.checkinTime);
+                                                const endText = timeOnly(v.checkoutDate, v.checkoutTime);
+                                                return (
+                                                    <TableRow key={`${isSummary ? 'customer' : 'visit'}-${v.id}-${rowIdx}`} className="hover:bg-muted/40">
+                                                        <TableCell className="px-5 py-2.5">
+                                                            <div className="truncate font-medium text-foreground" title={v.storeName ?? ''}>{v.storeName ?? ''}</div>
+                                                            {shouldShowOwnerCustomer(v) && (
+                                                                <div className="truncate text-xs text-muted-foreground">{getOwnerCustomerName(v)}</div>
                                                             )}
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {currentVisits.map((v: ExtendedVisitItem) => {
-                                                            // Check if this is a customer summary item
-                                                            if (v.isCustomerSummary) {
-                                                                return (
-                                                                    <TableRow key={`customer-${v.id}`} className="hover:bg-muted/40">
-                                                                        <TableCell className="text-center px-3 py-3 w-[20%]">
-                                                                            <div className="truncate font-medium">{v.storeName ?? ''}</div>
-                                                                            {shouldShowOwnerCustomer(v) && (
-                                                                                <div className="truncate text-xs text-muted-foreground">
-                                                                                    {getOwnerCustomerName(v)}
-                                                                                </div>
-                                                                            )}
-                                                                        </TableCell>
-                                                                        <TableCell className="text-center px-3 py-3 w-[15%] truncate">
-                                                                            {employeeName || ''}
-                                                                        </TableCell>
-                                                                        <TableCell className="text-center px-3 py-3 w-[10%]">
-                                                                            {new Date(selectedDate).toLocaleDateString('en-US', {
-                                                                                month: 'short',
-                                                                                day: 'numeric',
-                                                                                year: 'numeric'
-                                                                            })}
-                                                                        </TableCell>
-                                                                        <TableCell className="text-center px-3 py-3 w-[12%]">
-                                                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                                                <span className="mr-1">📋</span>
-                                                                                Visit Summary
-                                                                            </span>
-                                                                        </TableCell>
-                                                                        <TableCell className="text-center px-3 py-3 w-[12%] truncate">
-                                                                            {v.purpose ?? ''}
-                                                                        </TableCell>
-                                                                        <TableCell 
-                                                                            className="text-center px-3 py-3 w-[15%] truncate" 
-                                                                            title={formatDateTime(v.checkinDate || '', v.checkinTime || '') || ''}
-                                                                        >
-                                                                            {formatDateTime(v.checkinDate || '', v.checkinTime || '') || '-'}
-                                                                        </TableCell>
-                                                                        <TableCell 
-                                                                            className="text-center px-3 py-3 w-[15%] truncate" 
-                                                                            title={formatDateTime(v.checkoutDate || '', v.checkoutTime || '') || ''}
-                                                                        >
-                                                                            {formatDateTime(v.checkoutDate || '', v.checkoutTime || '') || '-'}
-                                                                        </TableCell>
-                                                                        {!hideViewAction && (
-                                                                          <TableCell className="text-center px-3 py-3 w-[10%]">
-                                                                          </TableCell>
-                                                                        )}
-                                                                    </TableRow>
-                                                                );
-                                                            }
-                                                            
-                                                            // Regular visit item
-                                                            const { emoji, status, color } = getOutcomeStatus(v);
-                                                            return (
-                                                                <TableRow key={v.id} className="hover:bg-muted/40">
-                                                                    <TableCell className="text-center px-3 py-3 w-[20%]">
-                                                                        <div className="truncate font-medium">{v.storeName ?? ''}</div>
-                                                                        {shouldShowOwnerCustomer(v) && (
-                                                                            <div className="truncate text-xs text-muted-foreground">
-                                                                                {getOwnerCustomerName(v)}
-                                                                            </div>
-                                                                        )}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-center px-3 py-3 w-[15%] truncate">
-                                                                        {employeeName || ''}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-center px-3 py-3 w-[10%]">
-                                                                        {new Date(selectedDate).toLocaleDateString('en-US', {
-                                                                            month: 'short',
-                                                                            day: 'numeric',
-                                                                            year: 'numeric'
-                                                                        })}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-center px-3 py-3 w-[12%]">
-                                                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-                                                                            <span className="mr-1">{emoji}</span>
-                                                                            {status}
-                                                                        </span>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-center px-3 py-3 w-[12%] truncate">
-                                                                        {v.purpose ?? ''}
-                                                                    </TableCell>
-                                                                    <TableCell 
-                                                                        className="text-center px-3 py-3 w-[15%] truncate" 
-                                                                        title={formatDateTime(v.checkinDate || '', v.checkinTime || '') || ''}
-                                                                    >
-                                                                        {formatDateTime(v.checkinDate || '', v.checkinTime || '') || ''}
-                                                                    </TableCell>
-                                                                    <TableCell 
-                                                                        className="text-center px-3 py-3 w-[15%] truncate" 
-                                                                        title={formatDateTime(v.checkoutDate || '', v.checkoutTime || '') || ''}
-                                                                    >
-                                                                        {formatDateTime(v.checkoutDate || '', v.checkoutTime || '') || ''}
-                                                                    </TableCell>
-                                                                    {!hideViewAction && (
-                                                                      <TableCell className="text-center px-3 py-3 w-[10%]">
-                                                                          <Button size="sm" variant="outline" onClick={() => handleViewDetails(v.id)}>
-                                                                              <FontAwesomeIcon icon={faEye} className="mr-1 h-3 w-3" />
-                                                                              View
-                                                                          </Button>
-                                                                      </TableCell>
-                                                                    )}
-                                                                </TableRow>
-                                                            );
-                                                        })}
-                                                    </TableBody>
-                                                </Table>
-                                            </>
-                                        ) : (
-                                            <div className="text-center py-8">
-                                                <p className="text-lg font-semibold text-red-400 flex items-center justify-center space-x-2">
-                                                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400" />
-                                                    <span>No visits on this day</span>
-                                                </p>
-                                            </div>
-                                        )}
+                                                        </TableCell>
+                                                        <TableCell className="px-2 py-2.5">
+                                                            {isSummary ? (
+                                                                <span className="inline-flex items-center whitespace-nowrap rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Summary</span>
+                                                            ) : (
+                                                                <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>{status}</span>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell className="px-2 py-2.5 text-muted-foreground">
+                                                            <div className="truncate" title={v.purpose ?? ''}>{v.purpose ?? ''}</div>
+                                                        </TableCell>
+                                                        <TableCell className="whitespace-nowrap px-2 py-2.5 tabular-nums text-foreground">{startText || <span className="text-muted-foreground">–</span>}</TableCell>
+                                                        <TableCell className="whitespace-nowrap px-2 py-2.5 tabular-nums text-foreground">{endText || <span className="text-muted-foreground">–</span>}</TableCell>
+                                                        {!hideViewAction && (
+                                                            <TableCell className="px-5 py-2.5 text-right">
+                                                                {!isSummary && (
+                                                                    <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => handleViewDetails(v.id)}>
+                                                                        View
+                                                                    </Button>
+                                                                )}
+                                                            </TableCell>
+                                                        )}
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <div className="py-16 text-center">
+                                        <p className="text-sm font-medium text-foreground">No visits on this day</p>
                                     </div>
-                                </div>
+                                )}
                             </TabsContent>
-                            
-                            <TabsContent value="activities" className="flex-1 overflow-hidden mt-0">
-                                <div className="h-[65vh] w-full overflow-x-auto overflow-y-auto border rounded-lg bg-background">
-                                    <div className="min-w-full">
-                                        {activities.length > 0 ? (
-                                            <>
-                                                <Table className="w-full min-w-[800px] table-fixed">
-                                                    <TableHeader>
-                                                        <TableRow className="bg-muted hover:bg-muted/80">
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm">Title</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm">Description</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm">Date</TableHead>
-                                                            <TableHead className="font-semibold text-center px-3 py-4 text-sm">Time</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {activities.map((activity, idx) => (
-                                                            <TableRow key={activity.id || idx} className="hover:bg-muted/40">
-                                                                <TableCell className="text-center font-medium px-3 py-3 truncate">
-                                                                    {activity.title || activity.name || 'Activity'}
-                                                                </TableCell>
-                                                                <TableCell className="text-center px-3 py-3 truncate">
-                                                                    {activity.description || activity.notes || '-'}
-                                                                </TableCell>
-                                                                <TableCell className="text-center px-3 py-3">
-                                                                    {activity.date || activity.createdDate || selectedDate ? new Date(activity.date || activity.createdDate || selectedDate).toLocaleDateString('en-US', {
-                                                                        month: 'short',
-                                                                        day: 'numeric',
-                                                                        year: 'numeric'
-                                                                    }) : '-'}
-                                                                </TableCell>
-                                                                <TableCell className="text-center px-3 py-3">
-                                                                    {activity.time || activity.createdTime || '-'}
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                    </TableBody>
-                                                </Table>
-                                            </>
-                                        ) : (
-                                            <div className="text-center py-8">
-                                                <p className="text-lg font-semibold text-red-400 flex items-center justify-center space-x-2">
-                                                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-400" />
-                                                    <span>No activities on this day</span>
-                                                </p>
-                                            </div>
-                                        )}
+
+                            <TabsContent value="activities" className="mt-0 flex-1 overflow-auto">
+                                {activities.length > 0 ? (
+                                    <Table className="w-full table-fixed text-[13px]">
+                                        <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+                                            <TableRow className="hover:bg-transparent">
+                                                <TableHead className="h-9 w-[28%] px-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title</TableHead>
+                                                <TableHead className="h-9 w-[42%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</TableHead>
+                                                <TableHead className="h-9 w-[15%] px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</TableHead>
+                                                <TableHead className="h-9 w-[15%] px-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {activities.map((activity, idx) => (
+                                                <TableRow key={activity.id || idx} className="hover:bg-muted/40">
+                                                    <TableCell className="px-5 py-2.5 font-medium text-foreground"><div className="truncate">{activity.title || activity.name || 'Activity'}</div></TableCell>
+                                                    <TableCell className="px-2 py-2.5 text-muted-foreground"><div className="truncate">{activity.description || activity.notes || '-'}</div></TableCell>
+                                                    <TableCell className="whitespace-nowrap px-2 py-2.5 text-foreground">
+                                                        {activity.date || activity.createdDate || selectedDate ? new Date(activity.date || activity.createdDate || selectedDate).toLocaleDateString('en-US', {
+                                                            month: 'short',
+                                                            day: 'numeric',
+                                                            year: 'numeric'
+                                                        }) : '-'}
+                                                    </TableCell>
+                                                    <TableCell className="whitespace-nowrap px-5 py-2.5 tabular-nums text-foreground">{activity.time || activity.createdTime || '-'}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <div className="py-16 text-center">
+                                        <p className="text-sm font-medium text-foreground">No activities on this day</p>
                                     </div>
-                                </div>
+                                )}
                             </TabsContent>
                         </Tabs>
-                </div>
-                    <DialogFooter className="pt-4 border-t">
+                    </div>
+                    <DialogFooter className="flex-shrink-0 border-t bg-background px-5 py-3">
                         <div className="w-full flex items-center justify-end gap-3">
                             {activeTab === 'visits' && currentVisits.length > 0 && allVisitItems.length > visitsPerPage && (
                                 <Pagination>
@@ -586,7 +475,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                     <DialogPortal>
                         {/* Backdrop with blur effect */}
                         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-                        <DialogPrimitive.Content className="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200">
+                        <DialogPrimitive.Content aria-describedby={undefined} className="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200">
                             <DialogHeader>
                                 <DialogTitle>Visit Details for {selectedVisit.storeName ?? ''}</DialogTitle>
                             </DialogHeader>

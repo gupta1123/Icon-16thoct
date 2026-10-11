@@ -11,7 +11,7 @@ export const emptyEmployeeDraft: EmployeeDraft = {
   departmentName: 'Sales', role: '', dateOfJoining: '', addressLine1: '', addressLine2: '',
   city: '', state: '', pincode: '', country: 'India', userName: '', password: '',
 };
-export type EmployeeIdentity = { id?: number; employeeId?: string | number | null; userName?: string; userDto?: { username?: string } };
+export type EmployeeIdentity = { id?: number; employeeId?: string | number | null; userName?: string; userDto?: { username?: string }; primaryContact?: string | null; secondaryContact?: string | null };
 
 const toCityArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map(item => String(item ?? '').trim()).filter(Boolean);
@@ -73,7 +73,9 @@ export function employeeDraftErrors(draft: EmployeeDraft): Partial<Record<keyof 
   if (draft.departmentName !== 'Sales') errors.departmentName = 'Select a department';
   if (!(employeeRoles as readonly string[]).includes(draft.role)) errors.role = 'Select a role';
   if (draft.pincode && !/^\d{6}$/.test(draft.pincode)) errors.pincode = 'Enter a 6-digit pincode';
-  if (/\d/.test(draft.city)) errors.city = 'City cannot contain numbers';
+  if (!draft.state.trim()) errors.state = 'Select a state';
+  if (!draft.city.trim()) errors.city = 'Select a city';
+  else if (/\d/.test(draft.city)) errors.city = 'City cannot contain numbers';
   return errors;
 }
 
@@ -101,6 +103,9 @@ export async function saveEmployeeDraft(draft: EmployeeDraft, cities: string[], 
     const existing = await service.list();
     if (existing.some(employee => key(employee.employeeId) === key(draft.employeeId))) throw new Error('Employee ID is already used. Please choose a different ID.');
     if (existing.some(employee => key(employee.userName || employee.userDto?.username) === key(draft.userName))) throw new Error('Username is already used. Please choose a different username.');
+    // WORKAROUND(BE-008): the server answers a duplicate phone number with an empty 403, so check it here first.
+    const phones = [draft.primaryContact, draft.secondaryContact].map(key).filter(Boolean);
+    if (existing.some(employee => [employee.primaryContact, employee.secondaryContact].map(key).some(phone => phone && phones.includes(phone)))) throw new Error('This phone number is already used by another employee. Please use a different number.');
     await service.create(payload);
     progress.created = true;
   }

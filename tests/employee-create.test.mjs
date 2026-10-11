@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { employeeAssignedCities, emptyEmployeeDraft, employeeCreatePayload, employeeDraftErrors, generateEmployeePassword, saveEmployeeDraft, suggestEmployeeId, suggestUsername } from '../lib/employee-create.ts';
 import { API } from '../lib/api.ts';
 
-const valid = { ...emptyEmployeeDraft, employeeId: 'EMP-003', firstName: 'Test', lastName: 'Person', primaryContact: '9876543210', role: 'Regional Manager', userName: 'test_person', password: 'ExampleOnly@9' };
+const valid = { ...emptyEmployeeDraft, employeeId: 'EMP-003', firstName: 'Test', lastName: 'Person', primaryContact: '9876543210', role: 'Regional Manager', state: 'Maharashtra', city: 'Pune', userName: 'test_person', password: 'ExampleOnly@9' };
 const progress = () => ({ created: false, assignedCities: [] });
 
 test('ID suggestions continue the business series including archived IDs, not database IDs', () => {
@@ -22,6 +22,15 @@ test('optional invalid phone and pincode prevent submission', () => {
   assert.ok(employeeDraftErrors({ ...valid, primaryContact: '0000000000' }).primaryContact);
   assert.ok(employeeDraftErrors({ ...valid, pincode: '123' }).pincode);
   assert.ok(employeeDraftErrors({ ...valid, role: 'Admin' }).role);
+});
+
+test('employee creation requires a state and city before submitting', async () => {
+  for (const draft of [{ ...valid, state: ' ' }, { ...valid, city: ' ' }]) {
+    let requests = 0;
+    const service = { list: async () => { requests++; return []; }, create: async () => { requests++; }, assignCity: async () => { requests++; } };
+    await assert.rejects(saveEmployeeDraft(draft, [], progress(), service), /required fields/);
+    assert.equal(requests, 0);
+  }
 });
 test('payload retains Icon role and string contact contract with separate account credentials', () => {
   const payload = employeeCreatePayload(valid);
@@ -58,6 +67,14 @@ test('duplicate employee IDs or usernames do not submit a create request', async
     let calls = 0;
     await assert.rejects(saveEmployeeDraft(valid, [], progress(), { list: async () => [record], create: async () => calls++, assignCity: async () => {} }), /already used/);
     assert.equal(calls, 0);
+  }
+});
+
+test('duplicate primary or secondary contacts do not submit a create request', async () => {
+  for (const record of [{ primaryContact: valid.primaryContact }, { secondaryContact: valid.primaryContact }]) {
+    let creates = 0;
+    await assert.rejects(saveEmployeeDraft(valid, [], progress(), { list: async () => [record], create: async () => { creates++; }, assignCity: async () => {} }), /phone number is already used/);
+    assert.equal(creates, 0);
   }
 });
 test('a city failure retries assignments without creating another employee or reassigning successful cities', async () => {

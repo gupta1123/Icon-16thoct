@@ -21,7 +21,13 @@ import {
   Clock,
   Pencil,
   Building2,
-  CalendarDays
+  CalendarDays,
+  CalendarCheck,
+  IdCard,
+  MapPinned,
+  Navigation,
+  User,
+  Wallet
 } from 'lucide-react';
 import { Popover,PopoverContent,PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -38,7 +44,8 @@ import { DateRangeError,isDateRangeInvalid } from '@/components/date-range-error
 import { useDashboardHeader } from '@/components/dashboard-header-context';
 import { useEmployeeActivity } from '@/components/employee-activity-data';
 import { getEmployeeVisitRange,localDate } from '@/lib/employee-detail';
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, type DashboardEmployeeVisitPoint, type LiveLocationDto } from "@/lib/api";
+import { DetailHero, DetailShell, EmptyState, Info, KpiCell, Pill, Section, type DetailTab } from "@/components/detail-ui";
 
 const ACTIVITY_TABS=[{ value: 'visits',label: 'Visits' },{ value: 'attendance',label: 'Attendance' },{ value: 'expenses',label: 'Expenses' },{ value: 'daily-pricing',label: 'Daily Pricing' }];
 
@@ -116,6 +123,18 @@ interface EmployeeData {
   houseLongitude: number|null;
 }
 
+interface SalaryDay {
+  date: string;
+  dayType: string;
+  dayOfWeek: string;
+  hasAttendance: boolean;
+  completedVisits: number;
+  baseEarned: number;
+  travelAllowance: number;
+  dailyDearnessAllowance: number;
+  totalDailySalary: number;
+}
+
 interface PricingData {
   id: number;
   brandName: string;
@@ -148,7 +167,7 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const id=resolvedParams.id;
   const { token }=useAuth();
 
-  const [activeTab,setActiveTab]=useState('visits');
+  const [activeTab,setActiveTab]=useState('overview');
   const [visitPage,setVisitPage]=useState(1);
   const [visitPageSize,setVisitPageSize]=useState(5);
 
@@ -382,7 +401,13 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const expenses=Array.isArray(expenseResource.data)? expenseResource.data:[];
   const attendanceStats=attendanceResource.data;
   const dailyPricing=Array.isArray(pricingResource.data)? pricingResource.data:[];
-  const activeResource=activeTab==='visits'? visitsResource:activeTab==='attendance'? attendanceResource:activeTab==='expenses'? expenseResource:pricingResource;
+  const monthPad=String(selectedMonth).padStart(2,'0');
+  const monthStart=`${selectedYear}-${monthPad}-01`;
+  const monthEnd=`${selectedYear}-${monthPad}-${String(new Date(selectedYear,selectedMonth,0).getDate()).padStart(2,'0')}`;
+  const salaryResource=useEmployeeActivity<SalaryDay[]>(activeTab==='salary'? `${API_BASE_URL}/salary-calculation/daily-breakdown?employeeId=${id}&startDate=${monthStart}&endDate=${monthEnd}`:null,token);
+  const liveResource=useEmployeeActivity<LiveLocationDto>(activeTab==='tracking'? `${API_BASE_URL}/employee/getLiveLocation?id=${id}`:null,token);
+  const trailResource=useEmployeeActivity<DashboardEmployeeVisitPoint[]>(activeTab==='tracking'? `${API_BASE_URL}/dashboard/employees/${id}/visit-trail?startDate=${monthStart}&endDate=${monthEnd}`:null,token);
+  const activeResource=activeTab==='visits'? visitsResource:activeTab==='attendance'? attendanceResource:activeTab==='expenses'? expenseResource:activeTab==='salary'? salaryResource:activeTab==='tracking'? (liveResource.loading||trailResource.loading? { ...trailResource,loading: true }:liveResource.error&&trailResource.error? trailResource:{ ...trailResource,error: null }):pricingResource;
   const activityFeedback=activeResource.loading
     ? <div role="status" className="flex items-center justify-center gap-2 rounded-lg border bg-muted/30 p-5 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading records…</div>
     :activeResource.error
@@ -425,127 +450,135 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
   const employeeRole=formatEmployeeRole(employeeData.role);
   const hasHomeCoordinates=employeeData.houseLatitude!==null&&employeeData.houseLongitude!==null;
 
-  const profileProperties=[
-    { label: 'Email',value: employeeData?.email,icon: Mail },
-    { label: 'Phone',value: employeeData?.primaryContact? String(employeeData.primaryContact):'',icon: Phone },
-    {
-      label: 'Location',
-      value: [employeeData?.city,employeeData?.state,employeeData?.country].filter(Boolean).join(', '),
-      icon: MapPin,
-    },
-    { label: 'Department',value: employeeData?.departmentName,icon: Building2 },
-    {
-      label: 'Joined',
-      value: employeeData?.dateOfJoining
-        ? format(new Date(employeeData.dateOfJoining),'MMM dd, yyyy')
-        :'',
-      icon: CalendarDays,
-    },
-  ].filter((property) => property.value);
+  const fmtDate=(value?: string|null) => {
+    if(!value) return '—';
+    const parsed=new Date(value);
+    return Number.isNaN(parsed.getTime())? value:format(parsed,'MMM dd, yyyy');
+  };
+  const fmtStamp=(value?: string|null) => {
+    if(!value) return '—';
+    const parsed=new Date(value);
+    return Number.isNaN(parsed.getTime())? value:format(parsed,'MMM dd, h:mm a');
+  };
+  const inr=(value: number) => `₹${Number(value||0).toLocaleString('en-IN',{ maximumFractionDigits: 0 })}`;
+  const monthLabel=format(new Date(selectedYear,selectedMonth-1,1),'MMM yyyy');
+  const attendanceStatsDto=(attendanceStats as { statsDto?: { fullDays?: number; halfDays?: number; absences?: number } }|null)?.statsDto;
+  const expenseTotal=expenses.reduce((sum,expense) => sum+(Number(expense.amount)||0),0);
+  const assignedCities=(employeeData.assignedCity??[]).filter(Boolean);
+  const locationLabel=[employeeData.city,employeeData.state].filter(Boolean).join(', ');
+  const salaryRows=Array.isArray(salaryResource.data)? salaryResource.data:[];
+  const salaryTotal=salaryRows.reduce((sum,row) => sum+(Number(row.totalDailySalary)||0),0);
+  const trailPoints=Array.isArray(trailResource.data)? trailResource.data:[];
+  const live=liveResource.data;
+  const mapHref=(lat?: number|null,lng?: number|null) => lat!=null&&lng!=null? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`:undefined;
 
-  return (
-    <div className="icon-employee-detail space-y-4 py-4">
-      <Head>
-        <title>{employeeData? `${employeeData.firstName} ${employeeData.lastName}`:'Employee Details'}</title>
-      </Head>
+  const overviewContent=(
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <Section icon={User} title="Work">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Info label="Role" value={employeeRole} />
+          <Info label="Employee ID" value={employeeData.employeeId||'Not provided'} />
+          <Info label="Department" value={employeeData.departmentName||'Not provided'} />
+          <Info label="Joined" value={fmtDate(employeeData.dateOfJoining)} />
+        </dl>
+      </Section>
+      <Section icon={Phone} title="Contact">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Info label="Phone" value={employeeData.primaryContact? <a className="hover:underline" href={`tel:${employeeData.primaryContact}`}>{String(employeeData.primaryContact)}</a>:'Not provided'} />
+          <Info label="Email" value={employeeData.email? <a className="hover:underline" href={`mailto:${employeeData.email}`}>{employeeData.email}</a>:'Not provided'} />
+        </dl>
+      </Section>
+      <Section icon={MapPin} title="Address">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <Info className="sm:col-span-2" label="Address" value={[employeeData.addressLine1,employeeData.addressLine2].filter(Boolean).join(', ')||'Not provided'} />
+          <Info label="City / State" value={locationLabel||'Not provided'} />
+          <Info label="Pin code" value={employeeData.pincode??'Not provided'} />
+          <Info label="Home location" value={hasHomeCoordinates? <a className="inline-flex items-center gap-1 hover:underline" target="_blank" rel="noreferrer" href={mapHref(employeeData.houseLatitude,employeeData.houseLongitude)}>View on map</a>:'Not recorded'} />
+        </dl>
+      </Section>
+      <Section icon={Building2} title={`Assigned cities · ${assignedCities.length}`}>
+        {assignedCities.length===0
+          ? <p className="text-sm text-muted-foreground">No cities assigned.</p>
+          : <div className="flex flex-wrap gap-1.5">{assignedCities.map((city) => <Pill key={city}>{city}</Pill>)}</div>}
+      </Section>
+    </div>
+  );
 
-      <Card className="gap-0 py-0 shadow-none">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar className="h-12 w-12 shrink-0 border">
-                <AvatarFallback className="bg-muted text-sm font-semibold text-muted-foreground">
-                  {employeeData? getInitials(`${employeeData.firstName} ${employeeData.lastName}`):'—'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h2 className="break-words text-lg font-semibold tracking-tight">
-                    {employeeData? `${employeeData.firstName} ${employeeData.lastName}`:'Loading employee…'}
-                  </h2>
-                  {employeeData?.role&&<Badge variant="secondary" className="font-medium">{employeeRole}</Badge>}
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {employeeData?.employeeId? `Employee ID ${employeeData.employeeId}`:'Employee record'}
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => router.push(`/dashboard/employees?edit=${id}`)}>
-              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit employee
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside>
-          <Card className="gap-0 py-0 shadow-none">
-            <CardHeader className="border-b px-4 py-3">
-              <CardTitle className="text-sm font-semibold">About</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4">
-              <dl className="space-y-4">
-                {profileProperties.map((property) => (
-                  <div key={property.label} className="flex items-start gap-3">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                      <property.icon className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{property.label}</dt>
-                      <dd className="break-words text-sm text-foreground">{property.label==="Email"? <a className="hover:underline" href={`mailto:${property.value}`}>{property.value}</a>:property.label==="Phone"? <a className="hover:underline" href={`tel:${property.value}`}>{property.value}</a>:property.value}</dd>
-                    </div>
-                  </div>
-                ))}
-              </dl>
-              <details className="mt-4 border-t pt-3">
-                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">More employee information</summary>
-                <dl className="mt-4 space-y-3 text-sm">
-                  <div><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Address</dt><dd className="break-words">{[employeeData.addressLine1,employeeData.addressLine2].filter(Boolean).join(', ')||'Not provided'}</dd></div>
-                  <div><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Pin Code</dt><dd>{employeeData.pincode??'Not provided'}</dd></div>
-                  <div><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Assigned cities</dt><dd className="break-words">{employeeData.assignedCity?.join(', ')||'Not assigned'}</dd></div>
-                  <div><dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Home location</dt><dd>{hasHomeCoordinates? <a className="inline-flex items-center gap-1 text-primary hover:underline" target="_blank" rel="noopener noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${employeeData.houseLatitude},${employeeData.houseLongitude}`}><MapPin className="h-3.5 w-3.5" />View home location</a>:'Not available'}</dd></div>
-                </dl>
-              </details>
-            </CardContent>
-          </Card>
-        </aside>
-
-        <section className="min-w-0 space-y-4">
-          <Card className="gap-0 py-0 shadow-none">
-            <CardContent className="p-0">
-              <div className="space-y-4 p-4">
-                <div className="md:hidden">
-                  <Select value={activeTab} onValueChange={setActiveTab}>
-                    <SelectTrigger aria-label="Employee section" className="h-9 w-full">
-                      <SelectValue placeholder="Select section" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ACTIVITY_TABS.map((tab) => (
-                        <SelectItem key={tab.value} value={tab.value}>
-                          <div className="flex items-center gap-2">
-
-                            <span>{tab.label}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="hidden border-b md:flex">
-                  {ACTIVITY_TABS.map((tab) => (
-                    <button
-                      key={tab.value}
-                      type="button" aria-current={activeTab===tab.value? "page":undefined} className={`flex items-center gap-2 border-b-2 pl-5 pr-3 py-2 text-xs font-medium transition-colors ${activeTab===tab.value
-                          ? 'border-primary text-primary'
-                          :'border-transparent text-muted-foreground hover:text-foreground'
-                        }`}
-                      onClick={() => setActiveTab(tab.value)}
-                    >
-                      {tab.label}
-                    </button>
+  const salaryContent=(
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+          <SelectTrigger className="h-9 w-[110px]"><SelectValue placeholder="Year" /></SelectTrigger>
+          <SelectContent>{Array.from({ length: 27 },(_,index) => <SelectItem key={index} value={(2023+index).toString()}>{2023+index}</SelectItem>)}</SelectContent>
+        </Select>
+        <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
+          <SelectTrigger className="h-9 w-[150px]"><SelectValue placeholder="Month" /></SelectTrigger>
+          <SelectContent>{["January","February","March","April","May","June","July","August","September","October","November","December"].map((month,index) => <SelectItem key={index} value={(index+1).toString()}>{month}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      {activityFeedback}
+      <div hidden={!!activityFeedback}>
+        <Section icon={Wallet} title={`Daily salary · ${monthLabel}`} description={`${salaryRows.length} days · total ${inr(salaryTotal)}`} bodyClassName="p-0">
+          {salaryRows.length===0? <EmptyState compact title="No salary breakdown for this month." /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="border-b text-left text-muted-foreground"><th className="px-4 py-2 font-medium">Date</th><th className="px-2 py-2 font-medium">Day</th><th className="px-2 py-2 text-right font-medium">Visits</th><th className="px-2 py-2 text-right font-medium">Base</th><th className="px-2 py-2 text-right font-medium">Travel</th><th className="px-2 py-2 text-right font-medium">DA</th><th className="px-4 py-2 text-right font-medium">Total</th></tr></thead>
+                <tbody>
+                  {salaryRows.map((row) => (
+                    <tr key={row.date} className="border-b last:border-0">
+                      <td className="px-4 py-2 tabular-nums">{fmtDate(row.date)}</td>
+                      <td className="px-2 py-2"><Pill tone={row.hasAttendance? 'success':'neutral'}>{row.dayType||row.dayOfWeek}</Pill></td>
+                      <td className="px-2 py-2 text-right tabular-nums">{row.completedVisits??0}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{inr(row.baseEarned)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{inr(row.travelAllowance)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{inr(row.dailyDearnessAllowance)}</td>
+                      <td className="px-4 py-2 text-right font-medium tabular-nums">{inr(row.totalDailySalary)}</td>
+                    </tr>
                   ))}
-                </div>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      </div>
+    </div>
+  );
 
+  const trackingContent=(
+    <div className="space-y-4">
+      {activityFeedback}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" hidden={!!activityFeedback}>
+        <Section icon={Navigation} title="Last known location">
+          {live&&live.latitude!=null? (
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <Info label="Updated" value={fmtStamp(live.updatedAt&&live.updatedTime? `${String(live.updatedAt).slice(0,10)}T${live.updatedTime}`:live.updatedAt)} />
+              <Info label="Position" value={<a className="hover:underline" target="_blank" rel="noreferrer" href={mapHref(live.latitude,live.longitude)}>View on map</a>} />
+            </dl>
+          ) : <EmptyState compact title="No location reported yet." />}
+        </Section>
+        <Section icon={MapPin} title={`Visit trail${trailPoints.length? ` · ${trailPoints.length}`:''}`} description={monthLabel} bodyClassName="p-0">
+          {trailPoints.length===0? <EmptyState compact title="No visit trail for this month." /> : (
+            <ul className="divide-y">
+              {trailPoints.map((point,index) => (
+                <li key={`${point.type}-${point.visitId??index}-${index}`} className="flex items-center gap-3 px-4 py-2">
+                  <Pill tone={point.type==='CHECKIN'? 'success':point.type==='CHECKOUT'? 'info':'neutral'}>{point.type.toLowerCase()}</Pill>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{point.storeName||point.label||'—'}</p>
+                    <p className="text-[11px] text-muted-foreground">{fmtStamp(point.timestamp)}</p>
+                  </div>
+                  <a className="text-xs text-muted-foreground hover:text-foreground hover:underline" target="_blank" rel="noreferrer" href={mapHref(point.latitude,point.longitude)}>Map</a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      </div>
+    </div>
+  );
+
+  const employeeTabs: DetailTab[]=[
+    { value: 'overview',label: 'Overview',icon: User,content: overviewContent },
+    { value: 'visits',label: 'Visits',icon: MapPinned,count: visitsResource.loading? undefined:visits.length,content: (<div className="space-y-4">
                 {activeTab==='visits'&&(
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -668,7 +701,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                     )}
                   </div>
                 )}
-
+    </div>) },
+    { value: 'attendance',label: 'Attendance',icon: CalendarCheck,content: (<div className="space-y-4">
                 {activeTab==='attendance'&&(
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -723,7 +757,8 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                     </div>
                   </div>
                 )}
-
+    </div>) },
+    { value: 'expenses',label: 'Expenses',icon: Receipt,count: expenseResource.loading? undefined:expenses.length,content: (<div className="space-y-4">
                 {activeTab==='expenses'&&(
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -793,7 +828,10 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                     </div>
                   </div>
                 )}
-
+    </div>) },
+    { value: 'salary',label: 'Salary',icon: Wallet,content: salaryContent },
+    { value: 'tracking',label: 'Tracking',icon: Navigation,content: trackingContent },
+    { value: 'daily-pricing',label: 'Daily pricing',icon: Tag,content: (<div className="space-y-4">
                 {activeTab==='daily-pricing'&&(
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -857,11 +895,37 @@ export default function SalesExecutivePage({ params }: { params: Promise<{ id: s
                     </div>
                   </div>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+    </div>) },
+  ];
+
+  return (
+    <div className="icon-employee-detail space-y-4 py-4">
+      <Head>
+        <title>{`${employeeData.firstName} ${employeeData.lastName}`}</title>
+      </Head>
+      <DetailHero
+        name={`${employeeData.firstName} ${employeeData.lastName}`.trim()}
+        onBack={handleBack}
+        backLabel="Employees"
+        badges={<>
+          {employeeData.role&&<Pill>{employeeRole}</Pill>}
+        </>}
+        meta={[
+          { icon: IdCard,label: employeeData.employeeId? `ID ${employeeData.employeeId}`:'No employee ID',title: 'Employee ID' },
+          ...(employeeData.primaryContact? [{ icon: Phone,label: String(employeeData.primaryContact),href: `tel:${employeeData.primaryContact}` }]:[]),
+          ...(employeeData.email? [{ icon: Mail,label: employeeData.email,href: `mailto:${employeeData.email}` }]:[]),
+          ...(locationLabel? [{ icon: MapPin,label: locationLabel }]:[]),
+          ...(employeeData.dateOfJoining? [{ icon: CalendarDays,label: `Joined ${fmtDate(employeeData.dateOfJoining)}`,title: 'Date of joining' }]:[]),
+        ]}
+        actions={<Button variant="outline" size="sm" className="h-8" onClick={() => router.push(`/dashboard/employees/${id}/edit`)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit employee</Button>}
+        kpis={<>
+          <KpiCell icon={MapPinned} label="Visits" value={visitsResource.loading? '…':(visitsResource.data?.statsDto?.visitCount??visits.length)} hint={visitFilter.replace(/-/g,' ')} />
+          <KpiCell icon={CalendarCheck} label={`Full days · ${monthLabel}`} value={attendanceResource.loading? '…':(attendanceStatsDto?.fullDays??0)} hint={attendanceResource.loading? undefined:`${attendanceStatsDto?.halfDays??0} half · ${attendanceStatsDto?.absences??0} absent`} />
+          <KpiCell icon={Receipt} label="Expenses" value={expenseResource.loading? '…':inr(expenseTotal)} hint={expenseResource.loading? undefined:`${expenses.length} claims in range`} />
+          <KpiCell icon={Building2} label="Assigned cities" value={assignedCities.length} hint={assignedCities.slice(0,2).join(', ')||undefined} />
+        </>}
+      />
+      <DetailShell value={activeTab} onValueChange={setActiveTab} tabs={employeeTabs} />
     </div>
   );
 };

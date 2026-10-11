@@ -109,6 +109,19 @@
     font-weight: 700;
 }
 
+.calendar-dates div.today-pending {
+    background-color: #fff7ed;
+    color: #c2410c;
+    border: 1px dashed #fb923c;
+    font-weight: 700;
+}
+
+.dark .calendar-dates div.today-pending {
+    background-color: rgba(251, 146, 60, 0.12);
+    color: #fdba74;
+    border: 1px dashed rgba(251, 146, 60, 0.6);
+}
+
 .calendar-dates div.empty {
     cursor: default;
     background: transparent;
@@ -159,7 +172,7 @@
     color: #94a3b8;
 }
 
-.dark .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):not(.empty):not(.paid-leave):not(.full-day-activity) {
+.dark .calendar-dates div:not(.full-day):not(.half-day):not(.absent):not(.present):not(.sunday):not(.empty):not(.paid-leave):not(.full-day-activity):not(.today-pending) {
     background-color: #1e293b;
     color: #cbd5e1;
     border-color: #334155;

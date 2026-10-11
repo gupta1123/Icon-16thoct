@@ -295,3 +295,8 @@
 .detail-value {
   @apply text-sm text-gray-200;
 }
+
+/* Detail pages build lists/rows with utility classes; opt them out of the prose defaults above. */
+.detail-page :where(ul, ol) { margin: 0; list-style: none; }
+.detail-page :where(ul, ol) > :where(li) { margin-top: 0; }
+.detail-page p, .detail-page p:not(:first-child) { margin-top: 0; line-height: inherit; }

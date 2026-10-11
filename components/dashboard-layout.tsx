@@ -364,6 +364,18 @@ export default function DashboardLayout({
 
   const canSeeSettings = isAdmin || isDataManager;
 
+  // HR may only use the HR pages (decision Q3). The sidebar already hides everything else;
+  // this also stops a typed URL. UI guard only - the backend must still refuse (BE-024).
+  // /dashboard/hr/attendance redirects to /dashboard/attendance, so that page is HR's too.
+  const hrOnBlockedPage = isHR
+    && pathname !== "/dashboard"
+    && !pathname.startsWith("/dashboard/hr")
+    && pathname !== "/dashboard/attendance"
+    && !pathname.startsWith("/dashboard/attendance/");
+  useEffect(() => {
+    if (hrOnBlockedPage) router.replace("/dashboard");
+  }, [hrOnBlockedPage, router]);
+
   return (
     <div
       className={`min-h-screen w-full grid ${sidebarCollapsed ? "md:grid-cols-[64px_1fr]" : "md:grid-cols-[184px_1fr] lg:grid-cols-[200px_1fr]"}`}
@@ -581,7 +593,7 @@ export default function DashboardLayout({
         
         {/* Page content */}
         <main className={`flex flex-1 flex-col gap-4 ${compactPageLayout ? "p-3 sm:p-4" : "p-4"} pb-24 md:pb-6 ${compactPageLayout ? "" : "lg:gap-6 lg:p-6"}`}>
-          <DashboardHeaderOverrideProvider setHeader={setDashboardHeader}>{children}</DashboardHeaderOverrideProvider>
+          <DashboardHeaderOverrideProvider setHeader={setDashboardHeader}>{hrOnBlockedPage ? null : children}</DashboardHeaderOverrideProvider>
         </main>
       </div>
     </div>

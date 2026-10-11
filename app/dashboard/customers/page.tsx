@@ -20,12 +20,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Phone, User, Package, Target, Briefcase, Filter, X, Download, Columns, Home, MoreHorizontal, Loader2, MapPin, ExternalLink } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select2";
 import { API, formatStockQuantity, getStock, type StoreDto, type StoreResponse, type TeamDataDto } from "@/lib/api";
 import CreateCustomerFlowModal from "@/components/CreateCustomerFlowModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { filterCustomers, sortCustomers } from "@/lib/customer-filter";
+import { filterCustomers, sortCustomers, PROFESSIONALS_FILTER, PROFESSIONAL_TYPE_QUERIES } from "@/lib/customer-filter";
 
 export default function CustomerListPage() {
     return (
@@ -63,6 +64,17 @@ const formatCityLabel = (city?: string | null) => {
     if (!city) return '—';
     return city.charAt(0).toUpperCase() + city.slice(1);
 };
+
+const CLIENT_TYPE_FILTER_OPTIONS = [
+    { value: 'Dealer', label: 'Dealer / Shop' },
+    { value: PROFESSIONALS_FILTER, label: 'Engineer / Architect / Contractor' },
+    { value: 'Site Visit', label: 'Site Visit' },
+];
+const DEALER_SUBTYPE_FILTER_OPTIONS = [
+    { value: 'EXCLUSIVE', label: 'Exclusive' },
+    { value: 'NON_EXCLUSIVE', label: 'Non-exclusive' },
+];
+const sortAZ = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' });
 
 const formatClientTypeLabel = (type?: string | null) => {
     if (!type) return '—';
@@ -384,8 +396,49 @@ function CustomerListContent() {
             if ((isManager || isFieldOfficer) && (teamId === null || teamId === undefined)) return;
             
             let data: StoreResponse;
-            
-            if (isAvp) {
+
+            if (desktopFilters.clientType === PROFESSIONALS_FILTER && !(isManager || isFieldOfficer)) {
+                // The backend matches one client-type text per request, so fetch each
+                // professional type (all pages), merge, then sort and page here.
+                const phone = desktopFilters.primaryContact.replace(/\D/g, '');
+                const fetchAllOfType = async (type: string) => {
+                    const rows: StoreDto[] = [];
+                    for (let page = 0; ; page += 1) {
+                        if (requestSequence !== customerRequestSequenceRef.current) return rows;
+                        const q = new URLSearchParams({ page: String(page), size: '200', clientType: type });
+                        if (desktopFilters.storeName) q.append('storeName', desktopFilters.storeName);
+                        if (desktopFilters.ownerName) q.append('ownerName', desktopFilters.ownerName);
+                        if (desktopFilters.city) q.append('city', desktopFilters.city);
+                        if (desktopFilters.state) q.append('state', desktopFilters.state);
+                        if (desktopFilters.employeeName) q.append('employeeName', desktopFilters.employeeName);
+                        if (phone) q.append('primaryContact', phone);
+                        const resp = await fetch(`https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/store/filteredValues?${q.toString().replace(/\+/g, '%20')}`, {
+                            headers: { Authorization: token ? `Bearer ${token}` : '', 'Content-Type': 'application/json' },
+                        });
+                        if (!resp.ok) throw new Error(`Customers fetch failed: ${resp.status} ${await resp.text()}`);
+                        const body = await resp.json();
+                        rows.push(...(body.content || []));
+                        if (page + 1 >= (body.totalPages || 1)) return rows;
+                    }
+                };
+                const groups = await Promise.all(PROFESSIONAL_TYPE_QUERIES.map(fetchAllOfType));
+                if (requestSequence !== customerRequestSequenceRef.current) return;
+                const merged = Array.from(new Map(groups.flat().map((store) => [store.storeId, store])).values());
+                const sortedPros = sortCustomers(merged, sortColumn, sortDirection);
+                const proPages = Math.max(1, Math.ceil(sortedPros.length / pageSize));
+                const proStart = (currentPage - 1) * pageSize;
+                data = {
+                    content: sortedPros.slice(proStart, proStart + pageSize),
+                    totalElements: sortedPros.length,
+                    totalPages: proPages,
+                    number: currentPage - 1,
+                    size: pageSize,
+                    numberOfElements: Math.min(pageSize, Math.max(0, sortedPros.length - proStart)),
+                    first: currentPage === 1,
+                    last: currentPage >= proPages,
+                    empty: sortedPros.length === 0,
+                } as StoreResponse;
+            } else if (isAvp) {
                 let mappedSortColumn = sortColumn;
                 if (mappedSortColumn === 'ownerName') mappedSortColumn = 'ownerFirstName';
                 if (mappedSortColumn === 'totalVisits') mappedSortColumn = 'visitCount';
@@ -519,7 +572,10 @@ function CustomerListContent() {
                 totalVisitCount: store.totalVisitCount || 0,
             }));
             setCustomers(transformedCustomers);
-            setTotalPages(data.totalPages || 1);
+            // WORKAROUND(BE-020): store/filteredValues reports totals that ignore the search filters,
+            // so a short page is treated as the last one.
+            const reportedPages = data.totalPages || 1;
+            setTotalPages(transformedCustomers.length < pageSize ? currentPage : reportedPages);
         } catch (err: unknown) {
             if (requestSequence !== customerRequestSequenceRef.current) return;
             setError(err instanceof Error ? err.message : 'Failed to load customers');
@@ -748,7 +804,72 @@ function CustomerListContent() {
         );
     };
 
-    const renderFilterInput = (name: keyof typeof desktopFilters, label: string, icon: React.ReactNode, isMobile: boolean) => (
+    const [filterStates, setFilterStates] = useState<string[]>([]);
+    const [filterEmployees, setFilterEmployees] = useState<string[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        API.getAllStates().then((list) => { if (!cancelled) setFilterStates(list.map((st) => st.stateName).filter(Boolean).sort(sortAZ)); }).catch(() => {});
+        API.getAllEmployees().then((list) => {
+            if (cancelled) return;
+            const names = list.map((e) => `${e.firstName || ''} ${e.lastName || ''}`.trim()).filter(Boolean);
+            setFilterEmployees([...new Set(names)].sort(sortAZ));
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
+
+    // WORKAROUND(BE-023): employee/getAll refuses AVPs, so their "Assigned Executive" filter is built from their teams.
+    useEffect(() => {
+        if (!isAvp || !userData?.employeeId) return;
+        let cancelled = false;
+        API.getTeamByEmployee(userData.employeeId).then((teams) => {
+            if (cancelled) return;
+            const names: string[] = [];
+            for (const team of teams ?? []) {
+                for (const member of [team.officeManager, ...(team.fieldOfficers ?? [])]) {
+                    const name = `${member?.firstName || ''} ${member?.lastName || ''}`.trim();
+                    if (name) names.push(name);
+                }
+            }
+            setFilterEmployees([...new Set(names)].sort(sortAZ));
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [isAvp, userData?.employeeId]);
+
+    const filterSelectOptions: Partial<Record<FilterKey, { value: string; label: string }[]>> = {
+        state: filterStates.map((v) => ({ value: v, label: v })),
+        employeeName: filterEmployees.map((v) => ({ value: v, label: v })),
+        clientType: CLIENT_TYPE_FILTER_OPTIONS,
+        dealerSubType: DEALER_SUBTYPE_FILTER_OPTIONS,
+    };
+
+    const renderFilterInput = (name: keyof typeof desktopFilters, label: string, icon: React.ReactNode, isMobile: boolean) => {
+        const options = filterSelectOptions[name];
+        if (options) {
+            const current = isMobile ? mobileFilters[name] : desktopFilters[name];
+            const known = options.some((o) => o.value === current);
+            return (
+                <div className={isMobile ? "space-y-1" : "min-w-0"}>
+                    <Label htmlFor={name} className="sr-only">{label}</Label>
+                    <SearchableSelect
+                        modal={isMobile}
+                        triggerId={name}
+                        options={current && !known ? [{ value: current, label: current }, ...options] : options}
+                        value={current || undefined}
+                        placeholder={label}
+                        searchPlaceholder={`Search ${label.toLowerCase()}…`}
+                        allowClear
+                        disabled={name === 'dealerSubType' && !!(isMobile ? mobileFilters.clientType : desktopFilters.clientType) && !/dealer|shop/i.test(isMobile ? mobileFilters.clientType : desktopFilters.clientType)}
+                        triggerClassName={isMobile ? "h-10 w-full text-sm font-normal" : "h-8 w-full bg-background text-xs font-normal shadow-none"}
+                        contentClassName="w-[var(--radix-popover-trigger-width)]"
+                        onSelect={(option) => isMobile ? handleMobileFilterChange(name, option?.value ?? '') : handleDesktopFilterChange(name, option?.value ?? '')}
+                    />
+                </div>
+            );
+        }
+        return renderFilterTextInput(name, label, icon, isMobile);
+    };
+
+    const renderFilterTextInput = (name: keyof typeof desktopFilters, label: string, icon: React.ReactNode, isMobile: boolean) => (
         <div className={isMobile ? "space-y-1" : "min-w-0"}>
             <Label htmlFor={name} className="sr-only">{label}</Label>
             <div className="relative">

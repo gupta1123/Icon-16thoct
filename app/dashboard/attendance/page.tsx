@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,6 +103,8 @@ const formatRoleDisplay = (role?: string, position?: string): string => {
     .join(' ');
 };
 
+const EMPTY_ATTENDANCE: AttendanceData[] = [];
+
 export default function AttendancePage() {
   const router = useRouter();
   const [attendanceData, setAttendanceData] = useState<AttendanceData[]>([]);
@@ -118,6 +121,7 @@ export default function AttendancePage() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>('');
 
+  const visitRequestRef = useRef(0);
   const selectedYearRef = useRef(selectedYear);
   const selectedMonthRef = useRef(selectedMonth);
 
@@ -231,80 +235,62 @@ export default function AttendancePage() {
   }, [token, selectedYear, selectedMonth]);
 
   const fetchVisitData = useCallback(
-    async (date: string, employeeName: string) => {
+    async (date: string, employeeName: string, employeeId?: number) => {
       if (!token) {
         console.error("Auth token is missing");
         return;
       }
 
+      const requestId = ++visitRequestRef.current;
+      toast.loading("Loading day details...", { id: "attendance-day-details" });
+
       try {
         // Find the employee ID from the name
-        const employee = employees.find(emp => 
-          `${emp.firstName} ${emp.lastName}` === employeeName
-        );
+        const employee =
+          (employeeId !== undefined ? employees.find(emp => emp.id === employeeId) : undefined) ??
+          employees.find(emp => `${emp.firstName} ${emp.lastName}` === employeeName);
         
         if (!employee) {
           console.error('Employee not found:', employeeName);
           setVisitData([]);
           setCustomerVisitDetails([]);
           setActivities([]);
+          toast.dismiss("attendance-day-details");
           return;
         }
 
         // Fetch customer visit details for all customer types
         const customerTypes = ['dealer', 'shop', 'others'];
-        const allCustomerVisits: CustomerVisitDetail[] = [];
+        const authHeaders = { Authorization: `Bearer ${token}` };
+        const baseUrl = 'https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net';
 
-        for (const customerType of customerTypes) {
-          try {
-            const customerVisitUrl = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/visit/customer-visit-details?employeeId=${employee.id}&startDate=${date}&endDate=${date}&customerType=${encodeURIComponent(customerType)}`;
-            
-            const customerResponse = await fetch(customerVisitUrl, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-
-            if (customerResponse.ok) {
-              const customerData: CustomerVisitDetail[] = await customerResponse.json();
-              allCustomerVisits.push(...customerData);
-            }
-          } catch (err) {
-            console.error(`Error fetching customer visit details for ${customerType}:`, err);
-          }
-        }
-
-        // Also fetch timeline data for activities and individual visits
-        const timelineUrl = `https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/timeline/getByDate?employeeId=${employee.id}&date=${date}`;
-        
-        const timelineResponse = await fetch(timelineUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        // Fire all four requests at once instead of one after another (same data, same order).
+        const [customerResults, timelineResponse] = await Promise.all([
+          Promise.all(
+            customerTypes.map(async (customerType): Promise<CustomerVisitDetail[]> => {
+              try {
+                const customerResponse = await fetch(
+                  `${baseUrl}/visit/customer-visit-details?employeeId=${employee.id}&startDate=${date}&endDate=${date}&customerType=${encodeURIComponent(customerType)}`,
+                  { headers: authHeaders }
+                );
+                return customerResponse.ok ? await customerResponse.json() : [];
+              } catch (err) {
+                console.error(`Error fetching customer visit details for ${customerType}:`, err);
+                return [];
+              }
+            })
+          ),
+          fetch(`${baseUrl}/timeline/getByDate?employeeId=${employee.id}&date=${date}`, { headers: authHeaders }),
+        ]);
+        const allCustomerVisits: CustomerVisitDetail[] = customerResults.flat();
 
         let timelineData = null;
         if (timelineResponse.ok) {
           timelineData = await timelineResponse.json();
         }
 
-        console.log('Customer Visit Details Response:', {
-          date,
-          employeeName,
-          customerVisitsCount: allCustomerVisits.length,
-          customerVisits: allCustomerVisits
-        });
-
-        console.log('Timeline API Response:', {
-          date,
-          employeeName,
-          activityCount: timelineData?.activityCount,
-          visitCount: timelineData?.visitCount,
-          completedVisitCount: timelineData?.completedVisitCount,
-          attendanceStatus: timelineData?.attendanceStatus,
-          activities: timelineData?.activities,
-          visits: timelineData?.visits
-        });
+        // A newer click superseded this one; drop the stale result
+        if (requestId !== visitRequestRef.current) return;
 
         // Store data for the modal
         const visits = Array.isArray(timelineData?.visits) ? (timelineData.visits as VisitDetail[]) : [];
@@ -316,12 +302,14 @@ export default function AttendancePage() {
         setSelectedDate(date);
         setSelectedEmployeeName(employeeName);
         setIsModalOpen(true);
+        toast.dismiss("attendance-day-details");
 
       } catch (error) {
         console.error("Error fetching visit data:", error);
         setVisitData([]);
         setCustomerVisitDetails([]);
         setActivities([]);
+        toast.error("Could not load day details", { id: "attendance-day-details" });
       }
     },
     [token, employees]
@@ -329,8 +317,11 @@ export default function AttendancePage() {
 
   useEffect(() => {
     fetchAttendanceData();
+  }, [selectedYear, selectedMonth, token, fetchAttendanceData]);
+
+  useEffect(() => {
     fetchEmployees();
-  }, [selectedYear, selectedMonth, token, fetchAttendanceData, fetchEmployees]);
+  }, [fetchEmployees]);
 
   // Filter employees by name, then sort
   const filteredEmployees = employees
@@ -342,6 +333,22 @@ export default function AttendancePage() {
       const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
       return nameA.localeCompare(nameB);
     });
+
+  // Group once per data load so each card gets a stable array (lets the cards skip needless re-renders)
+  const attendanceByEmployee = useMemo(() => {
+    const map = new Map<number, AttendanceData[]>();
+    attendanceData.forEach((item) => {
+      const list = map.get(item.employeeId);
+      if (list) list.push(item);
+      else map.set(item.employeeId, [item]);
+    });
+    return map;
+  }, [attendanceData]);
+
+  const handleDateClick = useCallback(
+    (date: string, employeeName: string, employeeId?: number) => fetchVisitData(date, employeeName, employeeId),
+    [fetchVisitData]
+  );
 
   return (
     <div className="max-w-[1400px] mx-auto p-2 sm:p-4 space-y-4">
@@ -409,10 +416,6 @@ export default function AttendancePage() {
               <span className="w-2 h-2 rounded-full bg-purple-500"></span>
               <span>Paid Leave</span>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-cyan-700 dark:text-cyan-400">
-              <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
-              <span>Activity</span>
-            </div>
             <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>Full Day</span>
@@ -420,10 +423,6 @@ export default function AttendancePage() {
             <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-400">
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
               <span>Half Day</span>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-blue-700 dark:text-blue-400">
-              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-              <span>Present</span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:text-rose-400">
               <span className="w-2 h-2 rounded-full bg-rose-500"></span>
@@ -459,13 +458,8 @@ export default function AttendancePage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredEmployees.map((employee) => {
-              const initialSummary = { fullDays: 0, halfDays: 0, absentDays: 0 };
-              const employeeAttendance = attendanceData.filter((data) => data.employeeId === employee.id);
-              
-              // Console log the dates for this employee
-              const employeeDates = employeeAttendance.map(item => new Date(item.checkinDate).getDate());
-              console.log(`Dates passed to AttendanceCard for ${employee.firstName} ${employee.lastName}:`, employeeDates);
-              
+              const employeeAttendance = attendanceByEmployee.get(employee.id) ?? EMPTY_ATTENDANCE;
+
               return (
                 <EmployeeAttendanceCard
                   key={employee.id}
@@ -477,21 +471,12 @@ export default function AttendancePage() {
                     fullDays: 0,
                     halfDays: 0,
                     absent: 0,
-                    attendance: employeeAttendance.map(att => ({
-                      date: att.checkinDate,
-                      status: att.attendanceStatus === 'full day' ? 'present' as const : 'absent' as const,
-                      visits: [{
-                        id: att.id,
-                        customer: `Visit #${att.id}`,
-                        time: '09:00',
-                        purpose: "Field Visit"
-                      }]
-                    }))
+                    attendance: [],
                   }}
                   selectedMonth={selectedMonth}
                   selectedYear={selectedYear}
                   attendanceData={employeeAttendance}
-                  onDateClick={(date, employeeName) => fetchVisitData(date, employeeName)}
+                  onDateClick={handleDateClick}
                 />
               );
             })}

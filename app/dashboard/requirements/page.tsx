@@ -1,5 +1,6 @@
 'use client';
 
+import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
@@ -16,11 +17,11 @@ import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext } from '@/components/ui/pagination';
+import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext, PaginationEllipsis } from '@/components/ui/pagination';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from '@/components/ui/sheet';
 import { CalendarIcon, MoreHorizontal, PlusCircle, Search, Filter, Clock, User, Building, MapPin, AlertTriangle, CheckCircle, Loader, Target, Trash2, Calendar as CalendarIcon2, Image, Check, ChevronsUpDown } from 'lucide-react';
-import RequirementCreationForm from "@/components/RequirementCreationForm";
+import TaskCreateSheet from "@/components/task-create-sheet";
 import SearchableSelect from "@/components/searchable-select";
 import { useDashboardHeader } from "@/components/dashboard-header-context";
 import { useGuardedRouter, useUnsavedChanges } from "@/components/unsaved-changes-provider";
@@ -80,7 +81,7 @@ const Requirements = () => {
         assignedToName: '',
         assignedById: 86,
         status: 'Assigned',
-        priority: 'low',
+        priority: '',
         category: 'Requirement',
         storeId: 0,
         storeName: '',
@@ -150,7 +151,7 @@ const Requirements = () => {
                 assignedToName: '',
                 assignedById: current.assignedById,
                 status: 'Assigned',
-                priority: 'low',
+                priority: '',
                 category: 'Requirement',
                 storeId: 0,
                 storeName: '',
@@ -187,13 +188,13 @@ const Requirements = () => {
     useEffect(() => {
         const checkUserRole = () => {
             // Check both userRole and currentUser authorities
+            // WORKAROUND(BE-019/BE-023): only the legacy Manager role uses the first-team endpoint. AVPs (several
+            // teams) and Regional Managers use the scoped date query, which also finds
+            // visit-linked tasks that getByTeamAndDate returns nothing for.
             const isManagerRole =
                 userRole === 'MANAGER' ||
-                userRole === 'AVP' ||
                 currentUser?.authorities?.some(
-                    (auth) =>
-                        auth.authority === 'ROLE_MANAGER' ||
-                        auth.authority === 'ROLE_AVP'
+                    (auth) => auth.authority === 'ROLE_MANAGER'
                 );
             
             setIsManager(!!isManagerRole);
@@ -572,6 +573,7 @@ const Requirements = () => {
         const missing: string[] = [];
         if (!newTask.taskTitle?.trim()) missing.push('Title');
         if (!newTask.taskDescription?.trim()) missing.push('Description');
+        if (!newTask.priority) missing.push('Type');
         if (!newTask.dueDate) missing.push('Due Date');
         if (!newTask.assignedToId) missing.push('Assigned To');
         if (!newTask.storeId) missing.push('Store');
@@ -600,7 +602,7 @@ const Requirements = () => {
                 storeId: Number(newTask.storeId),
                 taskType: 'requirement',
                 status: newTask.status || 'Assigned',
-                priority: newTask.priority || 'low',
+                priority: newTask.priority,
             };
 
             await createRequirementWithPhotos({
@@ -624,7 +626,7 @@ const Requirements = () => {
                 assignedToName: '',
                 assignedById: assignedById,
                 status: 'Assigned',
-                priority: 'low',
+                priority: '',
                 category: 'Requirement',
                 storeId: 0,
                 storeName: '',
@@ -1173,46 +1175,27 @@ const Requirements = () => {
                 </SheetContent>
             </Sheet>
 
-            <Dialog
+            <TaskCreateSheet
+                kind="requirement"
                 open={isModalOpen}
-                onOpenChange={(open) => {
-                    if (open) setIsModalOpen(true);
-                    else closeRequirementCreator();
+                onClose={closeRequirementCreator}
+                value={{ ...newTask, taskType: 'requirement' } as typeof newTask}
+                onChange={(patch) => {
+                    setNewTask((prev) => ({ ...prev, ...patch }));
+                    if (patch.assignedToId !== undefined && patch.assignedToId !== newTask.assignedToId) setStores([]);
                 }}
-            >
-                <DialogContent className="max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Create New Requirement</DialogTitle>
-                        <DialogDescription>Fill in the details to create a new requirement.</DialogDescription>
-                    </DialogHeader>
-                    <RequirementCreationForm
-                        value={{
-                            ...newTask,
-                            taskType: 'requirement',
-                        }}
-                        onChange={(nextTask) => {
-                            setNewTask((prev) => ({ ...prev, ...nextTask }));
-                            if (nextTask.assignedToId !== newTask.assignedToId) {
-                                setStores([]);
-                            }
-                        }}
-                        employees={assignmentEmployees}
-                        stores={stores}
-                        storeMode="select"
-                        isStoresLoading={isStoresLoading}
-                        isSubmitting={isCreating}
-                        error={errorMessage}
-                        employeeHint={isManager && teamMembers.length > 0 ? <span className="text-xs text-muted-foreground">(Team Members Only)</span> : null}
-                        onStoreOpenChange={(open) => {
-                            if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) {
-                                fetchStores(newTask.assignedToId);
-                            }
-                        }}
-                        onCancel={closeRequirementCreator}
-                        onSubmit={createTask}
-                    />
-                </DialogContent>
-            </Dialog>
+                employees={assignmentEmployees}
+                stores={stores}
+                isStoresLoading={isStoresLoading}
+                employeeHint={isManager && teamMembers.length > 0 ? '(team members only)' : undefined}
+                onStoreOpenChange={(open) => {
+                    if (open && !isStoresLoading && newTask.assignedToId && stores.length === 0) fetchStores(newTask.assignedToId);
+                }}
+                isSubmitting={isCreating}
+                error={errorMessage}
+                withPhotos
+                onSubmit={createTask}
+            />
 
             {isLoading ? (
                 <div className="flex justify-center items-center h-64">
@@ -1367,7 +1350,9 @@ const Requirements = () => {
                                         className={currentPage === 1 ? "pointer-events-none opacity-40" : "cursor-pointer"}
                                     />
                                 </PaginationItem>
-                                {Array.from({ length: Math.ceil(filteredTasks.length / 10) }, (_, i) => i + 1).map((page) => (
+                                {pageWindow(currentPage, Math.ceil(filteredTasks.length / 10)).map((page, idx) => page === 'gap' ? (
+                                    <PaginationItem key={`gap-${idx}`}><PaginationEllipsis /></PaginationItem>
+                                  ) : (
                                     <PaginationItem key={page}>
                                         <PaginationLink
                                             isActive={page === currentPage}

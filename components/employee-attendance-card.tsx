@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -64,10 +64,10 @@ interface EmployeeAttendanceCardProps {
   selectedMonth: number;
   selectedYear: number;
   attendanceData: AttendanceData[];
-  onDateClick?: (date: string, employeeName: string) => void;
+  onDateClick?: (date: string, employeeName: string, employeeId?: number) => void;
 }
 
-export default function EmployeeAttendanceCard({ 
+function EmployeeAttendanceCard({
   employee, 
   selectedMonth, 
   selectedYear, 
@@ -79,12 +79,13 @@ export default function EmployeeAttendanceCard({
   const [summary, setSummary] = useState({
     fullDays: employee.fullDays,
     halfDays: employee.halfDays,
-    absentDays: employee.absent
+    absentDays: employee.absent,
+    presentDays: 0
   });
 
   const handleDayClick = useCallback((date: string) => {
     if (onDateClick) {
-      onDateClick(date, employee.name);
+      onDateClick(date, employee.name, employee.id);
     } else {
       const record = employee.attendance.find(record => record.date === date);
       if (record) {
@@ -92,13 +93,14 @@ export default function EmployeeAttendanceCard({
         setIsDialogOpen(true);
       }
     }
-  }, [onDateClick, employee.name, employee.attendance]);
+  }, [onDateClick, employee.name, employee.id, employee.attendance]);
 
-  const handleSummaryChange = useCallback((newSummary: { fullDays: number; halfDays: number; absentDays: number }) => {
+  const handleSummaryChange = useCallback((newSummary: { fullDays: number; halfDays: number; absentDays: number; presentDays: number }) => {
     setSummary((prev) => (
       prev.fullDays !== newSummary.fullDays ||
       prev.halfDays !== newSummary.halfDays ||
-      prev.absentDays !== newSummary.absentDays
+      prev.absentDays !== newSummary.absentDays ||
+      prev.presentDays !== newSummary.presentDays
         ? newSummary
         : prev
     ));
@@ -245,6 +247,7 @@ export default function EmployeeAttendanceCard({
               onSummaryChange={handleSummaryChange}
               onDateClick={handleDayClick}
               employeeName={employee.name}
+              employeeId={employee.id}
             />
           </div>
         </CardContent>
@@ -286,3 +289,15 @@ export default function EmployeeAttendanceCard({
     </>
   );
 }
+
+// Re-render only when this card's own data changes, not on every parent state change
+// (opening the side panel, typing in the name filter, etc.).
+export default memo(EmployeeAttendanceCard, (prev, next) => (
+  prev.employee.id === next.employee.id &&
+  prev.employee.name === next.employee.name &&
+  prev.employee.position === next.employee.position &&
+  prev.selectedMonth === next.selectedMonth &&
+  prev.selectedYear === next.selectedYear &&
+  prev.attendanceData === next.attendanceData &&
+  prev.onDateClick === next.onDateClick
+));

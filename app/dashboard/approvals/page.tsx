@@ -55,6 +55,8 @@ export default function ApprovalsPage() {
     const [approvalType, setApprovalType] = useState<ApprovalTypeState>({});
     const [savingIds, setSavingIds] = useState<number[]>([]);
     const [showFilters, setShowFilters] = useState(false);
+    const [startPickerOpen, setStartPickerOpen] = useState(false);
+    const [endPickerOpen, setEndPickerOpen] = useState(false);
     
     // Pagination state
     const [currentPage, setCurrentPage] = useState(0);
@@ -337,7 +339,7 @@ export default function ApprovalsPage() {
                             />
                         </div>
 
-                        <Popover>
+                        <Popover open={startPickerOpen} onOpenChange={setStartPickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="From date">
                                     <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -354,12 +356,13 @@ export default function ApprovalsPage() {
                                         setStartDate(date);
                                         if (date && endDate && date > endDate) setEndDate(undefined);
                                         setCurrentPage(0);
+                                        setStartPickerOpen(false);
                                     }}
                                 />
                             </PopoverContent>
                         </Popover>
 
-                        <Popover>
+                        <Popover open={endPickerOpen} onOpenChange={setEndPickerOpen}>
                             <PopoverTrigger asChild>
                                 <Button variant="outline" className="h-9 w-[140px] shrink-0 justify-start bg-background px-3 text-xs font-normal shadow-none" aria-label="To date">
                                     <Calendar className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -373,7 +376,7 @@ export default function ApprovalsPage() {
                                     selected={endDate}
                                     defaultMonth={endDate || startDate}
                                     disabled={date => Boolean(startDate && date < startDate)}
-                                    onSelect={(date) => { setEndDate(date); setCurrentPage(0); }}
+                                    onSelect={(date) => { setEndDate(date); setCurrentPage(0); setEndPickerOpen(false); }}
                                 />
                             </PopoverContent>
                         </Popover>
