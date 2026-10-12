@@ -1,5 +1,6 @@
 'use client';
 
+import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays } from 'date-fns';
@@ -14,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { DialogContent } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Pagination, PaginationContent, PaginationLink, PaginationItem, PaginationPrevious, PaginationNext, PaginationEllipsis } from '@/components/ui/pagination';
@@ -1374,7 +1375,7 @@ const Requirements = () => {
                 </div>
             )}
 
-            <Dialog
+            <SidePanel
                 open={isImagePreviewOpen}
                 onOpenChange={(open) => {
                     setIsImagePreviewOpen(open);
@@ -1386,10 +1387,10 @@ const Requirements = () => {
                     }
                 }}
             >
-                <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Requirement Photos</DialogTitle>
-                    </DialogHeader>
+                <SidePanelContent size="4xl">
+                    <SidePanelHeader>
+                        <SidePanelTitle>Requirement Photos</SidePanelTitle>
+                    </SidePanelHeader>
                     {isLoadingImages ? (
                         <div className="flex h-48 items-center justify-center gap-2 text-muted-foreground">
                             <Loader className="h-5 w-5 animate-spin" />
@@ -1408,8 +1409,8 @@ const Requirements = () => {
                             No requirement photos found.
                         </div>
                     )}
-                </DialogContent>
-            </Dialog>
+                </SidePanelContent>
+            </SidePanel>
         </div>
     );
 };

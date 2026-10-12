@@ -1,8 +1,9 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { DialogContent } from "@/components/ui/dialog";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -80,17 +81,17 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
   };
 
   return (
-    <Dialog 
+    <SidePanel
       open={open} 
       onOpenChange={(nextOpen) => nextOpen ? onOpenChange(true) : closePricingDialog()}
     >
-      <DialogContent className="sm:max-w-[425px] p-6">
-        <DialogHeader>
-          <DialogTitle>Create Pricing</DialogTitle>
-          <DialogDescription>
+      <SidePanelContent size="md">
+        <SidePanelHeader>
+          <SidePanelTitle>Create Pricing</SidePanelTitle>
+          <SidePanelDescription>
             Daily Pricing for today has not been created. Please fill out the details below.
-          </DialogDescription>
-        </DialogHeader>
+          </SidePanelDescription>
+        </SidePanelHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="brandName">Brand Name</Label>
@@ -121,7 +122,7 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
             />
           </div>
         </div>
-        <DialogFooter>
+        <SidePanelFooter>
           <Button
             onClick={handleCreateBrand}
             disabled={isLoading || !newBrand.price || !newBrand.city}
@@ -129,9 +130,9 @@ const DailyPricingModal = ({ open, onOpenChange, onCreateSuccess }: DailyPricing
           >
             {isLoading ? 'Creating...' : 'Create'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SidePanelFooter>
+      </SidePanelContent>
+    </SidePanel>
   );
 };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import {
   useCallback,
   useEffect,
@@ -24,13 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heading, Text } from "@/components/ui/typography";
@@ -769,11 +764,11 @@ export default function DealerSurveyDetailPage() {
         </div>
       </div>
 
-      <Dialog open={isPhotoPreviewOpen} onOpenChange={setIsPhotoPreviewOpen}>
-        <DialogContent className="max-h-[95vh] max-w-[95vw] sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>{surveyPhoto?.fileName || "Dealer survey photo"}</DialogTitle>
-          </DialogHeader>
+      <SidePanel open={isPhotoPreviewOpen} onOpenChange={setIsPhotoPreviewOpen}>
+        <SidePanelContent size="4xl">
+          <SidePanelHeader>
+            <SidePanelTitle>{surveyPhoto?.fileName || "Dealer survey photo"}</SidePanelTitle>
+          </SidePanelHeader>
 
           {surveyPhoto && surveyPhotoUrl && (
             <div className="flex max-h-[72vh] items-center justify-center overflow-hidden rounded-lg bg-muted">
@@ -786,7 +781,7 @@ export default function DealerSurveyDetailPage() {
           )}
 
           {surveyPhoto && surveyPhotoUrl && (
-            <DialogFooter>
+            <SidePanelFooter>
               <Button asChild variant="outline">
                 <a href={surveyPhotoUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-4 w-4" />
@@ -799,10 +794,10 @@ export default function DealerSurveyDetailPage() {
                   Download
                 </a>
               </Button>
-            </DialogFooter>
+            </SidePanelFooter>
           )}
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
     </div>
   );
 }

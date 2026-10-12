@@ -1,12 +1,8 @@
+import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { memo, useState, useCallback, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -253,14 +249,14 @@ function EmployeeAttendanceCard({
         </CardContent>
       </Card>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
+      <SidePanel open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <SidePanelContent size="md">
+          <SidePanelHeader>
+            <SidePanelTitle className="flex items-center gap-2 text-base">
               <Calendar className="h-4 w-4" />
               Visits on {selectedDate ? format(parseISO(selectedDate), "MMMM d, yyyy") : ""}
-            </DialogTitle>
-          </DialogHeader>
+            </SidePanelTitle>
+          </SidePanelHeader>
           <div className="space-y-2.5 max-h-80 overflow-y-auto">
             {selectedDateVisits.length > 0 ? (
               selectedDateVisits.map((visit) => (
@@ -284,8 +280,8 @@ function EmployeeAttendanceCard({
               </p>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
     </>
   );
 }

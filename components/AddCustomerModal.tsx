@@ -1,7 +1,8 @@
 "use client";
 
+import { SidePanel, SidePanelContent } from "@/components/ui/side-panel";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { DialogContent } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -743,8 +744,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
   ];
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[640px] rounded-2xl border border-border/80 bg-background shadow-2xl p-0 overflow-hidden text-foreground">
+    <SidePanel open={isOpen} onOpenChange={onClose}>
+      <SidePanelContent size="xl">
         
         {/* Sleek Top Header Bar */}
         <div className="px-6 pt-5 pb-4 border-b border-border/40 bg-card">
@@ -1500,8 +1501,8 @@ const AddCustomerModal: React.FC<AddCustomerModalProps> = ({
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </SidePanelContent>
+    </SidePanel>
   );
 };
 

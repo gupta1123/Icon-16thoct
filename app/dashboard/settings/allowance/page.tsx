@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle, SidePanelTrigger } from "@/components/ui/side-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { useState } from "react";
 import { DollarSign, Plus, Edit, Save, X } from "lucide-react";
 
@@ -116,17 +117,17 @@ export default function AllowanceSettings() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
 
-        <Dialog open={isAddAllowanceOpen} onOpenChange={setIsAddAllowanceOpen}>
-          <DialogTrigger asChild>
+        <SidePanel open={isAddAllowanceOpen} onOpenChange={setIsAddAllowanceOpen}>
+          <SidePanelTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
               Add Allowance
             </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Allowance</DialogTitle>
-            </DialogHeader>
+          </SidePanelTrigger>
+          <SidePanelContent size="lg">
+            <SidePanelHeader>
+              <SidePanelTitle>Add New Allowance</SidePanelTitle>
+            </SidePanelHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Allowance Name</Label>
@@ -196,8 +197,8 @@ export default function AllowanceSettings() {
                 </Button>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+          </SidePanelContent>
+        </SidePanel>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

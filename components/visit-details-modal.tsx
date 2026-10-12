@@ -1,15 +1,9 @@
 "use client";
 
+import { SidePanel, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Dialog,
-  DialogContent as DialogContentPrimitive,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogPortal,
-  DialogClose
-} from "@/components/ui/dialog";
+import { DialogPortal } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 // Use a simple overflow container to allow horizontal + vertical scroll
@@ -222,7 +216,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <SidePanel open={isOpen} onOpenChange={onClose}>
             <DialogPortal>
                 {/* Backdrop with blur effect */}
                 <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
@@ -230,11 +224,11 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                     aria-describedby={undefined}
                     className="bg-background fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col gap-0 border-l shadow-xl sm:w-[85vw] lg:w-[70vw] max-w-[1100px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-300 data-[state=open]:duration-500"
                 >
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>
+                    <SidePanelHeader className="sr-only">
+                        <SidePanelTitle>
                             Visits for {employeeName} on {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                        </DialogTitle>
-                    </DialogHeader>
+                        </SidePanelTitle>
+                    </SidePanelHeader>
                   
                     <div className="flex flex-shrink-0 items-center gap-3 border-b px-5 py-3.5">
                         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
@@ -372,7 +366,7 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                             </TabsContent>
                         </Tabs>
                     </div>
-                    <DialogFooter className="flex-shrink-0 border-t bg-background px-5 py-3">
+                    <SidePanelFooter className="flex-shrink-0 border-t bg-background px-5 py-3">
                         <div className="w-full flex items-center justify-end gap-3">
                             {activeTab === 'visits' && currentVisits.length > 0 && allVisitItems.length > visitsPerPage && (
                                 <Pagination>
@@ -466,19 +460,19 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                             )}
                             <Button onClick={onClose}>Close</Button>
                         </div>
-                    </DialogFooter>
+                    </SidePanelFooter>
                 </DialogPrimitive.Content>
             </DialogPortal>
 
             {selectedVisit && (
-                <Dialog open={!!selectedVisit} onOpenChange={() => setSelectedVisit(null)}>
+                <SidePanel open={!!selectedVisit} onOpenChange={() => setSelectedVisit(null)}>
                     <DialogPortal>
                         {/* Backdrop with blur effect */}
                         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
                         <DialogPrimitive.Content aria-describedby={undefined} className="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200">
-                            <DialogHeader>
-                                <DialogTitle>Visit Details for {selectedVisit.storeName ?? ''}</DialogTitle>
-                            </DialogHeader>
+                            <SidePanelHeader>
+                                <SidePanelTitle>Visit Details for {selectedVisit.storeName ?? ''}</SidePanelTitle>
+                            </SidePanelHeader>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="font-semibold">Store/Project:</p>
@@ -515,14 +509,14 @@ const VisitDetailsModal: React.FC<VisitDetailsModalProps> = ({ isOpen, onClose, 
                                     <p>{formatDateTime(selectedVisit.checkoutDate ?? '', selectedVisit.checkoutTime ?? '') || ''}</p>
                                 </div>
                             </div>
-                            <DialogFooter>
+                            <SidePanelFooter>
                                 <Button onClick={() => setSelectedVisit(null)}>Close</Button>
-                            </DialogFooter>
+                            </SidePanelFooter>
                         </DialogPrimitive.Content>
                     </DialogPortal>
-                </Dialog>
+                </SidePanel>
             )}
-        </Dialog>
+        </SidePanel>
     );
 };
 

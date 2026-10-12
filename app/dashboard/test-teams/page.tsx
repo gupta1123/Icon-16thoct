@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { useState, useEffect } from "react";
 import {
   Card,
@@ -12,13 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   Building,
   Crown,
@@ -1110,7 +1105,7 @@ export default function TestTeamsPage() {
       )}
 
       {/* Add Field Officer Dialog */}
-      <Dialog 
+      <SidePanel
         open={isAddDialogOpen} 
         onOpenChange={(open) => {
           setIsAddDialogOpen(open);
@@ -1119,13 +1114,13 @@ export default function TestTeamsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add Field Officer</DialogTitle>
-            <DialogDescription>
+        <SidePanelContent size="2xl">
+          <SidePanelHeader>
+            <SidePanelTitle>Add Field Officer</SidePanelTitle>
+            <SidePanelDescription>
               Select field officers to add to this team.
-            </DialogDescription>
-          </DialogHeader>
+            </SidePanelDescription>
+          </SidePanelHeader>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
             {isLoadingOfficers ? (
               <div className="flex items-center justify-center py-8 text-sm text-muted-foreground gap-2">
@@ -1183,8 +1178,8 @@ export default function TestTeamsPage() {
               Add {selectedOfficers.length > 0 ? `(${selectedOfficers.length})` : ""}
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
 
      
       <Dialog

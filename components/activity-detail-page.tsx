@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import {
   useCallback,
   useEffect,
@@ -29,13 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Heading, Text } from "@/components/ui/typography";
 import { API, API_BASE_URL, type ActivityAttachmentResponse, type ActivityDto } from "@/lib/api";
@@ -494,11 +489,11 @@ export default function ActivityDetailPage() {
         </main>
       </div>
 
-      <Dialog open={Boolean(selectedPhoto)} onOpenChange={(open) => !open && setSelectedPhotoIndex(null)}>
-        <DialogContent className="max-h-[95vh] max-w-[95vw] sm:max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>{selectedPhoto?.fileName || "Activity photo"}</DialogTitle>
-          </DialogHeader>
+      <SidePanel open={Boolean(selectedPhoto)} onOpenChange={(open) => !open && setSelectedPhotoIndex(null)}>
+        <SidePanelContent size="4xl">
+          <SidePanelHeader>
+            <SidePanelTitle>{selectedPhoto?.fileName || "Activity photo"}</SidePanelTitle>
+          </SidePanelHeader>
 
           {selectedPhoto && selectedPhotoUrl && (
             <div className="space-y-4">
@@ -516,7 +511,7 @@ export default function ActivityDetailPage() {
           )}
 
           {selectedPhoto && selectedPhotoUrl && (
-            <DialogFooter>
+            <SidePanelFooter>
               <Button asChild variant="outline">
                 <a href={selectedPhotoUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-4 w-4" />
@@ -529,10 +524,10 @@ export default function ActivityDetailPage() {
                   Download
                 </a>
               </Button>
-            </DialogFooter>
+            </SidePanelFooter>
           )}
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
     </div>
   );
 }

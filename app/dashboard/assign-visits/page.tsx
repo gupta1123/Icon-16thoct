@@ -1,18 +1,12 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import styles from "./assign-visits.module.css";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Sheet,
@@ -1426,14 +1420,14 @@ export default function AssignVisitsPage() {
         </SheetContent>
       </Sheet>
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className={[styles.dialogContent, "sm:max-w-[520px]"].join(" ")}>
-          <DialogHeader className={styles.dialogHeader}>
-            <DialogTitle className={styles.dialogTitle}>Assign a dealer</DialogTitle>
-            <DialogDescription className={styles.dialogCaption}>
+      <SidePanel open={modalOpen} onOpenChange={setModalOpen}>
+        <SidePanelContent size="lg">
+          <SidePanelHeader className={styles.dialogHeader}>
+            <SidePanelTitle className={styles.dialogTitle}>Assign a dealer</SidePanelTitle>
+            <SidePanelDescription className={styles.dialogCaption}>
               {modalCell ? `${modalCell.employee.firstName} ${modalCell.employee.lastName} · ${modalCell.dateKey}` : "Select a dealer"}
-            </DialogDescription>
-          </DialogHeader>
+            </SidePanelDescription>
+          </SidePanelHeader>
           <div className={styles.dialogBody}>
             <div className={styles.searchBox}>
               <Search className={styles.searchIcon} />
@@ -1463,14 +1457,14 @@ export default function AssignVisitsPage() {
               )}
             </div>
           </div>
-          <DialogFooter className={styles.dialogFooter}>
+          <SidePanelFooter className={styles.dialogFooter}>
             <span className={styles.dialogEndpoint}>{stores.length} match{stores.length === 1 ? "" : "es"}</span>
             <button type="button" className={styles.secondaryAction} onClick={() => setModalOpen(false)}>Close</button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SidePanelFooter>
+        </SidePanelContent>
+      </SidePanel>
 
-      <Dialog
+      <SidePanel
         open={editDialogOpen}
         onOpenChange={(open) => {
           if (actionSaving) return;
@@ -1482,13 +1476,13 @@ export default function AssignVisitsPage() {
           }
         }}
       >
-        <DialogContent className={[styles.dialogContent, "sm:max-w-[560px]"].join(" ")}>
-          <DialogHeader className={styles.dialogHeader}>
-            <DialogTitle className={styles.dialogTitle}>Edit assignment</DialogTitle>
-            <DialogDescription className={styles.dialogCaption}>
+        <SidePanelContent size="xl">
+          <SidePanelHeader className={styles.dialogHeader}>
+            <SidePanelTitle className={styles.dialogTitle}>Edit assignment</SidePanelTitle>
+            <SidePanelDescription className={styles.dialogCaption}>
               {[visitBeingEdited?.storeName, visitBeingEdited?.employeeName, editForm?.visitDate].filter(Boolean).join(" · ")}
-            </DialogDescription>
-          </DialogHeader>
+            </SidePanelDescription>
+          </SidePanelHeader>
 
           {editForm && (
             <div className={styles.dialogBody}>
@@ -1631,16 +1625,16 @@ export default function AssignVisitsPage() {
             </div>
           )}
 
-          <DialogFooter className={styles.dialogFooter}>
+          <SidePanelFooter className={styles.dialogFooter}>
             <span className={styles.dialogEndpoint}>{visitBeingEdited?.id ? `PUT /visit/edit?id=${visitBeingEdited.id}` : "PUT /visit/edit"}</span>
             <button type="button" className={styles.secondaryAction} onClick={() => setEditDialogOpen(false)} disabled={actionSaving}>Cancel</button>
             <button type="button" className={styles.primaryAction} onClick={saveEditedVisit} disabled={actionSaving || !editForm}>
               {actionSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               {actionSaving ? "Saving…" : "Save changes"}
             </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SidePanelFooter>
+        </SidePanelContent>
+      </SidePanel>
 
       <Dialog
         open={deleteDialogOpen}

@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import NextImage from 'next/image';
@@ -74,14 +75,7 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from "@/components/ui/pagination";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
@@ -2286,11 +2280,11 @@ export default function VisitDetailPage({
 
       {/* Task Image Preview Dialog */}
       {isImagePreviewOpen && (
-        <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Complaint Images</DialogTitle>
-            </DialogHeader>
+        <SidePanel open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+          <SidePanelContent size="2xl">
+            <SidePanelHeader>
+              <SidePanelTitle>Complaint Images</SidePanelTitle>
+            </SidePanelHeader>
             {isLoadingImages ? (
               <div className="flex justify-center items-center h-64">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -2334,14 +2328,14 @@ export default function VisitDetailPage({
                 <p>No images available</p>
               </div>
             )}
-          </DialogContent>
-        </Dialog>
+          </SidePanelContent>
+        </SidePanel>
       )}
 
       {/* Image Preview Modal */}
-      <Dialog open={previewVisible} onOpenChange={setPreviewVisible}>
-        <DialogContent className="icon-visit-details sm:max-w-4xl"><DialogHeader><DialogTitle>Visit image</DialogTitle><DialogDescription>Full-size image captured for this visit.</DialogDescription></DialogHeader>{previewImage && <NextImage src={previewImage} alt="Visit image preview" width={800} height={600} className="max-h-[75dvh] w-full object-contain" />}</DialogContent>
-      </Dialog>
+      <SidePanel open={previewVisible} onOpenChange={setPreviewVisible}>
+        <SidePanelContent size="4xl"><SidePanelHeader><SidePanelTitle>Visit image</SidePanelTitle><SidePanelDescription>Full-size image captured for this visit.</SidePanelDescription></SidePanelHeader>{previewImage && <NextImage src={previewImage} alt="Visit image preview" width={800} height={600} className="max-h-[75dvh] w-full object-contain" />}</SidePanelContent>
+      </SidePanel>
     </div>
   );
 };

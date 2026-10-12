@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckedState } from "@radix-ui/react-checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import { SpacedCalendar } from "@/components/ui/spaced-calendar";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { API, API_BASE_URL } from "@/lib/api";
 import { useUnsavedChanges } from "@/components/unsaved-changes-provider";
@@ -1013,14 +1014,14 @@ const EmployeeSummary: React.FC = () => {
                         </>
                     )}
 
-            <Dialog open={isAdjustmentModalOpen} onOpenChange={(open) => (open ? setIsAdjustmentModalOpen(true) : closeAdjustmentModal())}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>Edit TA Adjustment</DialogTitle>
-                        <DialogDescription>
+            <SidePanel open={isAdjustmentModalOpen} onOpenChange={(open) => (open ? setIsAdjustmentModalOpen(true) : closeAdjustmentModal())}>
+                <SidePanelContent size="lg">
+                    <SidePanelHeader>
+                        <SidePanelTitle>Edit TA Adjustment</SidePanelTitle>
+                        <SidePanelDescription>
                             {adjustmentEmployee ? `${adjustmentEmployee.employeeName} - ${getDateRangeDisplay()}` : getDateRangeDisplay()}
-                        </DialogDescription>
-                    </DialogHeader>
+                        </SidePanelDescription>
+                    </SidePanelHeader>
 
                     {adjustmentEmployee && (
                         <div className="space-y-4">
@@ -1073,7 +1074,7 @@ const EmployeeSummary: React.FC = () => {
                         </div>
                     )}
 
-                    <DialogFooter>
+                    <SidePanelFooter>
                         <Button variant="outline" onClick={closeAdjustmentModal} disabled={isApplyingAdjustment}>
                             Cancel
                         </Button>
@@ -1090,9 +1091,9 @@ const EmployeeSummary: React.FC = () => {
                                 'Save TA Adjustment'
                             )}
                         </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    </SidePanelFooter>
+                </SidePanelContent>
+            </SidePanel>
         </div>
     );
 };

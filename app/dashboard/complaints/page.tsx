@@ -1,5 +1,6 @@
 'use client';
 
+import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format, subDays, differenceInDays } from 'date-fns';
@@ -14,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { DialogContent } from "@/components/ui/dialog";
 import TaskCreateSheet from '@/components/task-create-sheet';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -1351,11 +1352,11 @@ const Complaints = () => {
             )}
 
             {isImagePreviewOpen && (
-                <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
-                    <DialogContent className="max-w-3xl">
-                        <DialogHeader>
-                            <DialogTitle>Image Preview</DialogTitle>
-                        </DialogHeader>
+                <SidePanel open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+                    <SidePanelContent size="2xl">
+                        <SidePanelHeader>
+                            <SidePanelTitle>Image Preview</SidePanelTitle>
+                        </SidePanelHeader>
                         {isLoadingImages ? (
                             <div className="flex justify-center items-center h-64">
                                 <Loader className="w-8 h-8 animate-spin text-primary" />
@@ -1395,8 +1396,8 @@ const Complaints = () => {
                                 </p>
                             </>
                         )}
-                    </DialogContent>
-                </Dialog>
+                    </SidePanelContent>
+                </SidePanel>
             )}
         </div>
     );

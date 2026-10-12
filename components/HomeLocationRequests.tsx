@@ -1,19 +1,13 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -779,7 +773,7 @@ const HomeLocationRequests = () => {
               )}
             </>
           )}
-      <Dialog
+      <SidePanel
         open={isDetailOpen && !!detailRequest}
         onOpenChange={(open) => {
           if (!open) {
@@ -787,15 +781,15 @@ const HomeLocationRequests = () => {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <SidePanelContent size="md">
           {detailRequest && (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-base font-semibold">{getDisplayName(detailRequest)}</DialogTitle>
+              <SidePanelHeader>
+                <SidePanelTitle className="text-base font-semibold">{getDisplayName(detailRequest)}</SidePanelTitle>
                 {detailRequest.role && (
-                  <DialogDescription className="text-xs">{detailRequest.role}</DialogDescription>
+                  <SidePanelDescription className="text-xs">{detailRequest.role}</SidePanelDescription>
                 )}
-              </DialogHeader>
+              </SidePanelHeader>
               <div className="grid gap-3 text-xs">
                 <div className="rounded-lg border bg-muted/10 p-3">
                   <p className="font-semibold text-muted-foreground uppercase text-[10px]">Contact</p>
@@ -873,15 +867,15 @@ const HomeLocationRequests = () => {
                   </p>
                 </div>
               </div>
-              <DialogFooter>
+              <SidePanelFooter>
                 <Button variant="outline" size="sm" onClick={handleCloseDetails}>
                   Close
                 </Button>
-              </DialogFooter>
+              </SidePanelFooter>
             </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
     </div>
   );
 };

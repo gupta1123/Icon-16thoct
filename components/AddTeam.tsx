@@ -1,7 +1,8 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Users, Building2, ArrowRight, ArrowLeft, Crown } from "lucide-react";
@@ -850,13 +851,13 @@ const AddTeam = () => {
     return (
         <>
             <Button onClick={() => setIsModalOpen(true)}>Add Team</Button>
-            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                <DialogContent className="sm:max-w-[600px]">
-                    <DialogHeader>
-                        <DialogTitle>
+            <SidePanel open={isModalOpen} onOpenChange={setIsModalOpen}>
+                <SidePanelContent size="xl">
+                    <SidePanelHeader>
+                        <SidePanelTitle>
                             {step === 'selectType' ? 'Select Team Type' : 'Create New Team'}
-                        </DialogTitle>
-                        <DialogDescription>
+                        </SidePanelTitle>
+                        <SidePanelDescription>
                             {step === 'selectType' 
                                 ? "Choose the type of team you want to create"
                                 : teamType === 'coordinator'
@@ -867,8 +868,8 @@ const AddTeam = () => {
                                             ? "Assign an AVP to a regional manager team."
                                             : "Configure your new team"
                             }
-                        </DialogDescription>
-                    </DialogHeader>
+                        </SidePanelDescription>
+                    </SidePanelHeader>
                     {step === 'selectType' ? (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
                             <Card 
@@ -1187,8 +1188,8 @@ const AddTeam = () => {
                             )}
                         </div>
                     </div>
-                </DialogContent>
-            </Dialog>
+                </SidePanelContent>
+            </SidePanel>
         </>
     );
 };

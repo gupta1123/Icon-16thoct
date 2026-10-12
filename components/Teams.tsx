@@ -1,16 +1,11 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1279,10 +1274,10 @@ const Teams: React.FC = () => {
             </Dialog>
 
             {/* Edit Team Modal */}
-            <Dialog open={isEditModalVisible} onOpenChange={setIsEditModalVisible}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
+            <SidePanel open={isEditModalVisible} onOpenChange={setIsEditModalVisible}>
+                <SidePanelContent size="lg">
+                    <SidePanelHeader>
+                        <SidePanelTitle className="flex items-center gap-2">
                             <span>Add Field Officer</span>
                             {isCoordinatorTeam && (
                                 <Badge className="bg-purple-100 text-purple-800 border-purple-200">
@@ -1290,11 +1285,11 @@ const Teams: React.FC = () => {
                                     Coordinator Team
                                 </Badge>
                             )}
-                        </DialogTitle>
+                        </SidePanelTitle>
                         <p className="text-sm text-muted-foreground mt-1">
                             Team Leader: {teams.find(t => t.id === selectedTeamId)?.officeManager?.firstName} {teams.find(t => t.id === selectedTeamId)?.officeManager?.lastName}
                         </p>
-                    </DialogHeader>
+                    </SidePanelHeader>
                     <div className="space-y-4">
                         {!isCoordinatorTeam && (
                             <>
@@ -1377,7 +1372,7 @@ const Teams: React.FC = () => {
                     {error && (
                         <div role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
                     )}
-                    <DialogFooter>
+                    <SidePanelFooter>
                         <Button variant="outline" onClick={() => setIsEditModalVisible(false)}>
                             Cancel
                         </Button>
@@ -1394,9 +1389,9 @@ const Teams: React.FC = () => {
                                 'Add Selected Officers'
                             )}
                         </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    </SidePanelFooter>
+                </SidePanelContent>
+            </SidePanel>
 
             {/* Remove Field Officer Modal */}
             <Dialog

@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle, SidePanelTrigger } from "@/components/ui/side-panel";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -18,13 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   API,
@@ -1391,23 +1386,23 @@ export default function TeamSettings() {
             </SelectContent>
           </Select>
           {canCreateTeam && (
-            <Dialog
+            <SidePanel
               open={isAddTeamOpen}
               onOpenChange={(open) => {
                 setIsAddTeamOpen(open);
                 if (!open) resetNewTeamForm();
               }}
             >
-              <DialogTrigger asChild>
+              <SidePanelTrigger asChild>
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
                   Add Team
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Add New Team</DialogTitle>
-                </DialogHeader>
+              </SidePanelTrigger>
+              <SidePanelContent size="2xl">
+                <SidePanelHeader>
+                  <SidePanelTitle>Add New Team</SidePanelTitle>
+                </SidePanelHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Office Manager</label>
@@ -1519,8 +1514,8 @@ export default function TeamSettings() {
                     </Button>
                   </div>
                 </div>
-              </DialogContent>
-            </Dialog>
+              </SidePanelContent>
+            </SidePanel>
           )}
         </div>
       </div>
@@ -1666,7 +1661,7 @@ export default function TeamSettings() {
       )}
 
       {/* Edit Team */}
-      <Dialog
+      <SidePanel
         open={isEditTeamOpen}
         onOpenChange={(open) => {
           setIsEditTeamOpen(open);
@@ -1677,10 +1672,10 @@ export default function TeamSettings() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Team</DialogTitle>
-          </DialogHeader>
+        <SidePanelContent size="2xl">
+          <SidePanelHeader>
+            <SidePanelTitle>Edit Team</SidePanelTitle>
+          </SidePanelHeader>
           {editingTeam ? (
             <div className="space-y-4">
               <div className="space-y-2">
@@ -1776,11 +1771,11 @@ export default function TeamSettings() {
               Unable to load team details.
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
 
       {/* Assign AVP */}
-      <Dialog
+      <SidePanel
         open={isAvpDialogOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -1790,16 +1785,16 @@ export default function TeamSettings() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
+        <SidePanelContent size="md">
+          <SidePanelHeader>
+            <SidePanelTitle>
               {activeAvpTeam
                 ? `Assign AVP to ${formatEmployeeName(
                     activeAvpTeam.officeManager
                   )}`
                 : "Assign AVP"}
-            </DialogTitle>
-          </DialogHeader>
+            </SidePanelTitle>
+          </SidePanelHeader>
           {activeAvpTeam ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -1860,8 +1855,8 @@ export default function TeamSettings() {
               Unable to load team details.
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
 
       <ConfirmationDialog
         open={confirmationDialog.open}

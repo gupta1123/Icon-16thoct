@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelFooter, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { Suspense, useState, useEffect, useMemo, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -984,12 +985,12 @@ function EmployeeListContent() {
         </div>
 
       {/* Reset Password Modal */}
-      <Dialog open={isResetPasswordOpen} onOpenChange={(open) => open ? setIsResetPasswordOpen(true) : closeResetPasswordDialog()}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Reset Password</DialogTitle>
-            <DialogDescription>Enter a new password for the user.</DialogDescription>
-          </DialogHeader>
+      <SidePanel open={isResetPasswordOpen} onOpenChange={(open) => open ? setIsResetPasswordOpen(true) : closeResetPasswordDialog()}>
+        <SidePanelContent size="md">
+          <SidePanelHeader>
+            <SidePanelTitle>Reset Password</SidePanelTitle>
+            <SidePanelDescription>Enter a new password for the user.</SidePanelDescription>
+          </SidePanelHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="newPassword">New Password</Label>
@@ -1000,20 +1001,20 @@ function EmployeeListContent() {
               <Input id="confirmPassword" type="password" onChange={(e) => setConfirmPassword(e.target.value)} />
             </div>
           </div>
-          <DialogFooter>
+          <SidePanelFooter>
             <Button variant="outline" onClick={closeResetPasswordDialog}>Cancel</Button>
             <Button onClick={handleResetPasswordSubmit}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SidePanelFooter>
+        </SidePanelContent>
+      </SidePanel>
 
       {/* Archived Employees Modal */}
-      <Dialog open={isArchivedModalOpen} onOpenChange={setIsArchivedModalOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Archived Employees</DialogTitle>
-            <DialogDescription>View and manage archived employees</DialogDescription>
-          </DialogHeader>
+      <SidePanel open={isArchivedModalOpen} onOpenChange={setIsArchivedModalOpen}>
+        <SidePanelContent size="2xl">
+          <SidePanelHeader>
+            <SidePanelTitle>Archived Employees</SidePanelTitle>
+            <SidePanelDescription>View and manage archived employees</SidePanelDescription>
+          </SidePanelHeader>
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
               <Input placeholder="Search archived employees..." value={archiveSearchQuery} onChange={(e) => setArchiveSearchQuery(e.target.value)} className="max-w-md" />
@@ -1053,16 +1054,16 @@ function EmployeeListContent() {
               </Table>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
 
       {/* Edit Username Modal */}
-      <Dialog open={isEditUsernameModalOpen} onOpenChange={(open) => open ? setIsEditUsernameModalOpen(true) : closeUsernameDialog()}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Edit Username</DialogTitle>
-            <DialogDescription>Enter a new username for the employee.</DialogDescription>
-          </DialogHeader>
+      <SidePanel open={isEditUsernameModalOpen} onOpenChange={(open) => open ? setIsEditUsernameModalOpen(true) : closeUsernameDialog()}>
+        <SidePanelContent size="md">
+          <SidePanelHeader>
+            <SidePanelTitle>Edit Username</SidePanelTitle>
+            <SidePanelDescription>Enter a new username for the employee.</SidePanelDescription>
+          </SidePanelHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="newUsername">New Username</Label>
@@ -1074,12 +1075,12 @@ function EmployeeListContent() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <SidePanelFooter>
             <Button variant="outline" onClick={closeUsernameDialog}>Cancel</Button>
             <Button onClick={handleSaveUsername} disabled={!editingUsername?.username.trim()}>Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SidePanelFooter>
+        </SidePanelContent>
+      </SidePanel>
 
       {/* Delete Confirmation Modal */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
@@ -1098,12 +1099,12 @@ function EmployeeListContent() {
       </Dialog>
 
       {/* Assign Cities Modal */}
-      <Dialog open={isAssignCityModalOpen} onOpenChange={(open) => open ? setIsAssignCityModalOpen(true) : closeCityAssignmentDialog()}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Assign Cities</DialogTitle>
-            <DialogDescription>Select one or more operational cities for {userToAssignCity?.firstName} {userToAssignCity?.lastName}. Their residential address is kept separate.</DialogDescription>
-          </DialogHeader>
+      <SidePanel open={isAssignCityModalOpen} onOpenChange={(open) => open ? setIsAssignCityModalOpen(true) : closeCityAssignmentDialog()}>
+        <SidePanelContent size="md">
+          <SidePanelHeader>
+            <SidePanelTitle>Assign Cities</SidePanelTitle>
+            <SidePanelDescription>Select one or more operational cities for {userToAssignCity?.firstName} {userToAssignCity?.lastName}. Their residential address is kept separate.</SidePanelDescription>
+          </SidePanelHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label>Select operational cities</Label>
@@ -1113,14 +1114,14 @@ function EmployeeListContent() {
               {cityAssignmentError && <p role="alert" className="text-sm text-destructive">{cityAssignmentError}</p>}
             </div>
           </div>
-          <DialogFooter className="gap-2">
+          <SidePanelFooter className="gap-2">
             <Button variant="outline" onClick={closeCityAssignmentDialog}>Cancel</Button>
             <Button onClick={handleAssignCity} disabled={selectedCitiesToAssign.length === 0 || isAssigningCity}>
               {isAssigningCity ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : `Assign ${selectedCitiesToAssign.length || ''} ${selectedCitiesToAssign.length === 1 ? 'City' : 'Cities'}`}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SidePanelFooter>
+        </SidePanelContent>
+      </SidePanel>
     </div>
   );
 }

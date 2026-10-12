@@ -1,3 +1,4 @@
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,14 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 
 interface LeaveRequest {
   id: number;
@@ -278,19 +272,19 @@ export default function ModernLeaveApprovalCard({
         )}
       </CardFooter>
       
-      <Dialog open={isViewingReason} onOpenChange={setIsViewingReason}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Leave Reason</DialogTitle>
-            <DialogDescription>
+      <SidePanel open={isViewingReason} onOpenChange={setIsViewingReason}>
+        <SidePanelContent size="lg">
+          <SidePanelHeader>
+            <SidePanelTitle>Leave Reason</SidePanelTitle>
+            <SidePanelDescription>
               Reason provided by {request.executiveName} for their leave request
-            </DialogDescription>
-          </DialogHeader>
+            </SidePanelDescription>
+          </SidePanelHeader>
           <div className="py-4">
             <p className="text-sm">{request.reason}</p>
           </div>
-        </DialogContent>
-      </Dialog>
+        </SidePanelContent>
+      </SidePanel>
     </Card>
   );
 }

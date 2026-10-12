@@ -1,16 +1,13 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelTitle } from "@/components/ui/side-panel";
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Download, FileText, Folder, ImageIcon, IndianRupee, Maximize2 } from "lucide-react";
 import { format } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -144,12 +141,12 @@ export default function ExpenseDetailsDialog({
   } as const;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("p-0 gap-0 overflow-hidden border-border/80 bg-card shadow-2xl transition-all", selectedPhoto ? "sm:max-w-4xl" : "sm:max-w-md")}>
+    <SidePanel open={open} onOpenChange={onOpenChange}>
+      <SidePanelContent size="4xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/60 pl-5 pr-10 py-3">
           <div className="flex items-center gap-3">
-            <DialogTitle className="text-base font-bold text-foreground">Expense Details</DialogTitle>
+            <SidePanelTitle className="text-base font-bold text-foreground">Expense Details</SidePanelTitle>
             <Badge variant="outline" className={cn("uppercase text-[10px] font-bold tracking-wider px-2.5 py-0.5 rounded-md", statusStyles[expense.status])}>
               {expense.status}
             </Badge>
@@ -294,7 +291,7 @@ export default function ExpenseDetailsDialog({
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </SidePanelContent>
+    </SidePanel>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelTitle } from "@/components/ui/side-panel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -35,7 +36,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -606,8 +607,8 @@ export default function CreateCustomerFlowModal({
   sectionLinks.push(["finish", "Submit"]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
-      <DialogContent className="max-h-[92vh] overflow-hidden p-0 sm:max-w-4xl border border-border/80 bg-background rounded-2xl shadow-2xl">
+    <SidePanel open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
+      <SidePanelContent size="4xl">
         
         {/* Header Bar */}
         <div className="px-6 py-4 border-b border-border/40 bg-card flex items-center justify-between">
@@ -616,14 +617,14 @@ export default function CreateCustomerFlowModal({
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <DialogTitle className="text-base font-bold text-foreground">
+              <SidePanelTitle className="text-base font-bold text-foreground">
                 {stage === "nearby" ? "Check Nearby Customers" : "Create New Customer"}
-              </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
+              </SidePanelTitle>
+              <SidePanelDescription className="text-xs text-muted-foreground">
                 {stage === "nearby" 
                   ? "Check nearby registered stores to avoid duplicate entries" 
                   : "Fill customer details & location parameters"}
-              </DialogDescription>
+              </SidePanelDescription>
             </div>
           </div>
         </div>
@@ -1217,7 +1218,7 @@ export default function CreateCustomerFlowModal({
             </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </SidePanelContent>
+    </SidePanel>
   );
 }
