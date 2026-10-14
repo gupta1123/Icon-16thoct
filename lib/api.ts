@@ -1229,6 +1229,16 @@ export interface CityDto {
   subDistrictName: string;
 }
 
+export interface ResidentialCityPage {
+  cities: string[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+}
+
 export interface ProfessionalDto {
   id: number;
   name?: string | null;
@@ -1539,6 +1549,10 @@ export class API {
 
   static async getAllCities(): Promise<CityDto[]> {
     return apiService.getAllCities();
+  }
+
+  static async getResidentialCitiesPage(page: number = 0, size: number = 100): Promise<ResidentialCityPage> {
+    return apiService.getResidentialCitiesPage(page, size);
   }
 
   static async getAllProfessionals(): Promise<ProfessionalDto[]> {
@@ -2377,6 +2391,60 @@ export class API {
 
   async getAllCities(): Promise<CityDto[]> {
     return this.makeRequest<CityDto[]>('/location/allCities');
+  }
+
+  async getResidentialCitiesPage(page: number = 0, size: number = 100): Promise<ResidentialCityPage> {
+    const safePage = Number.isFinite(page) ? Math.max(0, Math.floor(page)) : 0;
+    const safeSize = Number.isFinite(size) ? Math.min(100, Math.max(1, Math.floor(size))) : 100;
+    const response = await this.makeRequest<unknown>(`/location/allCities/v2?page=${safePage}&size=${safeSize}`);
+    const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+    const root = isRecord(response) && isRecord(response.data) ? response.data : response;
+    const record = isRecord(root) ? root : {};
+    const rawItems = Array.isArray(root)
+      ? root
+      : Array.isArray(record.content)
+        ? record.content
+        : Array.isArray(record.cities)
+          ? record.cities
+          : Array.isArray(record.items)
+            ? record.items
+            : [];
+    const cityName = (item: unknown): string => {
+      if (typeof item === 'string') return item.trim();
+      if (!isRecord(item)) return '';
+      for (const key of ['cityName', 'name', 'city']) {
+        const value = item[key];
+        if (typeof value === 'string' && value.trim()) return value.trim();
+      }
+      return '';
+    };
+    const seen = new Set<string>();
+    const cities = rawItems.map(cityName).filter(name => {
+      const key = name.toLowerCase();
+      if (!name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const pageable = isRecord(record.pageable) ? record.pageable : {};
+    const numberValue = record.number ?? record.pageNumber ?? pageable.pageNumber;
+    const sizeValue = record.size ?? pageable.pageSize;
+    const totalElementsValue = record.totalElements ?? record.total;
+    const totalPagesValue = record.totalPages;
+    const resolvedPage = typeof numberValue === 'number' && Number.isFinite(numberValue) ? Math.max(0, Math.floor(numberValue)) : safePage;
+    const resolvedSize = typeof sizeValue === 'number' && Number.isFinite(sizeValue) ? Math.max(1, Math.floor(sizeValue)) : safeSize;
+    const totalElements = typeof totalElementsValue === 'number' && Number.isFinite(totalElementsValue) ? Math.max(0, Math.floor(totalElementsValue)) : cities.length;
+    const totalPages = typeof totalPagesValue === 'number' && Number.isFinite(totalPagesValue)
+      ? Math.max(1, Math.floor(totalPagesValue))
+      : Math.max(1, cities.length < resolvedSize ? resolvedPage + 1 : resolvedPage + 2);
+    return {
+      cities,
+      page: resolvedPage,
+      size: resolvedSize,
+      totalElements,
+      totalPages,
+      first: typeof record.first === 'boolean' ? record.first : resolvedPage === 0,
+      last: typeof record.last === 'boolean' ? record.last : resolvedPage + 1 >= totalPages,
+    };
   }
 
   async getAllProfessionals(): Promise<ProfessionalDto[]> {
