@@ -235,13 +235,7 @@ export default function DashboardLayout({
   // Get filtered sidebar categories based on user role
   const sidebarCategories = getFilteredSidebarCategories(userRole, currentUser);
   
-  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
-    const initialState: Record<string, boolean> = {};
-    sidebarCategories.forEach(category => {
-      initialState[category.name] = true;
-    });
-    return initialState;
-  });
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
   
   // Check if user is a Field Officer and redirect them
   const isFieldOfficerUser = hasAnyRole(normalizedUserRole, authorityRoles, ['FIELD_OFFICER']);
