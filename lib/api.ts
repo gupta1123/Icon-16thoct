@@ -1117,7 +1117,24 @@ export interface TimelineDay {
   workSummary: string;
 }
 
+export interface ActivityProfessional {
+  id: number;
+  name: string;
+  contact: string;
+  role: string;
+  connectedToStore?: boolean | null;
+  storeIds?: number[];
+}
+
+export interface ActivityLinks {
+  storeIds: number[];
+  professionalIds: number[];
+}
+
 export interface ActivityDto {
+  storeIds?: number[];
+  professionalIds?: number[];
+  professionals?: ActivityProfessional[];
   id: number;
   title?: string;
   description?: string;
@@ -1184,6 +1201,7 @@ export interface CombinedTimelineResponse {
 }
 
 export interface CombinedTimelineParams {
+  signal?: AbortSignal;
   start: string;
   end: string;
   page?: number;
@@ -1309,6 +1327,47 @@ export class API {
   
   static async getCombinedTimeline(params: CombinedTimelineParams): Promise<CombinedTimelineResponse> {
     return apiService.getCombinedTimeline(params);
+  }
+
+  static searchActivityProfessionals(query: string, storeId?: number) {
+    const params = new URLSearchParams({ query });
+    if (storeId !== undefined) params.set('storeId', String(storeId));
+    return apiService.makeRequest<ActivityProfessional[]>(`/professionals/search?${params}`);
+  }
+
+  static getStoreProfessionals(storeId: number) {
+    return apiService.makeRequest<ActivityProfessional[]>(`/professionals/getByStore?storeId=${storeId}`);
+  }
+
+  static linkProfessionalToStore(professionalId: number, storeId: number) {
+    return apiService.makeRequest<string>(`/professionals/linkToStore?professionalId=${professionalId}&storeId=${storeId}`, {
+      method: 'PUT', allowTextResponse: true,
+    });
+  }
+
+  static getLinkedActivities(kind: 'store' | 'professional', id: number) {
+    const endpoint = kind === 'store' ? `getByStore?storeId=${id}` : `getByProfessional?professionalId=${id}`;
+    return apiService.makeRequest<ActivityDto[]>(`/activity/${endpoint}`);
+  }
+
+  static async createActivity(payload: ActivityLinks & { title: string; description: string; employeeId: number }) {
+    const response = await apiService.makeRequest<string | number>('/activity/create', {
+      method: 'POST', body: JSON.stringify(payload), allowTextResponse: true,
+    });
+    const id = Number(response);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+
+  static editActivityLinks(id: number, links: ActivityLinks) {
+    return apiService.makeRequest<string>(`/activity/edit?id=${id}`, {
+      method: 'PATCH', body: JSON.stringify(links), allowTextResponse: true,
+    });
+  }
+
+  static deleteActivity(id: number) {
+    return apiService.makeRequest<string>(`/activity/delete?id=${id}`, {
+      method: 'DELETE', allowTextResponse: true,
+    });
   }
 
   static async getActivityById(id: number): Promise<ActivityDto> {
@@ -1791,7 +1850,7 @@ export class API {
     }
     
     console.log('Combined Timeline URL:', `${this.baseUrl}${url}`);
-    return this.makeRequest<CombinedTimelineResponse>(url);
+    return this.makeRequest<CombinedTimelineResponse>(url, { signal: params.signal });
   }
 
   async getActivityById(id: number): Promise<ActivityDto> {

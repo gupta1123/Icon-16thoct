@@ -110,6 +110,12 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Function to determine page heading based on pathname
   const getPageHeading = () => {
+    if (pathname === "/dashboard/activities") {
+      return { heading: "Activities", subheading: "Browse employee activity records" };
+    }
+    if (pathname === "/dashboard/activities/new") {
+      return { heading: "Create Activity", subheading: "Record an activity and link stores and professionals" };
+    }
     // Check for detail pages with dynamic routes
     if (pathname.match(/^\/dashboard\/visits\/\d+/)) {
       return {

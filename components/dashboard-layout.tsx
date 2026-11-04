@@ -29,6 +29,7 @@ import {
   Target,
   MapPin
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
@@ -65,6 +66,7 @@ const allSidebarCategories = [
     name: "Sales",
     icon: Building,
     items: [
+      { name: "Activities", href: "/dashboard/activities", icon: ClipboardList },
       { name: "Visits", href: "/dashboard/visits", icon: Calendar },
       { name: "Assign Visits", href: "/dashboard/assign-visits", icon: MapPin },
       { name: "Requirements", href: "/dashboard/requirements", icon: ClipboardList },
@@ -96,6 +98,7 @@ const managerAllowedPages = [
   "/dashboard/customers",
   "/dashboard/dealer-survey",
   "/dashboard/complaints",
+  "/dashboard/activities",
   "/dashboard/visits",
   "/dashboard/assign-visits",
   "/dashboard/requirements",
@@ -115,6 +118,7 @@ const coordinatorAllowedPages = [
   "/dashboard/customers",
   "/dashboard/dealer-survey",
   "/dashboard/complaints",
+  "/dashboard/activities",
   "/dashboard/visits",
   "/dashboard/assign-visits",
   "/dashboard/requirements",
@@ -131,6 +135,7 @@ const dataManagerAllowedPages = [
   "/dashboard/customers",
   "/dashboard/dealer-survey",
   "/dashboard/complaints",
+  "/dashboard/activities",
   "/dashboard/visits",
   "/dashboard/assign-visits",
   "/dashboard/requirements",
@@ -382,18 +387,22 @@ export default function DashboardLayout({
       {/* Desktop sidebar - Gajkesari-style compact collapsible */}
       <div className="hidden border-r bg-background md:block sticky top-0 h-screen">
         <div className="flex h-full max-h-screen flex-col">
-          <div className={`flex h-14 items-center border-b ${sidebarCollapsed ? "justify-center px-2" : "justify-between px-2.5"}`}>
-            {!sidebarCollapsed && (
-              <Link href="/dashboard" className="flex min-w-0 items-center gap-2 font-semibold">
-                <Home className="h-4 w-4 shrink-0" />
-                <span className="truncate text-sm font-bold">Icon Steel</span>
-              </Link>
-            )}
+          <div className={`flex h-14 shrink-0 items-center border-b ${sidebarCollapsed ? "flex-col justify-center gap-0.5 px-2" : "justify-between gap-2 px-2.5"}`}>
+            <Link href="/dashboard" aria-label="Icon Steel dashboard" className="flex min-w-0 items-center rounded-sm">
+              <Image
+                src="/IconLogo.jpeg"
+                alt="Icon Steel"
+                width={1038}
+                height={438}
+                sizes={sidebarCollapsed ? "42px" : "112px"}
+                className={`h-auto rounded-sm object-contain ${sidebarCollapsed ? "w-[42px]" : "w-28 max-w-full"}`}
+              />
+            </Link>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className={`w-8 shrink-0 ${sidebarCollapsed ? "h-7" : "h-8"}`}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               onClick={() => {
