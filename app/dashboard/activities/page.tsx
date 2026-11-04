@@ -12,10 +12,16 @@ import { useActivityAccess } from "@/components/activity-links";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Filter = { start: string; end: string; scope: "all" | "store" | "professional"; id: string };
+type Filter = {
+  start: string;
+  end: string;
+  scope: "all" | "store" | "professional";
+  id: string;
+  employeeId: string;
+  status: "" | "COMPLETED" | "ONGOING";
+};
 
 const PAGE_SIZE = 10;
-const TIMELINE_BATCH_SIZE = 4;
 
 export default function ActivitiesPage() {
   const access = useActivityAccess();
@@ -26,6 +32,8 @@ export default function ActivitiesPage() {
       end: format(today, "yyyy-MM-dd"),
       scope: "all",
       id: "",
+      employeeId: "",
+      status: "",
     };
   });
   const [filter, setFilter] = useState(draft);
@@ -47,33 +55,17 @@ export default function ActivitiesPage() {
         return API.getLinkedActivities(filter.scope, Number(filter.id));
       }
 
-      const fetchPage = (page: number) => API.getCombinedTimeline({
-        start: filter.start, end: filter.end, page, size: 100, signal,
+      const activities = await API.getActivities({
+        start: filter.start,
+        end: filter.end,
+        employeeId: filter.employeeId ? Number(filter.employeeId) : undefined,
+        status: filter.status || undefined,
+        signal,
       });
-      const activities = new Map<number, ActivityDto>();
-      const addPage = (response: Awaited<ReturnType<typeof fetchPage>>) => {
-        for (const item of response.items) {
-          if (item.type !== "ACTIVITY") continue;
-          const id = item.activity?.id ?? item.id;
-          if (activities.has(id)) continue;
-          activities.set(id, {
-            ...item.activity,
-            id,
-            activityDate: item.activity?.activityDate ?? item.date ?? undefined,
-            employeeName: item.activity?.employeeName ?? item.employeeName ?? undefined,
-          });
-        }
-      };
-
-      const first = await fetchPage(0);
-      addPage(first);
-      for (let start = 1; start < first.totalPages && activities.size < first.totalActivities; start += TIMELINE_BATCH_SIZE) {
-        signal.throwIfAborted();
-        const count = Math.min(TIMELINE_BATCH_SIZE, first.totalPages - start);
-        const batch = await Promise.all(Array.from({ length: count }, (_, offset) => fetchPage(start + offset)));
-        batch.forEach(addPage);
-      }
-      return [...activities.values()];
+      return [...activities].sort((a, b) => {
+        const dateOrder = (b.activityDate ?? "").localeCompare(a.activityDate ?? "");
+        return dateOrder || (b.startTime ?? "").localeCompare(a.startTime ?? "") || b.id - a.id;
+      });
     }
 
     load().then(activities => {
@@ -81,8 +73,6 @@ export default function ActivitiesPage() {
     }).catch(error => {
       if (!signal.aborted) {
         setError(error instanceof Error ? error.message : "Could not load activities.");
-        controller.abort();
-        setLoading(false);
       }
     }).finally(() => {
       if (!signal.aborted) setLoading(false);
@@ -111,6 +101,14 @@ export default function ActivitiesPage() {
       {draft.scope === "all" ? <>
         <label className="text-sm">From<Input required type="date" max={draft.end} value={draft.start} onChange={e => setDraft({ ...draft, start: e.target.value })} /></label>
         <label className="text-sm">To<Input required type="date" min={draft.start} value={draft.end} onChange={e => setDraft({ ...draft, end: e.target.value })} /></label>
+        <label className="text-sm">Employee ID<Input type="number" min={1} step={1} placeholder="All employees" value={draft.employeeId} onChange={e => setDraft({ ...draft, employeeId: e.target.value })} /></label>
+        <label className="text-sm">Status
+          <select className="block h-9 rounded border bg-background px-2" value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value as Filter["status"] })}>
+            <option value="">All statuses</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="ONGOING">Ongoing</option>
+          </select>
+        </label>
       </> : <label className="text-sm">{draft.scope === "store" ? "Store ID" : "Professional ID"}<Input required type="number" min={1} step={1} value={draft.id} onChange={e => setDraft({ ...draft, id: e.target.value })} /></label>}
       <Button type="submit" variant="outline">Apply</Button>
     </form>

@@ -1345,6 +1345,19 @@ export class API {
     });
   }
 
+  static getActivities({ start, end, employeeId, status, signal }: {
+    start: string;
+    end: string;
+    employeeId?: number;
+    status?: 'COMPLETED' | 'ONGOING';
+    signal?: AbortSignal;
+  }) {
+    const params = new URLSearchParams({ start, end });
+    if (employeeId !== undefined) params.set('employeeId', String(employeeId));
+    if (status) params.set('status', status);
+    return apiService.makeRequest<ActivityDto[]>(`/activity/getAll?${params}`, { signal });
+  }
+
   static getLinkedActivities(kind: 'store' | 'professional', id: number) {
     const endpoint = kind === 'store' ? `getByStore?storeId=${id}` : `getByProfessional?professionalId=${id}`;
     return apiService.makeRequest<ActivityDto[]>(`/activity/${endpoint}`);
