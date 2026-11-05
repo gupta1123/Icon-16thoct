@@ -19,10 +19,11 @@ export function useActivityAccess() {
   };
 }
 
-export function ActivityLinksPicker({ value, onChange, professionals = [] }: {
+export function ActivityLinksPicker({ value, onChange, professionals = [], linkedStores = [] }: {
   value: ActivityLinks;
   onChange: (value: ActivityLinks) => void;
   professionals?: ActivityProfessional[];
+  linkedStores?: StoreDto[];
 }) {
   const [storeQuery, setStoreQuery] = useState("");
   const [professionalQuery, setProfessionalQuery] = useState("");
@@ -31,6 +32,7 @@ export function ActivityLinksPicker({ value, onChange, professionals = [] }: {
   const [storeContext, setStoreContext] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const storeOptions = [...stores, ...linkedStores];
   const context = value.storeIds.includes(storeContext ?? -1) ? storeContext : undefined;
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -54,7 +56,7 @@ export function ActivityLinksPicker({ value, onChange, professionals = [] }: {
             if (!page.content.length) setNotice("No matching stores.");
           })}>Search stores</Button>
         </div>
-        {value.storeIds.map(id => <Button key={id} type="button" variant="secondary" className="mr-2" onClick={() => toggle("storeIds", id)}>Remove {stores.find(store => store.storeId === id)?.storeName ?? `store #${id}`}</Button>)}
+        {value.storeIds.map(id => <Button key={id} type="button" variant="secondary" className="mr-2" onClick={() => toggle("storeIds", id)}>Remove {storeOptions.find(store => store.storeId === id)?.storeName ?? `store #${id}`}</Button>)}
         <div className="max-h-44 space-y-1 overflow-auto">
           {stores.filter(store => !value.storeIds.includes(store.storeId)).map(store => (
             <Button key={store.storeId} type="button" variant="ghost" onClick={() => toggle("storeIds", store.storeId)}>Add {store.storeName} (#{store.storeId})</Button>
@@ -65,7 +67,7 @@ export function ActivityLinksPicker({ value, onChange, professionals = [] }: {
         <legend className="font-medium">Professionals</legend>
         <select aria-label="Store context for professionals" className="rounded border bg-background p-2" value={context ?? ""} onChange={e => { setStoreContext(Number(e.target.value) || undefined); setResults([]); }}>
           <option value="">All stores</option>
-          {value.storeIds.map(id => <option key={id} value={id}>{stores.find(store => store.storeId === id)?.storeName ?? `Store #${id}`}</option>)}
+          {value.storeIds.map(id => <option key={id} value={id}>{storeOptions.find(store => store.storeId === id)?.storeName ?? `Store #${id}`}</option>)}
         </select>
         {context !== undefined && <Button className="ml-2" type="button" variant="outline" onClick={() => void run(async () => {
           const rows = await API.getStoreProfessionals(context);
