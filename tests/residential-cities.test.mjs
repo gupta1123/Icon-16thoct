@@ -61,7 +61,7 @@ test('residential states preserve API IDs and all returned states', async t => {
   assert.equal(options.signal, controller.signal);
 });
 
-test('residential cities are scoped by state ID, use only city records, and deduplicate names', async t => {
+test('residential places include district-only names such as Mumbai and stay scoped to the selected state', async t => {
   t.mock.method(console, 'log', () => {});
   const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([
     { id: 370, districtName: 'Mumbai', stateId: 21, cities: [
@@ -72,7 +72,7 @@ test('residential cities are scoped by state ID, use only city records, and dedu
     { id: 372, districtName: 'Thane', stateId: 21, cities: [] },
   ]), { headers: { 'Content-Type': 'application/json' } }));
   const controller = new AbortController();
-  assert.deepEqual(await API.getResidentialCitiesByState(21, controller.signal), ['Andheri', 'Juhu', 'Pune']);
+  assert.deepEqual(await API.getResidentialCitiesByState(21, controller.signal), ['Andheri', 'Juhu', 'Mumbai', 'Pune', 'Thane']);
   const [url, options] = fetch.mock.calls[0].arguments;
   assert.equal(new URL(url).pathname + new URL(url).search, '/location/districts?stateId=21');
   assert.equal(options.signal, controller.signal);

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { API, type StateDto } from '@/lib/api';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select2';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Props {
   state: string;
@@ -81,19 +80,29 @@ export function EmployeeStateCityFields({ state: stateProp, city, onChange, stat
     <>
       <div className="space-y-2">
         <Label htmlFor="employee-state">State<span className="text-red-500"> *</span></Label>
-        <Select value={selectedState || undefined} onValueChange={value => {
-          if (!value || value.toLowerCase() === stateProp.toLowerCase()) return;
-          setCityResult(null);
-          setCitiesError(false);
-          setUnavailableCity('');
-          onChange('state', value);
-          onChange('city', '');
-        }}>
-          <SelectTrigger id="employee-state" className="h-9 bg-background" aria-invalid={Boolean(stateError)}>
-            <SelectValue placeholder={statesLoading ? 'Loading states...' : 'Select state'} />
-          </SelectTrigger>
-          <SelectContent>{stateOptions.map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent>
-        </Select>
+        <SearchableSelect triggerId="employee-state"
+          options={stateOptions.map(name => ({ value: name, label: name }))}
+          value={selectedState || undefined}
+          onSelect={option => {
+            const value = option?.value;
+            if (!value || value.toLowerCase() === stateProp.toLowerCase()) return;
+            setCityResult(null);
+            setCitiesError(false);
+            setUnavailableCity('');
+            onChange('state', value);
+            onChange('city', '');
+          }}
+          placeholder="Select state"
+          searchPlaceholder="Search states"
+          noResultsMessage="No matching state"
+          emptyMessage={statesError ? 'Could not load states' : 'No states available'}
+          disabled={statesLoading}
+          loading={statesLoading}
+          loadingMessage="Loading states..."
+          required
+          triggerClassName="h-9 w-full min-w-0 bg-background"
+          contentClassName="w-[var(--radix-popover-trigger-width)]"
+        />
         {stateError && <span className="text-xs text-destructive">{stateError}</span>}
         {statesError && <span className="text-xs text-destructive">Could not load the state list. Reload the page to retry.</span>}
       </div>
@@ -112,7 +121,9 @@ export function EmployeeStateCityFields({ state: stateProp, city, onChange, stat
           loading={citiesLoading}
           loadingMessage="Loading cities..."
           pageSize={100}
-          triggerClassName="h-9 bg-background"
+          required
+          triggerClassName="h-9 w-full min-w-0 bg-background"
+          contentClassName="w-[var(--radix-popover-trigger-width)]"
         />
         {citiesError && <span role="alert" className="text-xs text-destructive">Could not load residential cities. <button type="button" className="underline" onClick={() => setCityRetry(value => value + 1)}>Retry</button></span>}
         {unavailableCity && <span className="text-xs text-muted-foreground">{unavailableCity} is not in this state's city list. Select a city from the available options.</span>}

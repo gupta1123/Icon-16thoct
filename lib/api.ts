@@ -1745,9 +1745,16 @@ export class API {
       { signal },
     );
     const names = new Map<string, string>();
+    const addName = (value?: string) => {
+      const name = value?.trim();
+      if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+    };
     for (const district of districts) {
       signal?.throwIfAborted();
       if (district.stateId !== stateId) continue;
+      // Main residential place names such as Mumbai and Pune exist only as
+      // district names in this master, so include them within the same state.
+      addName(district.districtName);
       // The district response already embeds city master records. Traverse the
       // remaining hierarchy only when the backend omits this embedded list.
       let cities = district.cities;
@@ -1766,8 +1773,7 @@ export class API {
         }
       }
       for (const city of cities) {
-        const name = city.cityName?.trim();
-        if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+        addName(city.cityName);
       }
     }
     return [...names.values()].sort((a, b) => a.localeCompare(b));
