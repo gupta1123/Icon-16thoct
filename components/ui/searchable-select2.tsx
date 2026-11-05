@@ -17,6 +17,7 @@ export type SearchableOption<T = unknown> = {
 
 interface SearchableSelectProps<T = unknown> {
   triggerId?: string;
+  pageSize?: number;
   options: SearchableOption<T>[];
   value?: string;
   onSelect: (option: SearchableOption<T> | null) => void;
@@ -38,6 +39,7 @@ interface SearchableSelectProps<T = unknown> {
 
 export function SearchableSelect<T = unknown>({
   triggerId,
+  pageSize,
   options,
   value,
   onSelect,
@@ -57,6 +59,8 @@ export function SearchableSelect<T = unknown>({
 }: SearchableSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [query, options, open]);
 
   useEffect(() => {
     if (!open) {
@@ -69,6 +73,11 @@ export function SearchableSelect<T = unknown>({
     const search = query.toLowerCase();
     return options.filter((option) => option.label.toLowerCase().includes(search));
   }, [options, query]);
+
+  const size = pageSize ? Math.max(1, pageSize) : Math.max(1, filteredOptions.length);
+  const totalPages = Math.max(1, Math.ceil(filteredOptions.length / size));
+  const currentPage = Math.min(page, totalPages - 1);
+  const visibleOptions = filteredOptions.slice(currentPage * size, (currentPage + 1) * size);
 
   const selectedOption = value ? options.find((option) => option.value === value) : undefined;
 
@@ -96,7 +105,7 @@ export function SearchableSelect<T = unknown>({
   const hasOptions = options.length > 0;
   const optionListHeight = filteredOptions.length === 0
     ? 72
-    : Math.min(filteredOptions.length * 36, 256);
+    : Math.min(visibleOptions.length * 36, 256);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange} modal={modal}>
@@ -154,7 +163,7 @@ export function SearchableSelect<T = unknown>({
                 <div className="py-6 text-center text-sm text-muted-foreground">{noResultsMessage}</div>
               ) : (
                 <div className="space-y-1">
-                  {filteredOptions.map((option) => {
+                  {visibleOptions.map((option) => {
                     const isSelected = option.value === value;
                     return (
                       <button
@@ -177,6 +186,13 @@ export function SearchableSelect<T = unknown>({
                 </div>
               )}
             </ScrollArea>
+            {pageSize && totalPages > 1 && (
+              <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-xs text-muted-foreground">
+                <Button type="button" variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+                <span>Page {currentPage + 1} of {totalPages}</span>
+                <Button type="button" variant="outline" size="sm" disabled={currentPage + 1 >= totalPages} onClick={() => setPage(currentPage + 1)}>Next</Button>
+              </div>
+            )}
           </>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div>

@@ -1147,6 +1147,29 @@ export interface SiteConversion {
   approvedTime?: string | null;
 }
 
+export interface SiteConversionHistoryPage {
+  content: SiteConversion[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  last: boolean;
+}
+
+export interface SiteConversionHistoryFilters {
+  startDate: string;
+  endDate: string;
+  status?: SiteConversion['status'];
+  employeeId?: number;
+  employeeIds?: number[];
+  brand?: string;
+  dealerName?: string;
+  siteName?: string;
+  number?: string;
+  page?: number;
+  size?: number;
+  signal?: AbortSignal;
+}
+
 export interface ActivityProfessional {
   id: number;
   name: string;
@@ -1257,6 +1280,7 @@ export interface StateDto {
 }
 
 export interface DistrictDto {
+  cities?: CityDto[];
   id: number;
   districtName: string;
   stateId: number;
@@ -1373,6 +1397,34 @@ export class API {
 
   static getPendingSiteConversions(signal?: AbortSignal) {
     return apiService.makeRequest<SiteConversion[]>('/site-conversions/pending', { signal });
+  }
+
+  static getSiteConversionHistory({ signal, employeeIds, ...filters }: SiteConversionHistoryFilters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    });
+    employeeIds?.forEach(id => params.append('employeeIds', String(id)));
+    return apiService.makeRequest<SiteConversionHistoryPage>(`/site-conversions/history?${params}`, { signal });
+  }
+
+  static async getReviewedSiteConversions(filters: Pick<SiteConversionHistoryFilters, 'startDate' | 'endDate' | 'signal'>) {
+    // History also includes pending conversions by default and accepts only one status.
+    // Read every page for both reviewed statuses before applying table pagination.
+    const groups = await Promise.all((['APPROVED', 'REJECTED'] as const).map(async status => {
+      const rows: SiteConversion[] = [];
+      for (let page = 0; ; page++) {
+        filters.signal?.throwIfAborted();
+        const result = await API.getSiteConversionHistory({ ...filters, status, page, size: 50 });
+        rows.push(...result.content.filter(row => row.status === status));
+        if (result.last || page + 1 >= result.totalPages) return rows;
+      }
+    }));
+    const unique = new Map(groups.flat().map(row => [row.id, row]));
+    return [...unique.values()].sort((a, b) => {
+      const reviewedAt = (row: SiteConversion) => `${row.approvedAt ?? row.submittedAt ?? ''}T${row.approvedTime ?? row.submittedTime ?? ''}`;
+      return reviewedAt(b).localeCompare(reviewedAt(a)) || b.id - a.id;
+    });
   }
 
   static approveSiteConversion(id: number, approvedSteelMt: number) {
@@ -1681,6 +1733,24 @@ export class API {
 
   static async getAllCities(): Promise<CityDto[]> {
     return apiService.getAllCities();
+  }
+
+  static async getResidentialCitiesByState(stateName: string, signal?: AbortSignal): Promise<string[]> {
+    const districts = await apiService.makeRequest<DistrictDto[]>(
+      `/location/districts?stateName=${encodeURIComponent(stateName.trim())}`,
+      { signal },
+    );
+    const names = new Map<string, string>();
+    for (const district of districts) {
+      if (district.stateName?.trim().toLowerCase() !== stateName.trim().toLowerCase()) continue;
+      // Include the district name because its main city may be absent from the embedded locality list.
+      const localities = [district.districtName, ...(district.cities ?? []).map(city => city.cityName)];
+      for (const locality of localities) {
+        const name = locality?.trim();
+        if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+      }
+    }
+    return [...names.values()].sort((a, b) => a.localeCompare(b));
   }
 
   static async getResidentialCitiesPage(page: number = 0, size: number = 100): Promise<ResidentialCityPage> {

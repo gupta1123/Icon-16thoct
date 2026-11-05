@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConversionEmployeeReport } from "@/components/conversion-employee-report";
+import { ConversionHistory } from "@/components/conversion-history";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, RefreshCw, Search, ShieldCheck } from "lucide-react";
@@ -104,6 +105,7 @@ export default function ConversionReviewPage() {
     <Tabs defaultValue="pending">
       <TabsList>
         <TabsTrigger value="pending">Pending</TabsTrigger>
+        <TabsTrigger value="history">History</TabsTrigger>
         <TabsTrigger value="employees">By employee</TabsTrigger>
       </TabsList>
       <TabsContent value="pending">
@@ -152,6 +154,7 @@ export default function ConversionReviewPage() {
     </Section>
 
       </TabsContent>
+      <TabsContent value="history"><ConversionHistory /></TabsContent>
       <TabsContent value="employees"><ConversionEmployeeReport /></TabsContent>
     </Tabs>
 
