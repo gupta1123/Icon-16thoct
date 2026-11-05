@@ -1,19 +1,11 @@
+import type { TaskCreatePayload } from "./task-create";
+
 import { API_BASE_URL } from "@/lib/api";
 
 export const MAX_REQUIREMENT_IMAGES = 5;
 export const MAX_REQUIREMENT_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
-export interface RequirementCreatePayload {
-  taskTitle: string;
-  taskDesciption: string;
-  dueDate: string;
-  assignedToId: number;
-  assignedById: number;
-  storeId: number;
-  taskType: "requirement";
-  status: string;
-  priority: string;
-}
+export type RequirementCreatePayload = TaskCreatePayload & { taskType: "requirement" };
 
 export class RequirementPhotoUploadError extends Error {
   taskId: number;

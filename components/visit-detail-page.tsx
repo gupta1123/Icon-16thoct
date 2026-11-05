@@ -1,5 +1,6 @@
 "use client";
 
+import { buildTaskCreatePayload } from "@/lib/task-create";
 import { SidePanel, SidePanelContent, SidePanelDescription, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -1507,7 +1508,7 @@ export default function VisitDetailPage({
     }
   };
 
-  const createTask = async (taskType: string) => {
+  const createTask = async (taskType: "requirement" | "complaint") => {
     if (isTaskSaving) return;
     setIsTaskSaving(true);
     setTaskCreateError(null);
@@ -1524,20 +1525,14 @@ export default function VisitDetailPage({
         return;
       }
 
-      // Resolve ids and format due date
-      const localEmpIdRaw = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
-      const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw, 10) : NaN;
-      const assignedById = !Number.isNaN(localEmpId)
-        ? localEmpId
-        : (typeof userData?.employeeId === 'number' && userData.employeeId
-          ? userData.employeeId
-          : (visitDetail?.employeeId ?? currentTask.assignedById));
-      const due = currentTask.dueDate.includes('T') ? currentTask.dueDate.split('T')[0] : currentTask.dueDate;
+      const assignedById = userData?.employeeId;
+      if (!assignedById) throw new Error('Unable to identify the logged-in employee. Please sign in again.');
 
       // Build API payload per backend spec
-      const apiPayload: Record<string, unknown> = {
+      const apiPayload = buildTaskCreatePayload({
+        taskTitle: currentTask.taskTitle,
         taskDesciption: currentTask.taskDesciption?.trim() || '',
-        dueDate: due,
+        dueDate: currentTask.dueDate,
         assignedToId: Number(visitDetail?.employeeId ?? currentTask.assignedToId ?? 0),
         assignedById: Number(assignedById),
         storeId: Number(visitDetail?.storeId ?? currentTask.storeId ?? 0),
@@ -1545,10 +1540,7 @@ export default function VisitDetailPage({
         status: currentTask.status || 'Assigned',
         priority: currentTask.priority,
         visitId: Number(visitId),
-      };
-      if (currentTask.taskTitle?.trim()) {
-        apiPayload.taskTitle = currentTask.taskTitle.trim();
-      }
+      });
 
       const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
         method: 'POST',

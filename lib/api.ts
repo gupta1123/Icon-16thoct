@@ -1117,6 +1117,36 @@ export interface TimelineDay {
   workSummary: string;
 }
 
+export interface SiteConversionSales {
+  employeeId: number;
+  employeeName: string;
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  totalRequestedSteelMt: number;
+  totalApprovedSteelMt: number;
+}
+
+export interface SiteConversion {
+  id: number;
+  siteName: string;
+  number: string;
+  dealerName: string;
+  requestedSteelMt: number;
+  approvedSteelMt?: number | null;
+  convertedBrand: string;
+  employeeId: number;
+  employeeName: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  approvalReason?: string | null;
+  approvedById?: number | null;
+  approvedByName?: string | null;
+  submittedAt?: string | null;
+  submittedTime?: string | null;
+  approvedAt?: string | null;
+  approvedTime?: string | null;
+}
+
 export interface ActivityProfessional {
   id: number;
   name: string;
@@ -1327,6 +1357,36 @@ export class API {
   
   static async getCombinedTimeline(params: CombinedTimelineParams): Promise<CombinedTimelineResponse> {
     return apiService.getCombinedTimeline(params);
+  }
+
+  static getSiteConversionSales({ startDate, endDate, status, employeeId, signal }: {
+    startDate: string;
+    endDate: string;
+    status: 'APPROVED' | 'REJECTED';
+    employeeId?: number;
+    signal?: AbortSignal;
+  }) {
+    const params = new URLSearchParams({ startDate, endDate, status });
+    if (employeeId !== undefined) params.set('employeeId', String(employeeId));
+    return apiService.makeRequest<SiteConversionSales[]>(`/site-conversions/sales?${params}`, { signal });
+  }
+
+  static getPendingSiteConversions(signal?: AbortSignal) {
+    return apiService.makeRequest<SiteConversion[]>('/site-conversions/pending', { signal });
+  }
+
+  static approveSiteConversion(id: number, approvedSteelMt: number) {
+    return apiService.makeRequest<Partial<SiteConversion> & Pick<SiteConversion, 'id' | 'status'>>(
+      `/site-conversions/${id}/approve`,
+      { method: 'PATCH', body: JSON.stringify({ approvedSteelMt, reason: 'Approved' }) },
+    );
+  }
+
+  static rejectSiteConversion(id: number, reason: string) {
+    return apiService.makeRequest<Partial<SiteConversion> & Pick<SiteConversion, 'id' | 'status'>>(
+      `/site-conversions/${id}/reject`,
+      { method: 'PATCH', body: JSON.stringify({ reason }) },
+    );
   }
 
   static searchActivityProfessionals(query: string, storeId?: number) {

@@ -1,5 +1,6 @@
 'use client';
 
+import { buildTaskCreatePayload } from "@/lib/task-create";
 import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
@@ -32,7 +33,6 @@ import {
     createRequirementWithPhotos,
     loadTaskImageUrls,
     revokeTaskImageUrls,
-    type RequirementCreatePayload,
 } from "@/lib/requirements";
 
 interface Task {
@@ -585,26 +585,20 @@ const Requirements = () => {
 
         setIsCreating(true);
         try {
-            // Resolve assignedById robustly (localStorage -> userData -> fallback)
-            const localEmpIdRaw = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
-            const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw, 10) : NaN;
-            const assignedById = !Number.isNaN(localEmpId)
-                ? localEmpId
-                : (typeof userData?.employeeId === 'number' && userData.employeeId ? userData.employeeId : (newTask.assignedToId || newTask.assignedById));
+            const assignedById = userData?.employeeId;
+            if (!assignedById) throw new Error('Unable to identify the logged-in employee. Please sign in again.');
 
-            const due = newTask.dueDate.includes('T') ? newTask.dueDate.split('T')[0] : newTask.dueDate;
-
-            const apiPayload: RequirementCreatePayload = {
+            const apiPayload = buildTaskCreatePayload({
                 taskTitle: newTask.taskTitle?.trim() || '',
                 taskDesciption: newTask.taskDescription?.trim() || '',
-                dueDate: due,
+                dueDate: newTask.dueDate,
                 assignedToId: Number(newTask.assignedToId),
                 assignedById: Number(assignedById),
                 storeId: Number(newTask.storeId),
                 taskType: 'requirement',
                 status: newTask.status || 'Assigned',
                 priority: newTask.priority,
-            };
+            });
 
             await createRequirementWithPhotos({
                 token,

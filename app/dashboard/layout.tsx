@@ -110,6 +110,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Function to determine page heading based on pathname
   const getPageHeading = () => {
+    if (pathname === "/dashboard/conversion-review") {
+      return { heading: "Conversion review", subheading: "Review pending site conversions" };
+    }
     if (pathname === "/dashboard/activities") {
       return { heading: "Activities", subheading: "Browse employee activity records" };
     }

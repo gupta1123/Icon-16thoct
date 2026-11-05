@@ -86,6 +86,7 @@ const allSidebarCategories = [
     name: "Reports",
     icon: TrendingUp,
     items: [
+      { name: "Conversion review", href: "/dashboard/conversion-review", icon: CheckCircle },
       { name: "Approvals", href: "/dashboard/approvals", icon: FileText },
       { name: "Reports", href: "/dashboard/reports", icon: BarChart },
       { name: "Documents", href: "/dashboard/documents", icon: FileText },
@@ -210,7 +211,11 @@ const getFilteredSidebarCategories = (
   }
   
   // For admin and other roles, show all categories
-  return allSidebarCategories;
+  const isAdmin = hasAnyRole(normalizedRole, authorityRoles, ["ADMIN"]);
+  return allSidebarCategories.map(category => ({
+    ...category,
+    items: category.items.filter(item => item.href !== "/dashboard/conversion-review" || isAdmin),
+  }));
 };
 
 export default function DashboardLayout({ 

@@ -1,5 +1,6 @@
 'use client';
 
+import { buildTaskCreatePayload } from "@/lib/task-create";
 import { SidePanel, SidePanelContent, SidePanelHeader, SidePanelTitle } from "@/components/ui/side-panel";
 import { pageWindow } from "@/lib/page-window";
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
@@ -564,25 +565,20 @@ const Complaints = () => {
 
         setIsCreating(true);
         try {
-            // Resolve assignedById robustly
-            const localEmpIdRaw = typeof window !== 'undefined' ? localStorage.getItem('employeeId') : null;
-            const localEmpId = localEmpIdRaw ? parseInt(localEmpIdRaw, 10) : NaN;
-            const assignedById = !Number.isNaN(localEmpId)
-                ? localEmpId
-                : (typeof userData?.employeeId === 'number' && userData.employeeId ? userData.employeeId
-                    : (newTask.assignedToId || newTask.assignedById));
-            const due = newTask.dueDate.includes('T') ? newTask.dueDate.split('T')[0] : newTask.dueDate;
+            const assignedById = userData?.employeeId;
+            if (!assignedById) throw new Error('Unable to identify the logged-in employee. Please sign in again.');
 
-            const apiPayload = {
+            const apiPayload = buildTaskCreatePayload({
+                taskTitle: newTask.taskTitle,
                 taskDesciption: newTask.taskDescription?.trim() || '',
-                dueDate: due,
+                dueDate: newTask.dueDate,
                 assignedToId: Number(newTask.assignedToId),
                 assignedById: Number(assignedById),
                 storeId: Number(newTask.storeId),
                 taskType: 'complaint',
                 status: newTask.status || 'Assigned',
                 priority: newTask.priority,
-            };
+            });
 
             const response = await fetch('https://app-iconsteel-eadwdthkg5ffh7gq.centralindia-01.azurewebsites.net/task/create', {
                 method: 'POST',
@@ -625,7 +621,7 @@ const Complaints = () => {
             setIsModalOpen(false);
         } catch (error) {
             console.error('Error creating task:', error);
-            setErrorMessage('Unexpected error while creating complaint');
+            setErrorMessage(error instanceof Error ? error.message : 'Unexpected error while creating complaint');
         } finally {
             setIsCreating(false);
         }

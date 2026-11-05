@@ -1,5 +1,6 @@
 "use client";
 
+import { buildTaskCreatePayload } from "@/lib/task-create";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -863,13 +864,17 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({
-                    ...complaintTask,
-                    dueDate: complaintTask.dueDate.split('T')[0],
-                    storeId: complaintTask.storeId,
-                    assignedById,
-                    taskType: 'complaint'
-                }),
+                body: JSON.stringify(buildTaskCreatePayload({
+                    taskTitle: complaintTask.taskTitle,
+                    taskDesciption: complaintTask.taskDesciption,
+                    dueDate: complaintTask.dueDate,
+                    assignedToId: Number(complaintTask.assignedToId),
+                    storeId: Number(complaintTask.storeId),
+                    assignedById: Number(assignedById),
+                    taskType: 'complaint',
+                    status: complaintTask.status,
+                    priority: complaintTask.priority,
+                })),
             });
 
             if (response.ok) {
@@ -903,13 +908,17 @@ export default function CustomerDetailPage({ customer }: { customer?: Record<str
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({
-                    ...requirementTask,
-                    dueDate: requirementTask.dueDate.split('T')[0],
-                    storeId: requirementTask.storeId,
-                    assignedById,
-                    taskType: 'requirement'
-                }),
+                body: JSON.stringify(buildTaskCreatePayload({
+                    taskTitle: requirementTask.taskTitle,
+                    taskDesciption: requirementTask.taskDesciption,
+                    dueDate: requirementTask.dueDate,
+                    assignedToId: Number(requirementTask.assignedToId),
+                    storeId: Number(requirementTask.storeId),
+                    assignedById: Number(assignedById),
+                    taskType: 'requirement',
+                    status: requirementTask.status,
+                    priority: requirementTask.priority,
+                })),
             });
 
             if (response.ok) {
