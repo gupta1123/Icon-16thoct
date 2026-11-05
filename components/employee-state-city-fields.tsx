@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { API } from '@/lib/api';
+import { API, type StateDto } from '@/lib/api';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select2';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,59 +16,66 @@ interface Props {
 
 /** Residential location fields shared by employee creation and editing. */
 export function EmployeeStateCityFields({ state: stateProp, city, onChange, stateError, cityError }: Props) {
-  const [states, setStates] = useState<string[]>([]);
+  const [states, setStates] = useState<StateDto[]>([]);
   const [statesLoading, setStatesLoading] = useState(true);
   const [statesError, setStatesError] = useState(false);
-  const [cityResult, setCityResult] = useState<{ state: string; cities: string[] } | null>(null);
+  const [cityResult, setCityResult] = useState<{ stateId: number; cities: string[] } | null>(null);
   const [citiesLoading, setCitiesLoading] = useState(false);
   const [citiesError, setCitiesError] = useState(false);
   const [cityRetry, setCityRetry] = useState(0);
+  const [unavailableCity, setUnavailableCity] = useState('');
 
   useEffect(() => {
-    let active = true;
-    API.getAllStates()
+    const controller = new AbortController();
+    API.getResidentialStates(controller.signal)
       .then(result => {
-        if (!active) return;
-        setStates(result.map(item => item.stateName?.trim()).filter((name): name is string => Boolean(name)));
+        if (controller.signal.aborted) return;
+        setStates(result.filter(item => item.stateName?.trim()).map(item => ({ ...item, stateName: item.stateName.trim() })));
         setStatesError(false);
       })
-      .catch(() => { if (active) setStatesError(true); })
-      .finally(() => { if (active) setStatesLoading(false); });
-    return () => { active = false; };
+      .catch(() => { if (!controller.signal.aborted) setStatesError(true); })
+      .finally(() => { if (!controller.signal.aborted) setStatesLoading(false); });
+    return () => controller.abort();
   }, []);
 
   const stateOptions = useMemo(() => {
-    const names = [...new Set(states)];
+    const names = [...new Set(states.map(item => item.stateName))];
     return stateProp && !names.some(name => name.toLowerCase() === stateProp.toLowerCase()) ? [stateProp, ...names] : names;
   }, [states, stateProp]);
   const selectedState = stateOptions.find(name => name.toLowerCase() === stateProp.toLowerCase()) ?? stateProp;
   const queryState = selectedState.trim().toUpperCase() === 'MP' ? 'Madhya Pradesh' : selectedState.trim();
+  const stateId = states.find(item => item.stateName.toLowerCase() === queryState.toLowerCase())?.id;
 
   useEffect(() => {
     const controller = new AbortController();
     setCityResult(null);
     setCitiesError(false);
-    if (!queryState) {
+    if (stateId === undefined) {
       setCitiesLoading(false);
       return () => controller.abort();
     }
     setCitiesLoading(true);
-    API.getResidentialCitiesByState(queryState, controller.signal)
+    API.getResidentialCitiesByState(stateId, controller.signal)
       .then(cities => {
-        if (!controller.signal.aborted) setCityResult({ state: queryState, cities });
+        if (!controller.signal.aborted) setCityResult({ stateId, cities });
       })
       .catch(() => { if (!controller.signal.aborted) setCitiesError(true); })
       .finally(() => { if (!controller.signal.aborted) setCitiesLoading(false); });
     return () => controller.abort();
-  }, [queryState, cityRetry]);
+  }, [stateId, cityRetry]);
 
-  const citiesReady = cityResult?.state === queryState;
+  const citiesReady = stateId !== undefined && cityResult?.stateId === stateId;
   const cityOptions = useMemo(() => {
-    const names = cityResult?.state === queryState ? cityResult.cities : [];
-    // Preserve the saved residential value when editing older employee records.
-    return city && !names.some(name => name.toLowerCase() === city.toLowerCase()) ? [city, ...names] : names;
-  }, [cityResult, queryState, city]);
+    return stateId !== undefined && cityResult?.stateId === stateId ? cityResult.cities : [];
+  }, [cityResult, stateId]);
   const selectedCity = cityOptions.find(name => name.toLowerCase() === city.toLowerCase()) ?? city;
+
+  useEffect(() => {
+    if (citiesReady && city && !cityOptions.some(name => name.toLowerCase() === city.trim().toLowerCase())) {
+      setUnavailableCity(city);
+      onChange('city', '');
+    }
+  }, [citiesReady, city, cityOptions, onChange]);
 
   return (
     <>
@@ -78,6 +85,7 @@ export function EmployeeStateCityFields({ state: stateProp, city, onChange, stat
           if (!value || value.toLowerCase() === stateProp.toLowerCase()) return;
           setCityResult(null);
           setCitiesError(false);
+          setUnavailableCity('');
           onChange('state', value);
           onChange('city', '');
         }}>
@@ -95,18 +103,19 @@ export function EmployeeStateCityFields({ state: stateProp, city, onChange, stat
           triggerId="employee-city"
           options={cityOptions.map(name => ({ value: name, label: name }))}
           value={selectedCity || undefined}
-          onSelect={option => onChange('city', option?.value ?? '')}
+          onSelect={option => { setUnavailableCity(''); onChange('city', option?.value ?? ''); }}
           placeholder={queryState ? 'Select residential city' : 'Select state first'}
           searchPlaceholder="Search cities"
           noResultsMessage="No matching city"
           emptyMessage={citiesError ? 'Could not load cities' : 'No cities found for this state'}
-          disabled={!queryState || (!citiesReady && !citiesError)}
+          disabled={stateId === undefined || (!citiesReady && !citiesError)}
           loading={citiesLoading}
           loadingMessage="Loading cities..."
           pageSize={100}
           triggerClassName="h-9 bg-background"
         />
         {citiesError && <span role="alert" className="text-xs text-destructive">Could not load residential cities. <button type="button" className="underline" onClick={() => setCityRetry(value => value + 1)}>Retry</button></span>}
+        {unavailableCity && <span className="text-xs text-muted-foreground">{unavailableCity} is not in this state's city list. Select a city from the available options.</span>}
         {cityError && <span className="text-xs text-destructive">{cityError}</span>}
       </div>
     </>

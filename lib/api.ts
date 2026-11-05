@@ -1715,6 +1715,10 @@ export class API {
     return apiService.getAllStates();
   }
 
+  static getResidentialStates(signal?: AbortSignal): Promise<StateDto[]> {
+    return apiService.makeRequest<StateDto[]>('/location/states', { signal });
+  }
+
   static async getDistrictsByStateId(stateId: number): Promise<DistrictDto[]> {
     return apiService.getDistrictsByStateId(stateId);
   }
@@ -1735,18 +1739,34 @@ export class API {
     return apiService.getAllCities();
   }
 
-  static async getResidentialCitiesByState(stateName: string, signal?: AbortSignal): Promise<string[]> {
+  static async getResidentialCitiesByState(stateId: number, signal?: AbortSignal): Promise<string[]> {
     const districts = await apiService.makeRequest<DistrictDto[]>(
-      `/location/districts?stateName=${encodeURIComponent(stateName.trim())}`,
+      `/location/districts?stateId=${stateId}`,
       { signal },
     );
     const names = new Map<string, string>();
     for (const district of districts) {
-      if (district.stateName?.trim().toLowerCase() !== stateName.trim().toLowerCase()) continue;
-      // Include the district name because its main city may be absent from the embedded locality list.
-      const localities = [district.districtName, ...(district.cities ?? []).map(city => city.cityName)];
-      for (const locality of localities) {
-        const name = locality?.trim();
+      signal?.throwIfAborted();
+      if (district.stateId !== stateId) continue;
+      // The district response already embeds city master records. Traverse the
+      // remaining hierarchy only when the backend omits this embedded list.
+      let cities = district.cities;
+      if (!Array.isArray(cities)) {
+        cities = [];
+        const subDistricts = await apiService.makeRequest<SubDistrictDto[]>(
+          `/location/subDistricts?districtId=${district.id}`, { signal },
+        );
+        for (const subDistrict of subDistricts) {
+          signal?.throwIfAborted();
+          if (subDistrict.districtId !== district.id) continue;
+          const localCities = await apiService.makeRequest<CityDto[]>(
+            `/location/cities?subDistrictId=${subDistrict.id}`, { signal },
+          );
+          cities.push(...localCities.filter(city => city.subDistrictId === subDistrict.id));
+        }
+      }
+      for (const city of cities) {
+        const name = city.cityName?.trim();
         if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
       }
     }
