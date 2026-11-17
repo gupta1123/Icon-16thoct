@@ -1954,10 +1954,15 @@ export class API {
   }
 
   async getVisitsByDateSorted(startDate: string, endDate: string, page: number = 0, size: number = 10, sort: string = 'visitDate,desc', storeName?: string): Promise<VisitResponse> {
-    let url = `/visit/getByDateSorted?startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}&sort=${sort}`;
-    if (storeName && storeName.trim() !== '') {
-      url += `&storeName=${encodeURIComponent(storeName.trim())}`;
+    const params = new URLSearchParams({ startDate, endDate, page: String(page), size: String(size), sort });
+    // Visits with the same date need a stable order across API pages.
+    if (sort.split(',')[0] !== 'id') {
+      params.append('sort', 'id,desc');
     }
+    if (storeName?.trim()) {
+      params.set('storeName', storeName.trim());
+    }
+    const url = `/visit/getByDateSorted?${params}`;
     console.log('API URL:', `${this.baseUrl}${url}`);
     return this.makeRequest<VisitResponse>(url);
   }
